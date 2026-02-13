@@ -97,6 +97,8 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
   const [showBrainstormReview, setShowBrainstormReview] = useState(false);
   const [pendingBrainstormReview, setPendingBrainstormReview] = useState<BrainstormResult | null>(null);
   const [showProfilePanel, setShowProfilePanel] = useState(false);
+  const [adminArtistProfile, setAdminArtistProfile] = useState<ArtistProfile | null>(null);
+  const [taskContextMenu, setTaskContextMenu] = useState<{ taskId: string; x: number; y: number } | null>(null);
 
   // Check Google Calendar connection status when calendar modal opens
   useEffect(() => {
@@ -109,6 +111,27 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
   useEffect(() => {
     loadTeamData();
   }, [universe.id]);
+
+  // Load admin's artist profile for team members (so they see the same calendar)
+  useEffect(() => {
+    if (isAdmin === false && universe.creatorId && !artistProfile) {
+      (async () => {
+        try {
+          const { data } = await supabase
+            .from('profiles')
+            .select('onboarding_profile')
+            .eq('id', universe.creatorId)
+            .single();
+          if (data?.onboarding_profile) {
+            console.log('[GalaxyView] Loaded admin artist profile for team member calendar');
+            setAdminArtistProfile(data.onboarding_profile as ArtistProfile);
+          }
+        } catch (err) {
+          console.warn('[GalaxyView] Could not load admin profile:', err);
+        }
+      })();
+    }
+  }, [isAdmin, universe.creatorId, artistProfile]);
 
   // Load stored brainstorm result from Supabase on mount
   useEffect(() => {
@@ -344,6 +367,59 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
     loadTeamData();
   };
 
+  // Handle context menu assignment — assigns a task to a team member
+  const handleContextMenuAssign = async (memberId: string) => {
+    if (!taskContextMenu || !team) return;
+    const task = displayTasks.find(t => t.id === taskContextMenu.taskId);
+    if (!task) return;
+    setTaskContextMenu(null);
+
+    try {
+      // If it's a default (unsaved) task, create it in Supabase first
+      let realTaskId = task.id;
+      if (task.id.startsWith('default-')) {
+        // Calculate the assigned member's soonest available time
+        const now = new Date();
+        const todayStr = now.toISOString().split('T')[0];
+        const pad = (n: number) => n.toString().padStart(2, '0');
+        const h = Math.max(now.getHours(), 9); // At least 9 AM
+        const m = now.getMinutes();
+
+        const newTask = await createTask(team.id, {
+          galaxyId: galaxy.id,
+          title: task.title,
+          description: task.description || '',
+          type: task.type as any,
+          taskCategory: 'task',
+          date: todayStr,
+          startTime: `${pad(h)}:${pad(m)}`,
+          endTime: `${pad(h + 1)}:${pad(m)}`,
+          assignedTo: memberId,
+        });
+        if (newTask) {
+          realTaskId = newTask.id;
+          // Send notification to the assignee
+          await createNotification(
+            memberId,
+            team.id,
+            'task_assigned',
+            `New task: ${task.title}`,
+            `You've been assigned "${task.title}".`,
+            { taskId: realTaskId, taskTitle: task.title }
+          );
+        }
+      } else {
+        // Existing task — just reassign
+        await assignTask(realTaskId, memberId, team.id);
+      }
+
+      // Reload team data to reflect changes
+      loadTeamData();
+    } catch (err) {
+      console.error('[GalaxyView] Error assigning task:', err);
+    }
+  };
+
   const handleBrainstormReviewApprove = async () => {
     if (!pendingBrainstormReview) return;
     // Just close the review — it's already been applied
@@ -512,6 +588,12 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
                       else if (isBrainstorm) setShowBrainstorm(true);
                       else handleTaskClick(task);
                     }}
+                    onContextMenu={(e) => {
+                      if (effectiveIsAdmin && teamMembers.length > 0) {
+                        e.preventDefault();
+                        setTaskContextMenu({ taskId: task.id, x: e.clientX, y: e.clientY });
+                      }
+                    }}
                     disabled={isCreatingTeam && isInvite}
                     className="w-full flex items-center gap-3 p-2.5 rounded-lg hover:bg-white/5 transition-all group text-left"
                   >
@@ -545,6 +627,44 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
           </div>
         </div>
       </div>
+
+      {/* Right-click Context Menu for Task Assignment */}
+      {taskContextMenu && (
+        <>
+          <div 
+            className="fixed inset-0 z-[100]" 
+            onClick={() => setTaskContextMenu(null)}
+          />
+          <div 
+            className="fixed z-[101] bg-gray-900 border border-yellow-500/30 rounded-lg shadow-xl py-1 min-w-[200px]"
+            style={{ left: taskContextMenu.x, top: taskContextMenu.y }}
+          >
+            <div className="px-3 py-2 border-b border-gray-700">
+              <p className="text-xs text-gray-400 font-star-wars">Assign to</p>
+            </div>
+            {teamMembers
+              .filter(m => m.userId !== currentUserId) // Don't show self
+              .map((member) => (
+                <button
+                  key={member.userId}
+                  onClick={() => handleContextMenuAssign(member.userId)}
+                  className="w-full px-3 py-2 text-left text-sm text-white hover:bg-yellow-500/10 flex items-center gap-2 transition-colors"
+                >
+                  <span className="w-6 h-6 rounded-full bg-purple-500/30 flex items-center justify-center text-xs text-purple-300">
+                    {member.displayName?.[0]?.toUpperCase() || '?'}
+                  </span>
+                  <span>{member.displayName || 'Team Member'}</span>
+                  <span className="text-xs text-gray-500 ml-auto">{member.role}</span>
+                </button>
+              ))}
+            {teamMembers.filter(m => m.userId !== currentUserId).length === 0 && (
+              <div className="px-3 py-2 text-sm text-gray-500">
+                No team members to assign to. Invite someone first!
+              </div>
+            )}
+          </div>
+        </>
+      )}
 
       {/* Top Right: Profile + Notifications */}
       <div className="absolute top-4 right-4 z-10 flex items-center gap-2">
@@ -780,7 +900,7 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
                   songName={galaxy.name}
                   releaseDate={galaxy.releaseDate || ''}
                   showGoogleSync={false}
-                  artistProfile={artistProfile}
+                  artistProfile={artistProfile || adminArtistProfile || undefined}
                   brainstormResult={brainstormResult || undefined}
                   teamTasks={teamTasks}
                   teamMembers={teamMembers}
