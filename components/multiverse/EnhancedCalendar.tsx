@@ -893,6 +893,7 @@ export function EnhancedCalendar({
     
     const tasks: ScheduledTask[] = [];
     const days: CalendarDay[] = [];
+    const isMember = userPermissions === 'member';
     
     // Add release dates from artist profile
     const releases = (artistProfile as any)?.releases || [];
@@ -940,85 +941,85 @@ export function EnhancedCalendar({
       });
     }
     
-    // PREP PHASE (Weeks 1-2): Schedule tasks on preferred days first, then fill other days
-    const week1Tasks = [...PREP_TASKS_WEEK1];
-    const week2Tasks = [...PREP_TASKS_WEEK2];
-    
-    // Get preferred days in each prep week
-    const week1Days = allDays.filter(d => d.weekNum === 0);
-    const week2Days = allDays.filter(d => d.weekNum === 1);
-    
-    // Sort days: preferred days first, then by day of week
-    const sortByPreference = (days: typeof allDays) => {
-      return [...days].sort((a, b) => {
+    // Sort days helper: preferred days first, then by day of week
+    const sortByPreference = (daysArr: typeof allDays) => {
+      return [...daysArr].sort((a, b) => {
         const aPreferred = isPreferredDay(a.date) ? 0 : 1;
         const bPreferred = isPreferredDay(b.date) ? 0 : 1;
         if (aPreferred !== bPreferred) return aPreferred - bPreferred;
         return a.dayOfWeek - b.dayOfWeek;
       });
     };
-    
-    const sortedWeek1 = sortByPreference(week1Days);
-    const sortedWeek2 = sortByPreference(week2Days);
-    
-    // Schedule Week 1 prep tasks
-    let taskIndex = 0;
-    for (const day of sortedWeek1) {
-      if (taskIndex >= week1Tasks.length) break;
-      if (timeSpentPerWeek[0] >= weeklyBudgetMinutes) break;
+
+    // PREP PHASE (Weeks 1-2): Only for admin — team members don't see prep tasks
+    if (!isMember) {
+      const week1Tasks = [...PREP_TASKS_WEEK1];
+      const week2Tasks = [...PREP_TASKS_WEEK2];
       
-      const task = week1Tasks[taskIndex];
-      const remainingBudget = weeklyBudgetMinutes - timeSpentPerWeek[0];
+      const week1Days = allDays.filter(d => d.weekNum === 0);
+      const week2Days = allDays.filter(d => d.weekNum === 1);
       
-      // Only schedule if we have budget
-      if (task.duration <= remainingBudget || timeSpentPerWeek[0] === 0) {
-        const timeSlot = findFreeTimeSlot(day.date, task.duration, tasks);
-        if (timeSlot) {
-          tasks.push({
-            id: `prep-w1-${taskIndex}`,
-            title: task.title,
-            description: task.description,
-            type: 'prep',
-            date: day.dateStr,
-            startTime: timeSlot.start,
-            endTime: timeSlot.end,
-            completed: false,
-          });
-          timeSpentPerWeek[0] += task.duration;
-          taskIndex++;
+      const sortedWeek1 = sortByPreference(week1Days);
+      const sortedWeek2 = sortByPreference(week2Days);
+      
+      // Schedule Week 1 prep tasks
+      let taskIndex = 0;
+      for (const day of sortedWeek1) {
+        if (taskIndex >= week1Tasks.length) break;
+        if (timeSpentPerWeek[0] >= weeklyBudgetMinutes) break;
+        
+        const task = week1Tasks[taskIndex];
+        const remainingBudget = weeklyBudgetMinutes - timeSpentPerWeek[0];
+        
+        if (task.duration <= remainingBudget || timeSpentPerWeek[0] === 0) {
+          const timeSlot = findFreeTimeSlot(day.date, task.duration, tasks);
+          if (timeSlot) {
+            tasks.push({
+              id: `prep-w1-${taskIndex}`,
+              title: task.title,
+              description: task.description,
+              type: 'prep',
+              date: day.dateStr,
+              startTime: timeSlot.start,
+              endTime: timeSlot.end,
+              completed: false,
+            });
+            timeSpentPerWeek[0] += task.duration;
+            taskIndex++;
+          }
         }
       }
-    }
-    
-    // Schedule Week 2 prep tasks
-    taskIndex = 0;
-    for (const day of sortedWeek2) {
-      if (taskIndex >= week2Tasks.length) break;
-      if (timeSpentPerWeek[1] >= weeklyBudgetMinutes) break;
       
-      const task = week2Tasks[taskIndex];
-      const remainingBudget = weeklyBudgetMinutes - timeSpentPerWeek[1];
-      
-      if (task.duration <= remainingBudget || timeSpentPerWeek[1] === 0) {
-        const timeSlot = findFreeTimeSlot(day.date, task.duration, tasks);
-        if (timeSlot) {
-          tasks.push({
-            id: `prep-w2-${taskIndex}`,
-            title: task.title,
-            description: task.description,
-            type: 'prep',
-            date: day.dateStr,
-            startTime: timeSlot.start,
-            endTime: timeSlot.end,
-            completed: false,
-          });
-          timeSpentPerWeek[1] += task.duration;
-          taskIndex++;
+      // Schedule Week 2 prep tasks
+      taskIndex = 0;
+      for (const day of sortedWeek2) {
+        if (taskIndex >= week2Tasks.length) break;
+        if (timeSpentPerWeek[1] >= weeklyBudgetMinutes) break;
+        
+        const task = week2Tasks[taskIndex];
+        const remainingBudget = weeklyBudgetMinutes - timeSpentPerWeek[1];
+        
+        if (task.duration <= remainingBudget || timeSpentPerWeek[1] === 0) {
+          const timeSlot = findFreeTimeSlot(day.date, task.duration, tasks);
+          if (timeSlot) {
+            tasks.push({
+              id: `prep-w2-${taskIndex}`,
+              title: task.title,
+              description: task.description,
+              type: 'prep',
+              date: day.dateStr,
+              startTime: timeSlot.start,
+              endTime: timeSlot.end,
+              completed: false,
+            });
+            timeSpentPerWeek[1] += task.duration;
+            taskIndex++;
+          }
         }
       }
-    }
+    } // end admin-only prep phase
     
-    // POSTING PHASE (Weeks 3-4): Schedule posts + prep tasks on preferred days
+    // POSTING PHASE (Weeks 3-4): Schedule posts (shared events) + prep tasks (admin only)
     for (let weekNum = 2; weekNum < 4; weekNum++) {
       const weekDays = allDays.filter(d => d.weekNum === weekNum);
       const sortedDays = sortByPreference(weekDays);
@@ -1045,7 +1046,10 @@ export function EnhancedCalendar({
         const maxPostsThisWeek = targetPostsPerWeek;
         
         // Schedule posts (not just on preferred days)
-        const shouldPost = tasksScheduledThisWeek % 2 === 0 && (tasks.filter(t => t.type !== 'prep' && t.date === day.dateStr).length === 0);
+        // For members, skip the alternation logic — just check if slot is free
+        const shouldPost = isMember
+          ? (tasks.filter(t => t.type !== 'prep' && t.date === day.dateStr).length === 0)
+          : (tasksScheduledThisWeek % 2 === 0 && tasks.filter(t => t.type !== 'prep' && t.date === day.dateStr).length === 0);
         
         // Count total posts scheduled in this week so far
         const postsThisWeek = tasks.filter(t => {
@@ -1140,8 +1144,8 @@ export function EnhancedCalendar({
           }
         }
         
-        // Fill remaining time with prep tasks for future content
-        if (timeSpentPerWeek[weekNum] < weeklyBudgetMinutes && prepTaskIndex < POSTING_TASKS.length) {
+        // Fill remaining time with prep tasks for future content (admin only)
+        if (!isMember && timeSpentPerWeek[weekNum] < weeklyBudgetMinutes && prepTaskIndex < POSTING_TASKS.length) {
           const prepTask = POSTING_TASKS[prepTaskIndex];
           const adjustedDuration = Math.min(prepTask.duration, weeklyBudgetMinutes - timeSpentPerWeek[weekNum]);
           
@@ -1198,8 +1202,11 @@ export function EnhancedCalendar({
         }
       }
       
-      // 2. Add edit day tasks
+      // 2. Add edit day tasks — only for admin or the assignee
       for (const editDay of brainstormResult.editDays) {
+        // For members, only show edit days assigned to them
+        if (isMember && editDay.assignedTo && editDay.assignedTo !== currentUserId) continue;
+        
         const FORMAT_LABELS: Record<string, string> = {
           'music_video_snippet': 'Music Video Snippet',
           'bts_performance': 'BTS Performance Shot',
@@ -1220,7 +1227,7 @@ export function EnhancedCalendar({
         });
       }
       
-      // 3. Add shoot day events
+      // 3. Add shoot day events — shared across all team members
       for (const shootDay of brainstormResult.shootDays) {
         const FORMAT_LABELS: Record<string, string> = {
           'music_video_snippet': 'Music Video Snippet',
@@ -1243,6 +1250,39 @@ export function EnhancedCalendar({
       }
     }
     
+    // ================================================================
+    // ADD TEAM TASKS FROM SUPABASE
+    // These are tasks explicitly assigned to the current user or shared events
+    // ================================================================
+    if (teamTasks && teamTasks.length > 0) {
+      for (const tt of teamTasks) {
+        // Skip tasks that are already represented by generated schedule items
+        if (tasks.some(t => t.id === tt.id)) continue;
+        
+        // For members: only show tasks assigned to them
+        // For admin: show all tasks
+        if (isMember && tt.assignedTo && tt.assignedTo !== currentUserId) continue;
+        
+        // Map team task type to calendar type
+        let calType: ScheduledTask['type'] = 'prep';
+        if (tt.type === 'edit') calType = 'edit';
+        else if (tt.type === 'shoot') calType = 'shoot';
+        else if (tt.type === 'brainstorm') calType = 'prep';
+        else if (tt.type === 'invite_team') calType = 'prep';
+        
+        tasks.push({
+          id: tt.id,
+          title: tt.title,
+          description: tt.description || '',
+          type: calType,
+          date: tt.date,
+          startTime: tt.startTime || '09:00',
+          endTime: tt.endTime || '10:00',
+          completed: tt.status === 'completed',
+        });
+      }
+    }
+    
     // Build calendar days with tasks
     for (const day of allDays) {
       days.push({
@@ -1259,7 +1299,7 @@ export function EnhancedCalendar({
     
     setScheduledTasks(tasks);
     setCalendar(days);
-  }, [googleEvents, releaseDate, timeBudget, preferredDays, brainstormResult]);
+  }, [googleEvents, releaseDate, timeBudget, preferredDays, brainstormResult, userPermissions, currentUserId, teamTasks]);
 
   const formatTime = (time: string) => {
     const [hours, minutes] = time.split(':').map(Number);

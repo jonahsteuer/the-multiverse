@@ -398,15 +398,19 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
         });
         if (newTask) {
           realTaskId = newTask.id;
-          // Send notification to the assignee
-          await createNotification(
-            memberId,
-            team.id,
-            'task_assigned',
-            `New task: ${task.title}`,
-            `You've been assigned "${task.title}".`,
-            { taskId: realTaskId, taskTitle: task.title }
-          );
+          // Send notification to the assignee (non-blocking)
+          try {
+            await createNotification(
+              memberId,
+              team.id,
+              'task_assigned',
+              `New task: ${task.title}`,
+              `You've been assigned "${task.title}".`,
+              { taskId: realTaskId, taskTitle: task.title }
+            );
+          } catch (e) {
+            console.warn('[Team] Notification creation failed (non-blocking):', e);
+          }
         }
       } else {
         // Existing task — just reassign

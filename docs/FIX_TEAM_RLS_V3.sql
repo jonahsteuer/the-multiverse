@@ -97,7 +97,7 @@ CREATE POLICY "Users can read own or team worlds" ON public.worlds
   );
 
 -- ============================================================================
--- FIX TEAM TASKS — allow members to create tasks (e.g. from brainstorm)
+-- FIX TEAM TASKS — allow members to create, read, and update tasks
 -- ============================================================================
 DROP POLICY IF EXISTS "Admins can create tasks" ON public.team_tasks;
 DROP POLICY IF EXISTS "Members can create tasks" ON public.team_tasks;
@@ -107,13 +107,47 @@ CREATE POLICY "Members can create tasks" ON public.team_tasks
     OR team_id IN (SELECT get_user_team_ids(auth.uid()))
   );
 
+-- Allow members to view tasks in their team
+DROP POLICY IF EXISTS "Members can view team tasks" ON public.team_tasks;
+DROP POLICY IF EXISTS "Team members can view tasks" ON public.team_tasks;
+CREATE POLICY "Members can view team tasks" ON public.team_tasks
+  FOR SELECT USING (
+    team_id IN (SELECT id FROM public.teams WHERE created_by = auth.uid())
+    OR team_id IN (SELECT get_user_team_ids(auth.uid()))
+  );
+
+-- Allow members to update tasks (for status changes, reassignment)
+DROP POLICY IF EXISTS "Members can update team tasks" ON public.team_tasks;
+DROP POLICY IF EXISTS "Team members can update tasks" ON public.team_tasks;
+CREATE POLICY "Members can update team tasks" ON public.team_tasks
+  FOR UPDATE USING (
+    team_id IN (SELECT id FROM public.teams WHERE created_by = auth.uid())
+    OR team_id IN (SELECT get_user_team_ids(auth.uid()))
+  );
+
 -- ============================================================================
--- FIX NOTIFICATIONS — allow any authenticated user to create notifications
+-- FIX NOTIFICATIONS — full CRUD for team members
 -- ============================================================================
+-- INSERT: any authenticated user can create notifications
 DROP POLICY IF EXISTS "System can create notifications" ON public.notifications;
 DROP POLICY IF EXISTS "Anyone can create notifications" ON public.notifications;
 CREATE POLICY "Anyone can create notifications" ON public.notifications
-  FOR INSERT WITH CHECK (true);
+  FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
+
+-- SELECT: users can read their own notifications
+DROP POLICY IF EXISTS "Users can view their notifications" ON public.notifications;
+CREATE POLICY "Users can view their notifications" ON public.notifications
+  FOR SELECT USING (user_id = auth.uid());
+
+-- UPDATE: users can mark their own notifications as read
+DROP POLICY IF EXISTS "Users can update their notifications" ON public.notifications;
+CREATE POLICY "Users can update their notifications" ON public.notifications
+  FOR UPDATE USING (user_id = auth.uid());
+
+-- DELETE: users can delete their own notifications
+DROP POLICY IF EXISTS "Users can delete their notifications" ON public.notifications;
+CREATE POLICY "Users can delete their notifications" ON public.notifications
+  FOR DELETE USING (user_id = auth.uid());
 
 -- ============================================================================
 -- FIX PROFILES TABLE — allow team members to read admin's profile
