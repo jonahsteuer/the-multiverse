@@ -113,25 +113,32 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
   }, [universe.id]);
 
   // Load admin's artist profile for team members (so they see the same calendar)
+  // ALWAYS load for non-admin users — they need the admin's profile for post types & release dates
   useEffect(() => {
-    if (isAdmin === false && universe.creatorId && !artistProfile) {
+    if (isAdmin === false && universe.creatorId) {
       (async () => {
         try {
-          const { data } = await supabase
+          const { data, error } = await supabase
             .from('profiles')
             .select('onboarding_profile')
             .eq('id', universe.creatorId)
             .single();
+          if (error) {
+            console.warn('[GalaxyView] Could not load admin profile (RLS?):', error.message);
+            return;
+          }
           if (data?.onboarding_profile) {
-            console.log('[GalaxyView] Loaded admin artist profile for team member calendar');
+            console.log('[GalaxyView] ✅ Loaded admin artist profile for team member calendar');
             setAdminArtistProfile(data.onboarding_profile as ArtistProfile);
+          } else {
+            console.warn('[GalaxyView] Admin profile exists but has no onboarding_profile');
           }
         } catch (err) {
           console.warn('[GalaxyView] Could not load admin profile:', err);
         }
       })();
     }
-  }, [isAdmin, universe.creatorId, artistProfile]);
+  }, [isAdmin, universe.creatorId]);
 
   // Load stored brainstorm result from Supabase on mount
   useEffect(() => {
@@ -478,9 +485,22 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
 
   // Build display tasks — use real team tasks if available, else generate defaults
   // IMPORTANT: Only admin users see default tasks. Invited members only see tasks assigned to them.
+  // Tasks assigned to other users are HIDDEN from the current user's todo list.
   const effectiveIsAdmin = isAdmin === null ? false : isAdmin; // Treat "loading" as non-admin (safe default)
   const displayTasks: TeamTask[] = (() => {
-    if (teamTasks.length > 0) return teamTasks;
+    if (teamTasks.length > 0) {
+      // Filter: only show tasks assigned to the current user, or unassigned tasks (admin only)
+      return teamTasks.filter(t => {
+        // Shared events are visible to everyone
+        if (t.taskCategory === 'event') return true;
+        // Tasks assigned to someone else → hide from this user's todo
+        if (t.assignedTo && t.assignedTo !== currentUserId) return false;
+        // Unassigned tasks → only visible to admin
+        if (!t.assignedTo) return effectiveIsAdmin;
+        // Task assigned to current user → show
+        return true;
+      });
+    }
     // If not admin (invited user) or still determining, show nothing
     if (!effectiveIsAdmin) return [];
     // Admin with no tasks yet — show default tasks
@@ -751,7 +771,7 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
             </div>
 
             {/* Panel Body */}
-            <div className="flex-1 p-6">
+            <div className="flex-1 p-6 overflow-y-auto">
               {/* Team Info */}
               {team && (
                 <div className="mb-6">
@@ -762,6 +782,51 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
                       {teamMembers.length} member{teamMembers.length !== 1 ? 's' : ''}
                     </div>
                   </div>
+                </div>
+              )}
+
+              {/* Team Members List */}
+              {teamMembers.length > 0 && (
+                <div className="mb-6">
+                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Team Members</h3>
+                  <div className="space-y-2">
+                    {teamMembers.map((member) => {
+                      const isCurrentUser = member.userId === currentUserId;
+                      const isAdminMember = member.permissions === 'full';
+                      const initial = (member.displayName?.[0] || '?').toUpperCase();
+                      return (
+                        <div key={member.id} className="flex items-center gap-3 bg-gray-800/50 rounded-lg p-2.5">
+                          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0 ${
+                            isAdminMember ? 'bg-gradient-to-br from-yellow-500 to-orange-500' : 'bg-gradient-to-br from-purple-500 to-blue-500'
+                          }`}>
+                            {initial}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="text-white text-sm font-medium truncate flex items-center gap-1.5">
+                              {member.displayName || 'Unknown'}
+                              {isCurrentUser && <span className="text-gray-500 text-xs">(you)</span>}
+                            </div>
+                            <div className="text-gray-500 text-xs truncate">
+                              {isAdminMember ? '⭐ Admin' : `👤 ${member.role || 'Member'}`}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {/* Invite Team Members button (admin only) */}
+                  {effectiveIsAdmin && (
+                    <button
+                      onClick={() => {
+                        setShowProfilePanel(false);
+                        handleOpenInviteModal();
+                      }}
+                      className="mt-3 w-full px-3 py-2 bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/30 text-purple-300 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
+                    >
+                      <span>➕</span>
+                      <span>Invite Team Members</span>
+                    </button>
+                  )}
                 </div>
               )}
 
@@ -904,7 +969,7 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
                   songName={galaxy.name}
                   releaseDate={galaxy.releaseDate || ''}
                   showGoogleSync={false}
-                  artistProfile={artistProfile || adminArtistProfile || undefined}
+                  artistProfile={effectiveIsAdmin ? artistProfile : (adminArtistProfile || artistProfile) || undefined}
                   brainstormResult={brainstormResult || undefined}
                   teamTasks={teamTasks}
                   teamMembers={teamMembers}

@@ -1259,9 +1259,10 @@ export function EnhancedCalendar({
         // Skip tasks that are already represented by generated schedule items
         if (tasks.some(t => t.id === tt.id)) continue;
         
-        // For members: only show tasks assigned to them
-        // For admin: show all tasks
-        if (isMember && tt.assignedTo && tt.assignedTo !== currentUserId) continue;
+        // Only show tasks assigned to the current user, or shared events
+        // (Both admin and member only see their own tasks on the calendar)
+        if (tt.taskCategory === 'event') { /* shared events — always show */ }
+        else if (tt.assignedTo && tt.assignedTo !== currentUserId) continue;
         
         // Map team task type to calendar type
         let calType: ScheduledTask['type'] = 'prep';
