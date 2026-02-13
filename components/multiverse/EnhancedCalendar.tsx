@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
-import type { ArtistProfile, BrainstormResult } from '@/types';
+import type { ArtistProfile, BrainstormResult, TeamTask, TeamMemberRecord, TeamPermission } from '@/types';
 import {
   DndContext,
   DragEndEvent,
@@ -59,6 +59,13 @@ interface EnhancedCalendarProps {
   showGoogleSync?: boolean;
   artistProfile?: ArtistProfile;
   brainstormResult?: BrainstormResult; // Content format assignments from brainstorm
+  // Team / role-based props
+  teamTasks?: TeamTask[]; // Tasks from the team system
+  teamMembers?: TeamMemberRecord[];
+  currentUserId?: string;
+  userPermissions?: TeamPermission; // 'full' (admin) or 'member'
+  onTaskReschedule?: (taskId: string, newDate: string, startTime: string, endTime: string) => void;
+  onAssignTask?: (taskId: string) => void;
 }
 
 // Task templates - duration in minutes
@@ -576,7 +583,14 @@ export function EnhancedCalendar({
   showGoogleSync = true,
   artistProfile,
   brainstormResult,
+  teamTasks,
+  teamMembers,
+  currentUserId,
+  userPermissions = 'full',
+  onTaskReschedule,
+  onAssignTask,
 }: EnhancedCalendarProps) {
+  const isAdmin = userPermissions === 'full';
   const timeBudget = artistProfile?.timeBudgetHoursPerWeek || 7; // Default to 7 hours
   
   // Use useMemo to stabilize the preferredDays array reference

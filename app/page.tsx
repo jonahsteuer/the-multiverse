@@ -954,6 +954,43 @@ export default function Home() {
         console.log('[Enhanced Onboarding] No releases to create, setting universe');
         setUniverse(existingUniverse);
       }
+      // Create team for the universe (for team collaboration features)
+      try {
+        if (isSupabaseConfigured() && existingUniverse) {
+          const teamName = `${account?.creatorName || 'User'}'s Team`;
+          const teamResponse = await fetch('/api/team', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              universeId: existingUniverse.id,
+              name: teamName,
+            }),
+          });
+          const teamData = await teamResponse.json();
+          if (teamData.success && teamData.team) {
+            console.log('[Enhanced Onboarding] Created team:', teamData.team.name);
+
+            // Create initial tasks (invite team + brainstorm content)
+            const hasTeam = profile.hasTeam || false;
+            const firstGalaxy = existingUniverse.galaxies[0];
+            if (firstGalaxy) {
+              await fetch('/api/team/tasks', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  action: 'init',
+                  teamId: teamData.team.id,
+                  galaxyId: firstGalaxy.id,
+                  hasTeam,
+                }),
+              });
+              console.log('[Enhanced Onboarding] Created initial tasks');
+            }
+          }
+        }
+      } catch (teamError) {
+        console.warn('[Enhanced Onboarding] Team creation skipped (non-critical):', teamError);
+      }
     } catch (error) {
       console.error('[Enhanced Onboarding] Error creating universe/galaxies:', error);
       // Still try to set universe even if there was an error
