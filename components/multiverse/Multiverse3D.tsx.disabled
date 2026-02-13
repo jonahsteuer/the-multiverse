@@ -1,0 +1,141 @@
+'use client';
+
+import { Suspense, useRef, useState } from 'react';
+import { Canvas, useFrame } from '@react-three/fiber';
+import { OrbitControls, Stars, Text } from '@react-three/drei';
+import * as THREE from 'three';
+import type { Universe } from '@/types';
+
+interface Multiverse3DProps {
+  universes: Universe[];
+  onUniverseClick?: (universe: Universe) => void;
+  onEmptySpaceHover?: (position: { x: number; y: number }) => void;
+  onEmptySpaceClick?: () => void;
+}
+
+// Individual Universe Sphere
+function UniverseSphere({
+  universe,
+  position,
+  onClick,
+}: {
+  universe: Universe;
+  position: [number, number, number];
+  onClick: () => void;
+}) {
+  const meshRef = useRef<THREE.Mesh>(null);
+  const [hovered, setHovered] = useState(false);
+
+  useFrame((state) => {
+    if (meshRef.current) {
+      meshRef.current.rotation.y += 0.01;
+    }
+  });
+
+  return (
+    <group position={position}>
+      <mesh
+        ref={meshRef}
+        onClick={onClick}
+        onPointerOver={() => setHovered(true)}
+        onPointerOut={() => setHovered(false)}
+        scale={hovered ? 1.2 : 1}
+      >
+        <sphereGeometry args={[1, 32, 32]} />
+        <meshStandardMaterial
+          color={hovered ? '#FFD700' : '#4A90E2'}
+          emissive={hovered ? '#FFD700' : '#1a3a5a'}
+          emissiveIntensity={0.5}
+        />
+      </mesh>
+      <Text
+        position={[0, -1.5, 0]}
+        fontSize={0.3}
+        color="#FFD700"
+        anchorX="center"
+        anchorY="middle"
+        font="/fonts/orbitron-bold.woff"
+      >
+        {universe.name}
+      </Text>
+    </group>
+  );
+}
+
+// Main 3D Scene
+function Scene({
+  universes,
+  onUniverseClick,
+  onEmptySpaceHover,
+  onEmptySpaceClick,
+}: Multiverse3DProps) {
+  const [hoveredPosition, setHoveredPosition] = useState<THREE.Vector3 | null>(null);
+
+  // Calculate positions for universes in a grid/sphere pattern
+  const universePositions = universes.map((_, index) => {
+    const angle = (index / universes.length) * Math.PI * 2;
+    const radius = 5;
+    return [
+      Math.cos(angle) * radius,
+      (index % 3 - 1) * 2,
+      Math.sin(angle) * radius,
+    ] as [number, number, number];
+  });
+
+  return (
+    <>
+      <ambientLight intensity={0.5} />
+      <pointLight position={[10, 10, 10]} intensity={1} />
+      <Stars radius={100} depth={50} count={5000} factor={4} fade speed={1} />
+
+      {/* Render universes */}
+      {universes.map((universe, index) => (
+        <UniverseSphere
+          key={universe.id}
+          universe={universe}
+          position={universePositions[index]}
+          onClick={() => onUniverseClick?.(universe)}
+        />
+      ))}
+
+      {/* Empty space hover indicator */}
+      {hoveredPosition && (
+        <mesh position={hoveredPosition}>
+          <sphereGeometry args={[0.5, 16, 16]} />
+          <meshStandardMaterial
+            color="#FFD700"
+            emissive="#FFD700"
+            emissiveIntensity={1}
+            transparent
+            opacity={0.5}
+          />
+        </mesh>
+      )}
+
+      <OrbitControls
+        enablePan={true}
+        enableZoom={true}
+        enableRotate={true}
+        minDistance={5}
+        maxDistance={50}
+      />
+    </>
+  );
+}
+
+export function Multiverse3D(props: Multiverse3DProps) {
+  return (
+    <div className="w-full h-screen bg-black">
+      <Canvas
+        camera={{ position: [0, 0, 15], fov: 75 }}
+        gl={{ antialias: true }}
+      >
+        <Suspense fallback={null}>
+          <Scene {...props} />
+        </Suspense>
+      </Canvas>
+    </div>
+  );
+}
+
+

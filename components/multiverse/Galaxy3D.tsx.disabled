@@ -1,0 +1,63 @@
+'use client';
+
+import { Suspense, useRef, useState, useEffect } from 'react';
+import dynamic from 'next/dynamic';
+import type { Galaxy, World } from '@/types';
+
+// Dynamically import Canvas to prevent SSR
+const Canvas = dynamic(
+  () => import('@react-three/fiber').then((mod) => mod.Canvas),
+  { ssr: false }
+);
+
+// Import Scene component dynamically
+const Scene = dynamic(
+  () => import('./GalaxyScene').then((mod) => mod.Scene),
+  { ssr: false }
+);
+
+interface Galaxy3DProps {
+  galaxy: Galaxy;
+  onWorldClick?: (world: World) => void;
+}
+
+export function Galaxy3D({ galaxy, onWorldClick }: Galaxy3DProps) {
+  const [isClient, setIsClient] = useState(false);
+
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
+
+  if (!isClient) {
+    return (
+      <div className="w-full h-screen bg-black relative flex items-center justify-center">
+        <div className="text-yellow-400 font-star-wars text-xl">Loading galaxy...</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="w-full h-screen bg-black relative">
+      {/* Galaxy Title Overlay */}
+      <div className="absolute top-8 left-1/2 transform -translate-x-1/2 z-10 text-center">
+        <h1 className="text-4xl font-star-wars text-yellow-400 mb-2">
+          {galaxy.name}
+        </h1>
+        {galaxy.releaseDate && new Date(galaxy.releaseDate) > new Date() && (
+          <div className="text-yellow-400 font-star-wars text-lg">
+            Releasing in {Math.ceil((new Date(galaxy.releaseDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24))} days
+          </div>
+        )}
+      </div>
+
+      <Canvas
+        camera={{ position: [0, 8, 15], fov: 75 }}
+        gl={{ antialias: true }}
+      >
+        <Suspense fallback={null}>
+          <Scene galaxy={galaxy} onWorldClick={onWorldClick} />
+        </Suspense>
+      </Canvas>
+    </div>
+  );
+}

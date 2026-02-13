@@ -1,0 +1,79 @@
+'use client';
+
+import { useState, Suspense, useEffect } from 'react';
+import dynamic from 'next/dynamic';
+import type { Universe } from '@/types';
+import { GalaxyCreationForm } from './GalaxyCreationForm';
+
+// Dynamically import Three.js components to prevent compilation analysis
+const Canvas = dynamic(
+  () => import('@react-three/fiber').then(mod => mod.Canvas),
+  { ssr: false }
+);
+
+// Import Scene component which uses Three.js (will be loaded lazily)
+const Scene = dynamic(
+  () => import('./EmptyUniverseScene').then(mod => mod.Scene),
+  { ssr: false }
+);
+
+// Scene component is now imported from EmptyUniverseScene.tsx
+
+interface EmptyUniverse3DViewProps {
+  universe: Universe;
+  onCreateGalaxy?: (galaxyData: any) => void;
+}
+
+export function EmptyUniverse3DView({ universe, onCreateGalaxy }: EmptyUniverse3DViewProps) {
+  const [showGalaxyForm, setShowGalaxyForm] = useState(false);
+  const [isReady, setIsReady] = useState(false);
+
+  useEffect(() => {
+    // Ensure we're client-side
+    if (typeof window !== 'undefined') {
+      setIsReady(true);
+    }
+  }, []);
+
+  const handleCreateGalaxy = (galaxyData: any) => {
+    if (onCreateGalaxy) {
+      onCreateGalaxy(galaxyData);
+    }
+    setShowGalaxyForm(false);
+  };
+
+  if (showGalaxyForm) {
+    return (
+      <GalaxyCreationForm
+        universeId={universe.id}
+        onSuccess={handleCreateGalaxy}
+        onCancel={() => setShowGalaxyForm(false)}
+      />
+    );
+  }
+
+  if (!isReady) {
+    return (
+      <div className="relative w-full h-screen bg-black flex items-center justify-center">
+        <div className="text-yellow-400 font-star-wars text-xl">Initializing 3D...</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative w-full h-screen bg-black">
+      <Canvas
+        camera={{ position: [0, 0, 10], fov: 75 }}
+        gl={{ antialias: true }}
+      >
+        <Suspense fallback={null}>
+          <Scene
+            universe={universe}
+            onCreateGalaxy={() => setShowGalaxyForm(true)}
+          />
+        </Suspense>
+      </Canvas>
+    </div>
+  );
+}
+

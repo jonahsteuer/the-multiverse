@@ -1,0 +1,1426 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import dynamic from 'next/dynamic';
+import { CreatorOnboardingForm } from '@/components/multiverse/CreatorOnboardingForm';
+import { LoadingScreen } from '@/components/multiverse/LoadingScreen';
+import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import { loadAccount, loadUniverse, saveUniverse, saveGalaxy, saveWorld, loadCurrentGalaxyId, saveCurrentGalaxyId, deleteGalaxy, deleteWorld, clearAllData, saveAccount } from '@/lib/storage';
+import { isTestUser, getTestUserProfile } from '@/lib/test-data';
+import type { CreatorAccountData, Universe, Galaxy, World, ArtistProfile } from '@/types';
+
+// Dynamically import heavy components to improve compilation time
+const ConversationalOnboarding = dynamic(
+  () => import('@/components/multiverse/ConversationalOnboarding').then(mod => ({ default: mod.ConversationalOnboarding })),
+  { ssr: false }
+);
+
+const PostOnboardingConversation = dynamic(
+  () => import('@/components/multiverse/PostOnboardingConversation').then(mod => ({ default: mod.PostOnboardingConversation })),
+  { ssr: false }
+);
+
+// Use a wrapper component that dynamically imports GalaxyView
+// This creates an extra layer of isolation to prevent Next.js from analyzing Three.js
+const GalaxyViewWrapper = dynamic(
+  () => import('@/components/multiverse/GalaxyViewWrapper').then(mod => ({ default: mod.GalaxyViewWrapper })),
+  { 
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center justify-center w-full h-screen bg-black text-white">
+        <div className="text-center">
+          <div className="text-yellow-400 font-star-wars text-xl">Loading galaxy...</div>
+        </div>
+      </div>
+    )
+  }
+);
+
+// EmptyUniverseView still disabled - will enable after GalaxyView is confirmed working
+
+// ============================================================================
+// DEV MODE: Developer testing flags
+// ============================================================================
+const DEV_SKIP_ONBOARDING = false; // Set to true to skip to galaxy view with test data
+const DEV_SKIP_TO_POST_ONBOARDING = false; // Set to true to test post-onboarding conversation
+
+// Julian Kenji's onboarding data (from actual user test conversation)
+const DEV_TEST_DATA = {
+  creatorName: 'Julian kenji',
+  email: 'julian@test.com',
+  // Onboarding profile data
+  onboardingProfile: {
+    genre: ['indie pop'],
+    musicalInspiration: ['Dominic Fike'],
+    visualAesthetic: 'effortlessly cool',
+    visualStyleDescription: 'Dominic Fike inspired aesthetic - effortlessly cool vibe',
+    releases: [
+      {
+        type: 'album',
+        name: 'Rabbit Season',
+        releaseDate: '2026-01-30', // Released yesterday - recent release scenario
+        isReleased: true,
+        songs: ['blur', 'psychedelic', 'I love you so much', 'cliche', 'freak', 'high demand', 'me and you', 'melody', "what's up"]
+      }
+    ],
+    hasBestPosts: true,
+    bestPostDescription: 'voiceover video about near-death experience and how it led to the genesis of the album - worked because of personal storytelling',
+    platforms: ['instagram', 'tiktok'] as ('instagram' | 'tiktok')[],
+    currentPostingFrequency: 'less_than_weekly' as const,
+    desiredPostingFrequency: '3-4x_week' as const,
+    enjoyedContentFormats: ['artsy performance videos', 'jumping to music with cool editing'],
+    equipment: 'Canon DSLR, iPhone camera, tripod',
+    timeBudgetHoursPerWeek: 7,
+    preferredDays: ['saturday', 'sunday'],
+    hasExistingAssets: false,
+    existingAssetsDescription: 'none currently, will film new content',
+    hasTeam: true,
+    teamMembers: 'videographer friends who can help shoot ideas',
+  } as any,
+  // Legacy release data for backward compatibility
+  releases: [
+    {
+      type: 'album',
+      name: 'Rabbit Season',
+      releaseDate: '2026-01-30',
+      isReleased: true,
+      songs: ['blur', 'psychedelic', 'I love you so much', 'cliche', 'freak', 'high demand', 'me and you', 'melody', "what's up"]
+    }
+  ]
+};
+// ============================================================================
+
+export default function Home() {
+  const [account, setAccount] = useState<CreatorAccountData | null>(null);
+  const [universe, setUniverse] = useState<Universe | null>(null);
+  const [currentGalaxy, setCurrentGalaxy] = useState<Galaxy | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isInitializing, setIsInitializing] = useState(true);
+  const [showEnhancedOnboarding, setShowEnhancedOnboarding] = useState(false);
+  const [showPostOnboarding, setShowPostOnboarding] = useState(false);
+  const [skipToCalendar, setSkipToCalendar] = useState(false); // Skip to calendar after OAuth
+
+  // Load data on mount
+  useEffect(() => {
+    const initializeApp = async () => {
+      console.log('[Initialize] Starting app initialization...');
+      setIsInitializing(true);
+      
+      // Check if returning from Google OAuth
+      const urlParams = new URLSearchParams(window.location.search);
+      const isReturningFromOAuth = urlParams.get('calendar_connected') === 'true';
+      const hasOAuthState = localStorage.getItem('postOnboarding_inProgress') === 'true';
+      
+      // Handle normal OAuth return (not in dev mode)
+      if (isReturningFromOAuth && hasOAuthState && !DEV_SKIP_TO_POST_ONBOARDING) {
+        console.log('[OAuth Return] 🔄 User returning from Google Calendar OAuth...');
+        // Clear the URL param
+        window.history.replaceState({}, document.title, window.location.pathname);
+        
+        // Load the actual user's account from localStorage/Supabase
+        const loadedAccount = await loadAccount();
+        if (loadedAccount) {
+          console.log('[OAuth Return] ✅ ACCOUNT LOADED AFTER OAUTH:', loadedAccount.creatorName);
+          console.log('[OAuth Return] Onboarding complete:', loadedAccount.onboardingComplete);
+          console.log('[OAuth Return] Has profile data:', !!loadedAccount.onboardingProfile);
+          setAccount(loadedAccount);
+          setSkipToCalendar(true); // Skip to calendar since they already did the walkthrough
+          setShowPostOnboarding(true);
+          setIsInitializing(false);
+          setIsLoading(false);
+          return;
+        } else {
+          console.warn('[OAuth Return] ⚠️ No account found after OAuth');
+        }
+      }
+      
+      // DEV MODE: Skip directly to enhanced calendar for testing
+      if (DEV_SKIP_TO_POST_ONBOARDING) {
+        console.log('[DEV MODE] Skipping directly to enhanced calendar view...');
+        
+        // Always skip to calendar in dev mode
+        setSkipToCalendar(true);
+        
+        // Create test account with onboarding data
+        const testAccount: CreatorAccountData = {
+          creatorName: DEV_TEST_DATA.creatorName,
+          email: DEV_TEST_DATA.email,
+          password: 'test123',
+          userType: 'artist',
+          onboardingComplete: true,
+          onboardingProfile: DEV_TEST_DATA.onboardingProfile,
+        };
+        setAccount(testAccount);
+        setShowPostOnboarding(true);
+        setIsInitializing(false);
+        setIsLoading(false);
+        return;
+      }
+      
+      // DEV MODE: Skip onboarding and create test data
+      if (DEV_SKIP_ONBOARDING) {
+        console.log('[DEV MODE] Skipping onboarding, creating test data...');
+        
+        // Check if we already have data
+        const existingAccount = await loadAccount();
+        const existingUniverse = await loadUniverse();
+        
+        if (existingAccount && existingUniverse && existingUniverse.galaxies.length > 0) {
+          console.log('[DEV MODE] Data already exists, loading...');
+          setAccount(existingAccount);
+          setUniverse(existingUniverse);
+          
+          const savedGalaxyId = loadCurrentGalaxyId();
+          if (savedGalaxyId) {
+            const galaxy = existingUniverse.galaxies.find(g => g.id === savedGalaxyId);
+            if (galaxy) setCurrentGalaxy(galaxy);
+          } else if (existingUniverse.galaxies.length > 0) {
+            setCurrentGalaxy(existingUniverse.galaxies[0]);
+          }
+        } else {
+          // Create test account
+          const testAccount: CreatorAccountData = {
+            creatorName: DEV_TEST_DATA.creatorName,
+            email: DEV_TEST_DATA.email,
+            password: '',
+            userType: 'artist',
+          };
+          await saveAccount(testAccount);
+          setAccount(testAccount);
+          
+          // Create universe with galaxies from test data
+          const newUniverse: Universe = {
+            id: `universe-${Date.now()}`,
+            name: `The ${DEV_TEST_DATA.creatorName}verse`,
+            creatorId: `dev-creator-${Date.now()}`,
+            createdAt: new Date().toISOString(),
+            galaxies: [],
+          };
+          
+          // Create galaxies and worlds from releases
+          for (const release of DEV_TEST_DATA.releases) {
+            const newGalaxy: Galaxy = {
+              id: `galaxy-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+              name: release.name,
+              universeId: newUniverse.id,
+              releaseDate: release.releaseDate,
+              visualLandscape: { images: [], colorPalette: [] },
+              worlds: [],
+              createdAt: new Date().toISOString(),
+            };
+            
+            for (const songName of release.songs) {
+              const worldColor = `#${Math.floor(Math.random()*16777215).toString(16).padStart(6, '0')}`;
+              const newWorld: World = {
+                id: `world-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                name: songName,
+                galaxyId: newGalaxy.id,
+                releaseDate: release.releaseDate,
+                color: worldColor,
+                visualLandscape: { images: [], colorPalette: [worldColor] },
+                isPublic: false,
+                isReleased: release.isReleased,
+                createdAt: new Date().toISOString(),
+              };
+              newGalaxy.worlds.push(newWorld);
+              await saveWorld(newWorld, newGalaxy.id);
+            }
+            
+            await saveGalaxy(newGalaxy, newUniverse.id);
+            newUniverse.galaxies.push(newGalaxy);
+          }
+          
+          await saveUniverse(newUniverse);
+          setUniverse(newUniverse);
+          
+          if (newUniverse.galaxies.length > 0) {
+            saveCurrentGalaxyId(newUniverse.galaxies[0].id);
+            setCurrentGalaxy(newUniverse.galaxies[0]);
+          }
+          
+          console.log('[DEV MODE] Created test data:', newUniverse.galaxies.length, 'galaxies');
+        }
+        
+        setIsInitializing(false);
+        setIsLoading(false);
+        return;
+      }
+      
+      try {
+        // Check for Supabase session
+        if (isSupabaseConfigured()) {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session) {
+            // User is logged in, load their data
+            let loadedAccount = await loadAccount();
+            // Only proceed if we actually have an account
+            if (loadedAccount && loadedAccount.creatorName) {
+              // Auto-populate Julian Kenji account with onboarding data if incomplete or missing
+              if ((loadedAccount.creatorName === 'Julian kenji' || loadedAccount.creatorName === 'Julian Kenji') && (!loadedAccount.onboardingComplete || !loadedAccount.onboardingProfile)) {
+                console.log('[Initialize] 🎵 Auto-populating Julian Kenji account with onboarding data from completed conversation...');
+                const julianOnboardingData = {
+                  genre: ["indie pop"],
+                  musicalInspiration: ["Dominic Fike"],
+                  visualAesthetic: "effortlessly cool",
+                  visualStyleDescription: "Dominic Fike inspired aesthetic - effortlessly cool vibe",
+                  releases: [
+                    {
+                      type: "album",
+                      name: "Rabbit Season",
+                      releaseDate: "2026-01-30", // Released yesterday (from the conversation)
+                      isReleased: true,
+                      songs: ["blur", "psychedelic", "I love you so much", "cliche", "freak", "high demand", "me and you", "melody", "what's up"]
+                    }
+                  ],
+                  hasBestPosts: true,
+                  bestPostDescription: "voiceover video about near-death experience and how it led to the genesis of the album - worked because of personal storytelling",
+                  platforms: ["instagram", "tiktok"],
+                  currentPostingFrequency: "couple times a week",
+                  desiredPostingFrequency: "3-4x_week",
+                  enjoyedContentFormats: ["artsy performance videos", "jumping to music with cool editing"],
+                  equipment: "Canon DSLR, iPhone camera, tripod",
+                  timeBudgetHoursPerWeek: 7,
+                  preferredDays: ["saturday", "sunday"],
+                  hasExistingAssets: false,
+                  existingAssetsDescription: "none currently, will film new content",
+                  hasTeam: true,
+                  teamMembers: "videographer friends who can help shoot ideas",
+                };
+                
+                loadedAccount = {
+                  ...loadedAccount,
+                  onboardingComplete: true,
+                  onboardingProfile: julianOnboardingData as any,
+                };
+                await saveAccount(loadedAccount);
+                setAccount(loadedAccount);
+                console.log('[Initialize] ✅ Julian Kenji account populated and marked complete');
+                
+                // Trigger post-onboarding
+                setShowPostOnboarding(true);
+                setIsInitializing(false);
+                setIsLoading(false);
+                return;
+              }
+              
+              // Auto-populate Leon Tax account with onboarding data if incomplete or missing
+              if (loadedAccount.creatorName === 'Leon Tax' && (!loadedAccount.onboardingComplete || !loadedAccount.onboardingProfile)) {
+                console.log('[Initialize] Auto-populating Leon Tax account with onboarding data from completed conversation...');
+                // Use data from the actual completed conversation
+                const leonOnboardingData = {
+                  genre: ["indie pop"],
+                  musicalInspiration: ["Dominic Fike", "Bon Iver"],
+                  visualAesthetic: "dreamy atmospheric",
+                  visualStyleDescription: "aesthetic performance shots with atmospheric elements",
+                  releases: [
+                    {
+                      type: "single",
+                      name: "will I find you",
+                      releaseDate: "2025-03-01",
+                      isReleased: false,
+                      songs: ["will I find you"]
+                    }
+                  ],
+                  hasBestPosts: true,
+                  bestPostDescription: "Performance shot with Snapchat filter got 1200 views, 40 likes, 9 comments - worked because it showed authentic performance with visual enhancement",
+                  platforms: ["instagram", "tiktok"],
+                  currentPostingFrequency: "none",
+                  desiredPostingFrequency: "2-3x_week",
+                  enjoyedContentFormats: ["visually aesthetic performance shots"],
+                  equipment: "iPhone, camcorder, Canon DSLR",
+                  timeBudgetHoursPerWeek: 6,
+                  preferredDays: ["friday", "saturday", "sunday"],
+                  hasExistingAssets: true,
+                  existingAssetsDescription: "Yosemite camcorder footage for next single promotion",
+                  hasTeam: true,
+                  teamMembers: "girlfriend (shoot/edit), roommate Julian (shooting ideas)",
+                };
+                
+              loadedAccount = {
+                ...loadedAccount,
+                onboardingComplete: true,
+                onboardingProfile: leonOnboardingData as any,
+              };
+              await saveAccount(loadedAccount);
+              setAccount(loadedAccount);
+              console.log('[Initialize] Leon Tax account populated and marked complete');
+              
+              // Create universe with galaxies/worlds from releases
+              setIsLoading(true);
+              try {
+                let existingUniverse = await loadUniverse();
+                
+                if (!existingUniverse) {
+                  let creatorId = `creator-${Date.now()}`;
+                  if (isSupabaseConfigured()) {
+                    try {
+                      const { data: { user } } = await supabase.auth.getUser();
+                      if (user?.id) creatorId = user.id;
+                    } catch (e) {}
+                  }
+                  
+                  const newUniverse: Universe = {
+                    id: `universe-${Date.now()}`,
+                    name: `The ${loadedAccount.creatorName}verse`,
+                    creatorId,
+                    createdAt: new Date().toISOString(),
+                    galaxies: [],
+                  };
+                  await saveUniverse(newUniverse);
+                  existingUniverse = newUniverse;
+                }
+                
+                // Create galaxies/worlds from releases
+                if (leonOnboardingData.releases && leonOnboardingData.releases.length > 0) {
+                  let updatedUniverse = { ...existingUniverse };
+                  
+                  for (const release of leonOnboardingData.releases) {
+                    if (!release || !release.name) continue;
+                    
+                    const newGalaxy: Galaxy = {
+                      id: `galaxy-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                      name: release.name,
+                      universeId: updatedUniverse.id,
+                      releaseDate: release.releaseDate,
+                      visualLandscape: { images: [], colorPalette: [] },
+                      worlds: [],
+                      createdAt: new Date().toISOString(),
+                    };
+                    
+                    const songs = release.songs && release.songs.length > 0 ? release.songs : [release.name];
+                    for (const songName of songs) {
+                      if (!songName) continue;
+                      const worldColor = `#${Math.floor(Math.random()*16777215).toString(16).padStart(6, '0')}`;
+                      const newWorld: World = {
+                        id: `world-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                        name: songName,
+                        galaxyId: newGalaxy.id,
+                        releaseDate: release.releaseDate || new Date().toISOString().split('T')[0],
+                        color: worldColor,
+                        visualLandscape: { images: [], colorPalette: [worldColor] },
+                        isPublic: false,
+                        isReleased: release.isReleased || false,
+                        createdAt: new Date().toISOString(),
+                      };
+                      newGalaxy.worlds.push(newWorld);
+                      await saveWorld(newWorld, newGalaxy.id);
+                    }
+                    
+                    await saveGalaxy(newGalaxy, updatedUniverse.id);
+                    updatedUniverse.galaxies.push(newGalaxy);
+                  }
+                  
+                  await saveUniverse(updatedUniverse);
+                  setUniverse(updatedUniverse);
+                  
+                  if (updatedUniverse.galaxies.length > 0) {
+                    saveCurrentGalaxyId(updatedUniverse.galaxies[0].id);
+                    setCurrentGalaxy(updatedUniverse.galaxies[0]);
+                  }
+                } else {
+                  setUniverse(existingUniverse);
+                }
+              } catch (error) {
+                console.error('[Initialize] Error creating universe for Leon Tax:', error);
+                const fallbackUniverse = await loadUniverse();
+                if (fallbackUniverse) setUniverse(fallbackUniverse);
+              } finally {
+                setIsLoading(false);
+              }
+              
+              return; // Exit early
+            }
+              
+              setAccount(loadedAccount);
+              
+              // Check if onboarding is complete
+              if (!loadedAccount.onboardingComplete) {
+                // Show onboarding to resume
+                setShowEnhancedOnboarding(true);
+              } else {
+                // Onboarding complete, skip onboarding and go straight to universe
+                // If we have onboarding profile data, create universe/galaxies from it
+                if (loadedAccount.onboardingProfile?.releases && loadedAccount.onboardingProfile.releases.length > 0) {
+                  setIsLoading(true);
+                  try {
+                    let existingUniverse = await loadUniverse();
+                    
+                    if (!existingUniverse) {
+                      let creatorId = `creator-${Date.now()}`;
+                      if (isSupabaseConfigured()) {
+                        try {
+                          const { data: { user } } = await supabase.auth.getUser();
+                          if (user?.id) creatorId = user.id;
+                        } catch (e) {}
+                      }
+                      
+                      const newUniverse: Universe = {
+                        id: `universe-${Date.now()}`,
+                        name: `The ${loadedAccount.creatorName}verse`,
+                        creatorId,
+                        createdAt: new Date().toISOString(),
+                        galaxies: [],
+                      };
+                      await saveUniverse(newUniverse);
+                      existingUniverse = newUniverse;
+                    }
+                    
+                    // Create galaxies/worlds from releases if they don't exist
+                    if (existingUniverse.galaxies.length === 0 && loadedAccount.onboardingProfile.releases) {
+                      let updatedUniverse = { ...existingUniverse };
+                      
+                      for (const release of loadedAccount.onboardingProfile.releases) {
+                        if (!release || !release.name) continue;
+                        
+                        const newGalaxy: Galaxy = {
+                          id: `galaxy-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                          name: release.name,
+                          universeId: updatedUniverse.id,
+                          releaseDate: release.releaseDate || undefined,
+                          visualLandscape: { images: [], colorPalette: [] },
+                          worlds: [],
+                          createdAt: new Date().toISOString(),
+                        };
+                        
+                        const songs = release.songs && release.songs.length > 0 ? release.songs : [release.name];
+                        for (const songName of songs) {
+                          if (!songName) continue;
+                          const worldColor = `#${Math.floor(Math.random()*16777215).toString(16).padStart(6, '0')}`;
+                          const newWorld: World = {
+                            id: `world-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                            name: songName,
+                            galaxyId: newGalaxy.id,
+                            releaseDate: release.releaseDate || new Date().toISOString().split('T')[0],
+                            color: worldColor,
+                            visualLandscape: { images: [], colorPalette: [worldColor] },
+                            isPublic: false,
+                            isReleased: release.isReleased || false,
+                            createdAt: new Date().toISOString(),
+                          };
+                          newGalaxy.worlds.push(newWorld);
+                          try {
+                            await saveWorld(newWorld, newGalaxy.id);
+                          } catch (error) {
+                            console.warn('[Initialize] Error saving world, continuing:', error);
+                          }
+                        }
+                        
+                        await saveGalaxy(newGalaxy, updatedUniverse.id);
+                        updatedUniverse.galaxies.push(newGalaxy);
+                      }
+                      
+                      await saveUniverse(updatedUniverse);
+                      setUniverse(updatedUniverse);
+                      
+                      if (updatedUniverse.galaxies.length > 0) {
+                        saveCurrentGalaxyId(updatedUniverse.galaxies[0].id);
+                        setCurrentGalaxy(updatedUniverse.galaxies[0]);
+                      }
+                    } else {
+                      setUniverse(existingUniverse);
+                      const savedGalaxyId = loadCurrentGalaxyId();
+                      if (savedGalaxyId) {
+                        const galaxy = existingUniverse.galaxies.find(g => g.id === savedGalaxyId);
+                        if (galaxy) setCurrentGalaxy(galaxy);
+                      } else if (existingUniverse.galaxies.length > 0) {
+                        setCurrentGalaxy(existingUniverse.galaxies[0]);
+                      }
+                    }
+                  } catch (error) {
+                    console.error('[Initialize] Error creating universe from profile:', error);
+                    const fallbackUniverse = await loadUniverse();
+                    if (fallbackUniverse) setUniverse(fallbackUniverse);
+                  } finally {
+                    setIsLoading(false);
+                  }
+                } else {
+                  // No releases, just load existing universe
+                  const loadedUniverse = await loadUniverse();
+                  if (loadedUniverse) {
+                    setUniverse(loadedUniverse);
+                    
+                    const savedGalaxyId = loadCurrentGalaxyId();
+                    if (savedGalaxyId) {
+                      const galaxy = loadedUniverse.galaxies.find(g => g.id === savedGalaxyId);
+                      if (galaxy) setCurrentGalaxy(galaxy);
+                    } else if (loadedUniverse.galaxies.length > 0) {
+                      setCurrentGalaxy(loadedUniverse.galaxies[0]);
+                    }
+                  }
+                }
+              }
+            } else {
+              // No valid account, clear any stale session
+              console.log('[Initialize] No valid account found, clearing session');
+              await supabase.auth.signOut();
+              // Clear localStorage
+              if (typeof window !== 'undefined') {
+                localStorage.removeItem('multiverse_account');
+                localStorage.removeItem('multiverse_universe');
+                localStorage.removeItem('multiverse_current_galaxy');
+              }
+            }
+          }
+        } else {
+          // Fallback to localStorage
+          let loadedAccount = await loadAccount();
+          // Only proceed if we actually have a valid account
+          if (loadedAccount && loadedAccount.creatorName) {
+            // Auto-populate Leon Tax account with onboarding data if incomplete or missing
+            if (loadedAccount.creatorName === 'Leon Tax' && (!loadedAccount.onboardingComplete || !loadedAccount.onboardingProfile)) {
+              console.log('[Initialize] Auto-populating Leon Tax account with onboarding data from completed conversation...');
+              // Use data from the actual completed conversation
+              const leonOnboardingData = {
+                genre: ["indie pop"],
+                musicalInspiration: ["Dominic Fike", "Bon Iver"],
+                visualAesthetic: "dreamy atmospheric",
+                visualStyleDescription: "aesthetic performance shots with atmospheric elements",
+                releases: [
+                  {
+                    type: "single",
+                    name: "will I find you",
+                    releaseDate: "2025-03-01",
+                    isReleased: false,
+                    songs: ["will I find you"]
+                  }
+                ],
+                hasBestPosts: true,
+                bestPostDescription: "Performance shot with Snapchat filter got 1200 views, 40 likes, 9 comments - worked because it showed authentic performance with visual enhancement",
+                platforms: ["instagram", "tiktok"],
+                currentPostingFrequency: "none",
+                desiredPostingFrequency: "2-3x_week",
+                enjoyedContentFormats: ["visually aesthetic performance shots"],
+                equipment: "iPhone, camcorder, Canon DSLR",
+                timeBudgetHoursPerWeek: 6,
+                preferredDays: ["friday", "saturday", "sunday"],
+                hasExistingAssets: true,
+                existingAssetsDescription: "Yosemite camcorder footage for next single promotion",
+                hasTeam: true,
+                teamMembers: "girlfriend (shoot/edit), roommate Julian (shooting ideas)",
+              };
+              
+              loadedAccount = {
+                ...loadedAccount,
+                onboardingComplete: true,
+                onboardingProfile: leonOnboardingData as any,
+              };
+              await saveAccount(loadedAccount);
+              setAccount(loadedAccount);
+              console.log('[Initialize] Leon Tax account populated and marked complete');
+              
+              // Create universe with galaxies/worlds from releases
+              setIsLoading(true);
+              try {
+                let existingUniverse = await loadUniverse();
+                
+                if (!existingUniverse) {
+                  let creatorId = `creator-${Date.now()}`;
+                  if (isSupabaseConfigured()) {
+                    try {
+                      const { data: { user } } = await supabase.auth.getUser();
+                      if (user?.id) creatorId = user.id;
+                    } catch (e) {}
+                  }
+                  
+                  const newUniverse: Universe = {
+                    id: `universe-${Date.now()}`,
+                    name: `The ${loadedAccount.creatorName}verse`,
+                    creatorId,
+                    createdAt: new Date().toISOString(),
+                    galaxies: [],
+                  };
+                  await saveUniverse(newUniverse);
+                  existingUniverse = newUniverse;
+                }
+                
+                // Create galaxies/worlds from releases
+                if (leonOnboardingData.releases && leonOnboardingData.releases.length > 0) {
+                  let updatedUniverse = { ...existingUniverse };
+                  
+                  for (const release of leonOnboardingData.releases) {
+                    if (!release || !release.name) continue;
+                    
+                    const newGalaxy: Galaxy = {
+                      id: `galaxy-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                      name: release.name,
+                      universeId: updatedUniverse.id,
+                      releaseDate: release.releaseDate,
+                      visualLandscape: { images: [], colorPalette: [] },
+                      worlds: [],
+                      createdAt: new Date().toISOString(),
+                    };
+                    
+                    const songs = release.songs && release.songs.length > 0 ? release.songs : [release.name];
+                    for (const songName of songs) {
+                      if (!songName) continue;
+                      const worldColor = `#${Math.floor(Math.random()*16777215).toString(16).padStart(6, '0')}`;
+                      const newWorld: World = {
+                        id: `world-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                        name: songName,
+                        galaxyId: newGalaxy.id,
+                        releaseDate: release.releaseDate || new Date().toISOString().split('T')[0],
+                        color: worldColor,
+                        visualLandscape: { images: [], colorPalette: [worldColor] },
+                        isPublic: false,
+                        isReleased: release.isReleased || false,
+                        createdAt: new Date().toISOString(),
+                      };
+                      newGalaxy.worlds.push(newWorld);
+                      await saveWorld(newWorld, newGalaxy.id);
+                    }
+                    
+                    await saveGalaxy(newGalaxy, updatedUniverse.id);
+                    updatedUniverse.galaxies.push(newGalaxy);
+                  }
+                  
+                  await saveUniverse(updatedUniverse);
+                  setUniverse(updatedUniverse);
+                  
+                  if (updatedUniverse.galaxies.length > 0) {
+                    saveCurrentGalaxyId(updatedUniverse.galaxies[0].id);
+                    setCurrentGalaxy(updatedUniverse.galaxies[0]);
+                  }
+                } else {
+                  setUniverse(existingUniverse);
+                }
+              } catch (error) {
+                console.error('[Initialize] Error creating universe for Leon Tax:', error);
+                const fallbackUniverse = await loadUniverse();
+                if (fallbackUniverse) setUniverse(fallbackUniverse);
+              } finally {
+                setIsLoading(false);
+              }
+              
+              return; // Exit early
+            }
+            
+            setAccount(loadedAccount);
+            
+            // Check if onboarding is complete
+            if (!loadedAccount.onboardingComplete) {
+              // Show onboarding to resume
+              setShowEnhancedOnboarding(true);
+            } else {
+              // Onboarding complete, load universe
+              const loadedUniverse = await loadUniverse();
+              if (loadedUniverse) {
+                setUniverse(loadedUniverse);
+                
+                const savedGalaxyId = loadCurrentGalaxyId();
+                if (savedGalaxyId) {
+                  const galaxy = loadedUniverse.galaxies.find(g => g.id === savedGalaxyId);
+                  if (galaxy) {
+                    setCurrentGalaxy(galaxy);
+                  }
+                }
+              }
+            }
+          } else {
+            // No valid account, clear any stale data
+            console.log('[Initialize] No valid account found in localStorage, clearing');
+            if (typeof window !== 'undefined') {
+              localStorage.removeItem('multiverse_account');
+              localStorage.removeItem('multiverse_universe');
+              localStorage.removeItem('multiverse_current_galaxy');
+            }
+          }
+        }
+      } catch (error) {
+        console.error('[Initialize] Error loading app data:', error);
+        console.error('[Initialize] Error stack:', (error as Error)?.stack);
+      } finally {
+        console.log('[Initialize] Initialization complete, setting isInitializing to false');
+        setIsInitializing(false);
+        setIsLoading(false);
+      }
+    };
+
+    initializeApp().catch((error) => {
+      console.error('[Initialize] Unhandled error in initializeApp:', error);
+      setIsInitializing(false);
+      setIsLoading(false);
+    });
+  }, []);
+
+  // Step 1: Account Creation
+  const handleAccountCreated = async (accountData: CreatorAccountData) => {
+    console.log('[Account Created]', accountData.creatorName);
+    
+    // Check if this is a test user (e.g., Cam Okoro)
+    if (isTestUser(accountData.creatorName)) {
+      console.log('[Test User Detected] Auto-populating data for:', accountData.creatorName);
+      const testProfile = getTestUserProfile(accountData.creatorName);
+      
+      if (testProfile) {
+        // Create account with pre-populated onboarding data
+        const populatedAccount = {
+          ...accountData,
+          onboardingComplete: true,
+          onboardingProfile: testProfile,
+        };
+        
+        await saveAccount(populatedAccount);
+        setAccount(populatedAccount);
+        
+        console.log('[Test User] Skipping conversational onboarding, using pre-populated data');
+        
+        // Trigger the onboarding complete handler with the test profile
+        await handleEnhancedOnboardingComplete(testProfile);
+        return;
+      }
+    }
+    
+    setAccount(accountData);
+    
+    // If onboarding is already complete (e.g., returning user), load their universe and go to galaxy view
+    if (accountData.onboardingComplete && accountData.onboardingProfile) {
+      console.log('[Account Created] Returning user detected - loading existing universe');
+      console.log('[Account Created] Profile data:', {
+        hasProfile: !!accountData.onboardingProfile,
+        releaseStrategy: (accountData.onboardingProfile as any)?.releaseStrategy,
+        releases: (accountData.onboardingProfile as any)?.releases
+      });
+      setIsLoading(true);
+      
+      try {
+        // Load their existing universe
+        const existingUniverse = await loadUniverse();
+        
+        console.log('[Account Created] Universe load result:', {
+          hasUniverse: !!existingUniverse,
+          galaxyCount: existingUniverse?.galaxies?.length || 0
+        });
+        
+        if (existingUniverse && existingUniverse.galaxies && existingUniverse.galaxies.length > 0) {
+          console.log('[Account Created] Found existing universe with', existingUniverse.galaxies.length, 'galaxies');
+          setUniverse(existingUniverse);
+          setCurrentGalaxy(existingUniverse.galaxies[0]);
+          // Galaxy view will render automatically when currentGalaxy is set
+        } else {
+          console.log('[Account Created] No universe found - showing post-onboarding');
+          // No universe yet, show post-onboarding to create one
+          setShowPostOnboarding(true);
+        }
+      } catch (error) {
+        console.error('[Account Created] Error loading universe:', error);
+        // If there's an error, fall back to post-onboarding
+        setShowPostOnboarding(true);
+      } finally {
+        setIsLoading(false);
+      }
+      return;
+    }
+    
+    // Show enhanced onboarding after account creation
+    setShowEnhancedOnboarding(true);
+  };
+
+  // Step 2: Enhanced Onboarding (Artist Profile)
+  const handleEnhancedOnboardingComplete = async (profile: any, shouldShowPostOnboarding: boolean = true) => {
+    console.log('[Enhanced Onboarding] Profile completed:', profile);
+    
+    // Mark onboarding as complete and save profile data
+    if (account) {
+      const updatedAccount = {
+        ...account,
+        onboardingComplete: true,
+        onboardingProfile: profile,
+      };
+      await saveAccount(updatedAccount);
+      setAccount(updatedAccount);
+    }
+    
+    // Show loading while we create the universe
+    setIsLoading(true);
+    
+    try {
+      // Check if universe already exists
+      let existingUniverse = await loadUniverse();
+      
+      if (!existingUniverse) {
+        // Get creator ID safely
+        let creatorId = `creator-${Date.now()}`;
+        if (isSupabaseConfigured()) {
+          try {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (user?.id) {
+              creatorId = user.id;
+            }
+          } catch (authError) {
+            console.warn('[Enhanced Onboarding] Could not get user ID from Supabase:', authError);
+          }
+        }
+        
+        // Create empty universe
+        const newUniverse: Universe = {
+          id: `universe-${Date.now()}`,
+          name: `The ${account?.creatorName || 'User'}verse`,
+          creatorId,
+          createdAt: new Date().toISOString(),
+          galaxies: [],
+        };
+        
+        await saveUniverse(newUniverse);
+        existingUniverse = newUniverse;
+        console.log('[Enhanced Onboarding] Created new universe:', newUniverse.id);
+      }
+
+      // If profile includes release data, create galaxies and worlds
+      if (profile.releases && Array.isArray(profile.releases) && profile.releases.length > 0) {
+        console.log('[Enhanced Onboarding] Creating galaxies/worlds from releases:', profile.releases);
+        
+        let updatedUniverse = { ...existingUniverse };
+        
+        for (const release of profile.releases) {
+          // Skip invalid releases
+          if (!release || !release.name) {
+            console.log('[Enhanced Onboarding] Skipping invalid release:', release);
+            continue;
+          }
+          
+          // Determine galaxy name
+          // For EP/Album: use the project name
+          // For standalone single: use the song name
+          const galaxyName = release.name || 'Untitled Project';
+          
+          // Create the galaxy
+          const newGalaxy: Galaxy = {
+            id: `galaxy-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            name: galaxyName,
+            universeId: updatedUniverse.id,
+            releaseDate: release.releaseDate,
+            visualLandscape: { images: [], colorPalette: [] },
+            worlds: [],
+            createdAt: new Date().toISOString(),
+          };
+          
+          // Create worlds for each song
+          const songs = release.songs && Array.isArray(release.songs) && release.songs.length > 0 
+            ? release.songs 
+            : [release.name]; // For singles, the song name is the project name
+          
+          for (const songName of songs) {
+            if (!songName) continue; // Skip empty song names
+            
+            const worldColor = `#${Math.floor(Math.random()*16777215).toString(16).padStart(6, '0')}`;
+            const newWorld: World = {
+              id: `world-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+              name: songName || 'Untitled Song',
+              galaxyId: newGalaxy.id,
+              releaseDate: release.releaseDate || new Date().toISOString().split('T')[0],
+              color: worldColor,
+              visualLandscape: { images: [], colorPalette: [worldColor] },
+              isPublic: false,
+              isReleased: release.isReleased || false,
+              createdAt: new Date().toISOString(),
+            };
+            
+            newGalaxy.worlds.push(newWorld);
+          }
+          
+          // IMPORTANT: Save the galaxy FIRST (before worlds) so RLS policies can verify ownership
+          // Pass skipWorlds=true to prevent saveGalaxy from auto-saving worlds (we'll do it manually)
+          await saveGalaxy(newGalaxy, updatedUniverse.id, true);
+          
+          // Now save worlds (galaxy must exist in Supabase for RLS to work)
+          for (const world of newGalaxy.worlds) {
+            try {
+              await saveWorld(world, newGalaxy.id);
+            } catch (error) {
+              console.warn('[Enhanced Onboarding] Error saving world, continuing with localStorage:', error);
+              // Continue - saveWorld already handles localStorage fallback
+            }
+          }
+          
+          // Add to universe
+          updatedUniverse.galaxies.push(newGalaxy);
+          console.log('[Enhanced Onboarding] Created galaxy:', newGalaxy.name, 'with', newGalaxy.worlds.length, 'worlds');
+        }
+        
+        // Save updated universe
+        await saveUniverse(updatedUniverse);
+        setUniverse(updatedUniverse);
+        
+        // Set the first galaxy as current
+        if (updatedUniverse.galaxies.length > 0) {
+          const firstGalaxy = updatedUniverse.galaxies[0];
+          saveCurrentGalaxyId(firstGalaxy.id);
+          setCurrentGalaxy(firstGalaxy);
+          console.log('[Enhanced Onboarding] Set current galaxy:', firstGalaxy.name);
+        }
+        
+        console.log('[Enhanced Onboarding] Created galaxies/worlds:', updatedUniverse.galaxies.length, 'galaxies');
+      } else {
+        console.log('[Enhanced Onboarding] No releases to create, setting universe');
+        setUniverse(existingUniverse);
+      }
+    } catch (error) {
+      console.error('[Enhanced Onboarding] Error creating universe/galaxies:', error);
+      // Still try to set universe even if there was an error
+      const fallbackUniverse = await loadUniverse();
+      if (fallbackUniverse) {
+        setUniverse(fallbackUniverse);
+      }
+    } finally {
+      // Always hide onboarding and clear loading
+      setShowEnhancedOnboarding(false);
+      setIsLoading(false);
+      
+      // Trigger post-onboarding conversation with calendar walkthrough (only if requested)
+      if (shouldShowPostOnboarding) {
+        setSkipToCalendar(false); // Reset so we show the full walkthrough
+        setShowPostOnboarding(true);
+        console.log('[Enhanced Onboarding] Complete, starting post-onboarding conversation');
+      } else {
+        console.log('[Enhanced Onboarding] Complete, skipping post-onboarding (already done)');
+      }
+    }
+  };
+
+  // Step 3: Galaxy Creation
+  const handleGalaxyCreated = async (galaxyData: Partial<Galaxy>) => {
+    if (!universe) {
+      console.error('Cannot create galaxy: universe is null');
+      return;
+    }
+
+    setIsLoading(true);
+    console.log('[Galaxy Creation] Starting galaxy creation...');
+
+    const newGalaxy: Galaxy = {
+      id: `galaxy-${Date.now()}`,
+      name: galaxyData.name || 'Unnamed Galaxy',
+      universeId: universe.id,
+      releaseDate: galaxyData.releaseDate,
+      visualLandscape: galaxyData.visualLandscape || { images: [], colorPalette: [] },
+      worlds: [], // Will be created as greyed out worlds
+      createdAt: new Date().toISOString(),
+    };
+
+    try {
+      console.log('[Galaxy Creation] Saving galaxy to storage...');
+      // Save galaxy (with timeout protection)
+      await Promise.race([
+        saveGalaxy(newGalaxy, universe.id),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Save timeout after 3 seconds')), 3000)
+        )
+      ]).catch((error) => {
+        console.warn('[Galaxy Creation] Save timeout or error, continuing:', error);
+      });
+      
+      console.log('[Galaxy Creation] Updating universe...');
+      // Update universe
+      const updatedUniverse: Universe = {
+        ...universe,
+        galaxies: [...universe.galaxies, newGalaxy],
+      };
+      
+      await Promise.race([
+        saveUniverse(updatedUniverse),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Universe save timeout')), 2000)
+        )
+      ]).catch((error) => {
+        console.warn('[Galaxy Creation] Universe save timeout, continuing:', error);
+      });
+      
+      setUniverse(updatedUniverse);
+      
+      // Set as current galaxy
+      saveCurrentGalaxyId(newGalaxy.id);
+      setCurrentGalaxy(newGalaxy);
+      console.log('[Galaxy Creation] Galaxy created successfully');
+    } catch (error) {
+      console.error('[Galaxy Creation] Error creating galaxy:', error);
+      // Still set the galaxy even if save fails, so user can continue
+      setCurrentGalaxy(newGalaxy);
+      const updatedUniverse: Universe = {
+        ...universe,
+        galaxies: [...universe.galaxies, newGalaxy],
+      };
+      setUniverse(updatedUniverse);
+    } finally {
+      console.log('[Galaxy Creation] Clearing loading state');
+      setIsLoading(false);
+    }
+  };
+
+  // Step 3: World Creation
+  const handleWorldCreated = async (worldData: Partial<World>) => {
+    if (!currentGalaxy) return;
+
+    const worldId = worldData.id || `world-${Date.now()}`;
+    
+    // Update snapshot strategy with correct worldId
+    let snapshotStrategy = worldData.snapshotStrategy;
+    if (snapshotStrategy) {
+      snapshotStrategy = {
+        ...snapshotStrategy,
+        worldId: worldId,
+        snapshots: snapshotStrategy.snapshots.map(snapshot => ({
+          ...snapshot,
+          worldId: worldId,
+        })),
+      };
+    }
+
+    const newWorld: World = {
+      id: worldId,
+      name: worldData.name || 'Unnamed World',
+      galaxyId: currentGalaxy.id,
+      releaseDate: worldData.releaseDate || new Date().toISOString().split('T')[0],
+      color: worldData.color || '#FFFFFF', // Ensure color is always set
+      visualLandscape: worldData.visualLandscape || { images: [], colorPalette: [] },
+      snapshotStrategy: snapshotStrategy,
+      isPublic: false,
+      isReleased: false,
+      createdAt: new Date().toISOString(),
+    };
+    
+    // Save world
+    await saveWorld(newWorld, currentGalaxy.id);
+
+    // Update galaxy with new world
+    const updatedGalaxy: Galaxy = {
+      ...currentGalaxy,
+      worlds: [...currentGalaxy.worlds, newWorld],
+    };
+    
+    // Save galaxy
+    await saveGalaxy(updatedGalaxy, currentGalaxy.universeId);
+    
+    // Update universe to include updated galaxy
+    if (universe) {
+      const updatedUniverse: Universe = {
+        ...universe,
+        galaxies: universe.galaxies.map(g => g.id === updatedGalaxy.id ? updatedGalaxy : g).concat(
+          universe.galaxies.find(g => g.id === updatedGalaxy.id) ? [] : [updatedGalaxy]
+        ),
+      };
+      await saveUniverse(updatedUniverse);
+      setUniverse(updatedUniverse);
+      // Update currentGalaxy AFTER universe to ensure consistency
+      setCurrentGalaxy(updatedGalaxy);
+    } else {
+      // If no universe, still update currentGalaxy
+      setCurrentGalaxy(updatedGalaxy);
+    }
+  };
+
+  // Delete Galaxy Handler
+  const handleDeleteGalaxy = async () => {
+    console.log('[Delete Galaxy] Starting deletion:', { galaxyId: currentGalaxy?.id, universeId: universe?.id });
+    
+    if (!currentGalaxy || !universe) {
+      console.error('[Delete Galaxy] Missing currentGalaxy or universe');
+      return;
+    }
+    
+    if (!confirm(`Are you sure you want to delete "${currentGalaxy.name}"? This will also delete all ${currentGalaxy.worlds.length} world${currentGalaxy.worlds.length !== 1 ? 's' : ''} and all snapshots in this galaxy. This action cannot be undone.`)) {
+      console.log('[Delete Galaxy] User cancelled deletion');
+      return;
+    }
+
+    try {
+      const galaxyIdToDelete = currentGalaxy.id;
+      const universeIdToUpdate = universe.id;
+      
+      console.log('[Delete Galaxy] Calling deleteGalaxy function...');
+      await deleteGalaxy(galaxyIdToDelete, universeIdToUpdate);
+      console.log('[Delete Galaxy] Galaxy deleted from storage');
+      
+      // Update universe - remove the deleted galaxy
+      const updatedUniverse: Universe = {
+        ...universe,
+        galaxies: universe.galaxies.filter(g => g.id !== galaxyIdToDelete),
+      };
+      console.log('[Delete Galaxy] Updated universe:', { 
+        oldGalaxyCount: universe.galaxies.length, 
+        newGalaxyCount: updatedUniverse.galaxies.length 
+      });
+      
+      await saveUniverse(updatedUniverse);
+      console.log('[Delete Galaxy] Universe saved');
+      
+      // Update state - clear current galaxy first, then update universe
+      // This ensures the render logic correctly shows EmptyUniverseView or universe view
+      setCurrentGalaxy(null);
+      saveCurrentGalaxyId('');
+      setUniverse(updatedUniverse);
+      console.log('[Delete Galaxy] State updated successfully');
+    } catch (error) {
+      console.error('[Delete Galaxy] Error deleting galaxy:', error);
+      alert('Failed to delete galaxy. Please try again.');
+    }
+  };
+
+  // Delete World Handler
+  const handleDeleteWorld = async (worldId: string) => {
+    console.log('[Delete World] Starting deletion:', { worldId, currentGalaxy: currentGalaxy?.id, universe: universe?.id });
+    
+    if (!currentGalaxy || !universe) {
+      console.error('[Delete World] Missing currentGalaxy or universe');
+      return;
+    }
+    
+    const world = currentGalaxy.worlds.find(w => w.id === worldId);
+    if (!world) {
+      console.error('[Delete World] World not found:', worldId);
+      return;
+    }
+    
+    if (!confirm(`Are you sure you want to delete "${world.name}"? This will also delete all snapshots for this world. This action cannot be undone.`)) {
+      console.log('[Delete World] User cancelled deletion');
+      return;
+    }
+
+    try {
+      console.log('[Delete World] Calling deleteWorld function...');
+      await deleteWorld(worldId, currentGalaxy.id);
+      console.log('[Delete World] World deleted from storage');
+      
+      // Update galaxy
+      const updatedGalaxy: Galaxy = {
+        ...currentGalaxy,
+        worlds: currentGalaxy.worlds.filter(w => w.id !== worldId),
+      };
+      console.log('[Delete World] Updated galaxy:', { 
+        oldWorldCount: currentGalaxy.worlds.length, 
+        newWorldCount: updatedGalaxy.worlds.length 
+      });
+      
+      await saveGalaxy(updatedGalaxy, universe.id);
+      console.log('[Delete World] Galaxy saved');
+      
+      // Update universe
+      const updatedUniverse: Universe = {
+        ...universe,
+        galaxies: universe.galaxies.map(g => g.id === currentGalaxy.id ? updatedGalaxy : g),
+      };
+      await saveUniverse(updatedUniverse);
+      console.log('[Delete World] Universe saved');
+      
+      setUniverse(updatedUniverse);
+      setCurrentGalaxy(updatedGalaxy);
+      console.log('[Delete World] State updated successfully');
+    } catch (error) {
+      console.error('[Delete World] Error deleting world:', error);
+      alert('Failed to delete world. Please try again.');
+    }
+  };
+
+  // Sign out function - clears session but keeps data
+  const handleSignOut = async () => {
+    console.log('[handleSignOut] Signing out...');
+    
+    // Sign out from Supabase if configured
+    if (isSupabaseConfigured()) {
+      try {
+        await supabase.auth.signOut();
+      } catch (error) {
+        console.error('[handleSignOut] Error signing out from Supabase:', error);
+      }
+    }
+    
+    // Clear account state (this will show the signup page)
+    setAccount(null);
+    setUniverse(null);
+    setCurrentGalaxy(null);
+    
+    // Clear session-related localStorage items (but keep data)
+    if (typeof window !== 'undefined') {
+      // Only clear session/auth keys, not data
+      Object.keys(localStorage).forEach(key => {
+        if (key.startsWith('sb-') || key.includes('supabase.auth')) {
+          localStorage.removeItem(key);
+        }
+      });
+    }
+    
+    console.log('[handleSignOut] Signed out successfully');
+  };
+
+  // Clear all data function (for testing)
+  const handleClearAllData = async () => {
+    if (confirm('Are you sure you want to clear all data? This will sign you out and delete everything. This action cannot be undone.')) {
+      console.log('[handleClearAllData] Starting data clear...');
+      
+      // Clear all data
+      await clearAllData();
+      
+      // Clear state immediately
+      setAccount(null);
+      setUniverse(null);
+      setCurrentGalaxy(null);
+      
+      // Wait a moment to ensure everything is cleared
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Force clear any remaining localStorage items
+      if (typeof window !== 'undefined') {
+        // Clear all multiverse-related keys
+        Object.keys(localStorage).forEach(key => {
+          if (key.startsWith('multiverse_') || key.startsWith('sb-') || key.includes('supabase')) {
+            localStorage.removeItem(key);
+          }
+        });
+      }
+      
+      console.log('[handleClearAllData] Data cleared, reloading...');
+      
+      // Reload page to reset state - use window.location.href to force a hard reload
+      window.location.href = window.location.origin + window.location.pathname;
+    }
+  };
+
+  // Handle post-onboarding completion - transition to calendar/strategy view
+  const handlePostOnboardingComplete = async (strategy: any) => {
+    console.log('[Post-Onboarding] Strategy selected:', strategy);
+    setShowPostOnboarding(false);
+    
+    // Create the universe and galaxies based on onboarding data
+    if (account?.onboardingProfile) {
+      setIsLoading(true);
+      try {
+        // Pass false to prevent restarting post-onboarding after OAuth
+        await handleEnhancedOnboardingComplete(account.onboardingProfile, false);
+      } catch (error) {
+        console.error('[Post-Onboarding] Error creating universe:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    
+    // TODO: Store the strategy and use it to pre-fill the calendar
+    // For now, just transition to the galaxy view
+  };
+
+  // Render based on current state
+  if (isInitializing) {
+    return <LoadingScreen message="Loading The Multiverse..." />;
+  }
+
+  if (isLoading) {
+    return <LoadingScreen message="Building out your galaxy..." />;
+  }
+
+  // Show post-onboarding conversation (dev mode or after completing onboarding)
+  if (showPostOnboarding && account) {
+    return (
+      <main className="flex min-h-screen flex-col items-center justify-start p-8 bg-black overflow-y-auto">
+        <div className="w-full max-w-7xl">
+          <div className="text-center mb-8">
+            <h1 className="text-5xl font-star-wars text-yellow-400 mb-4">
+              The Multiverse
+            </h1>
+            <p className="text-gray-400 font-star-wars text-lg">
+              Your Content Strategy
+            </p>
+          </div>
+          <PostOnboardingConversation
+            creatorName={account.creatorName}
+            onboardingProfile={account.onboardingProfile || DEV_TEST_DATA.onboardingProfile}
+            onComplete={handlePostOnboardingComplete}
+            skipToCalendar={skipToCalendar}
+          />
+        </div>
+      </main>
+    );
+  }
+
+  // Show enhanced onboarding if active (even if account exists)
+  if (showEnhancedOnboarding && account) {
+    return (
+      <main className="flex min-h-screen flex-col items-center justify-center p-8 bg-black">
+        <div className="w-full max-w-2xl">
+          <div className="text-center mb-8">
+            <h1 className="text-5xl font-star-wars text-yellow-400 mb-4">
+              The Multiverse
+            </h1>
+            <p className="text-gray-400 font-star-wars text-lg">
+              Build Your Visual Universe
+            </p>
+          </div>
+          <ConversationalOnboarding
+            creatorName={account.creatorName}
+            onComplete={handleEnhancedOnboardingComplete}
+          />
+        </div>
+      </main>
+    );
+  }
+
+  // If no account, show signup form
+  if (!account) {
+    return (
+      <main className="flex min-h-screen flex-col items-center justify-center p-8 bg-black">
+        <div className="w-full max-w-2xl">
+          <div className="text-center mb-8">
+            <h1 className="text-5xl font-star-wars text-yellow-400 mb-4">
+              The Multiverse
+            </h1>
+            <p className="text-gray-400 font-star-wars text-lg">
+              Build Your Visual Universe
+            </p>
+          </div>
+          <CreatorOnboardingForm onSuccess={handleAccountCreated} />
+          {/* Clear all data button */}
+          <div className="mt-8 text-center">
+            <button
+              onClick={handleClearAllData}
+              className="px-4 py-2 bg-red-600/20 hover:bg-red-600/30 border border-red-500/50 text-red-400 font-star-wars rounded text-sm transition-colors"
+            >
+              🗑️ Delete All Account Data
+            </button>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  if (currentGalaxy) {
+    const updatedUniverse: Universe = universe ? {
+      ...universe,
+      galaxies: universe.galaxies.some(g => g.id === currentGalaxy.id)
+        ? universe.galaxies.map(g => g.id === currentGalaxy.id ? currentGalaxy : g)
+        : [...universe.galaxies, currentGalaxy],
+    } : {
+      id: `universe-${Date.now()}`,
+      name: account ? `The ${account.creatorName}verse` : 'Universe',
+      creatorId: account?.creatorName || '',
+      createdAt: new Date().toISOString(),
+      galaxies: [currentGalaxy],
+    };
+
+    return (
+      <GalaxyViewWrapper
+        galaxy={currentGalaxy}
+        universe={updatedUniverse}
+        artistProfile={account?.onboardingProfile as ArtistProfile | undefined}
+        onUpdateWorld={handleWorldCreated}
+        onDeleteGalaxy={handleDeleteGalaxy}
+        onDeleteWorld={handleDeleteWorld}
+        onSignOut={handleSignOut}
+      />
+    );
+  }
+
+  if (universe) {
+    // TEMPORARY: Disabled for testing
+    return (
+      <div className="flex items-center justify-center w-full h-screen bg-black text-white">
+        <div className="text-center p-8">
+          <h1 className="text-3xl mb-4 font-bold">Your Universe</h1>
+          <p className="text-xl mb-2">Universe: {universe.name}</p>
+          <p className="text-gray-400">3D view temporarily disabled for testing</p>
+          <p className="text-sm text-gray-500 mt-4">{universe.galaxies?.length || 0} galaxies in this universe</p>
+          <p className="text-xs text-gray-600 mt-2">Create a galaxy to get started</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Fallback: shouldn't reach here, but show loading just in case
+  return <LoadingScreen message="Setting up your universe..." />;
+}
