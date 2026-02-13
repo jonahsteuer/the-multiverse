@@ -51,6 +51,16 @@ interface CalendarDay {
   isPast: boolean;
 }
 
+// Shared event data that gets saved to Supabase for team members
+export interface SharedCalendarEvent {
+  title: string;
+  description: string;
+  type: 'audience-builder' | 'teaser' | 'promo' | 'release';
+  date: string;
+  startTime: string;
+  endTime: string;
+}
+
 interface EnhancedCalendarProps {
   songName: string;
   releaseDate: string;
@@ -66,6 +76,8 @@ interface EnhancedCalendarProps {
   userPermissions?: TeamPermission; // 'full' (admin) or 'member'
   onTaskReschedule?: (taskId: string, newDate: string, startTime: string, endTime: string) => void;
   onAssignTask?: (taskId: string) => void;
+  // Callback: fires when admin calendar generates shared events (posts + release day)
+  onSharedEventsGenerated?: (events: SharedCalendarEvent[]) => void;
 }
 
 // Task templates - duration in minutes
@@ -589,6 +601,7 @@ export function EnhancedCalendar({
   userPermissions = 'full',
   onTaskReschedule,
   onAssignTask,
+  onSharedEventsGenerated,
 }: EnhancedCalendarProps) {
   const isAdmin = userPermissions === 'full';
   const timeBudget = artistProfile?.timeBudgetHoursPerWeek || 7; // Default to 7 hours
@@ -894,6 +907,81 @@ export function EnhancedCalendar({
     const tasks: ScheduledTask[] = [];
     const days: CalendarDay[] = [];
     const isMember = userPermissions === 'member';
+
+    // ================================================================
+    // MEMBER CALENDAR: Only show team tasks from Supabase (shared events + assigned tasks)
+    // No local schedule generation — all events come from admin's saved shared events
+    // ================================================================
+    if (isMember) {
+      // Generate 28 days of calendar grid
+      const allDays: { date: Date; dateStr: string; weekNum: number }[] = [];
+      for (let i = 0; i < 28; i++) {
+        const date = new Date(today.getTime() + i * 24 * 60 * 60 * 1000);
+        allDays.push({
+          date,
+          dateStr: date.toISOString().split('T')[0],
+          weekNum: Math.floor(i / 7),
+        });
+      }
+
+      // Add team tasks from Supabase (shared events + tasks assigned to this user)
+      if (teamTasks && teamTasks.length > 0) {
+        for (const tt of teamTasks) {
+          // Shared events (posts, release day) → always show
+          // Tasks → only show if assigned to current user
+          if (tt.taskCategory !== 'event' && tt.assignedTo && tt.assignedTo !== currentUserId) continue;
+
+          let calType: ScheduledTask['type'] = 'prep';
+          if (tt.type === 'post' || tt.type === 'release') calType = (tt as any).postType || tt.type as any;
+          else if (tt.type === 'edit') calType = 'edit';
+          else if (tt.type === 'shoot') calType = 'shoot';
+          else if (tt.type === 'brainstorm') calType = 'prep';
+
+          // Determine post type from title for display color
+          if (tt.taskCategory === 'event') {
+            if (tt.title.toLowerCase().includes('release')) calType = 'release';
+            else if (tt.title.toLowerCase().includes('teaser')) calType = 'teaser';
+            else if (tt.title.toLowerCase().includes('promo')) calType = 'promo';
+            else if (tt.title.toLowerCase().includes('audience')) calType = 'audience-builder';
+          }
+
+          tasks.push({
+            id: tt.id,
+            title: tt.title,
+            description: tt.description || '',
+            type: calType,
+            date: tt.date,
+            startTime: tt.startTime || '09:00',
+            endTime: tt.endTime || '10:00',
+            completed: tt.status === 'completed',
+          });
+        }
+      }
+
+      console.log('[EnhancedCalendar] 👤 Member calendar: showing', tasks.length, 'items from team tasks');
+
+      // Build calendar days
+      for (const day of allDays) {
+        days.push({
+          date: day.date,
+          tasks: tasks.filter(t => t.date === day.dateStr),
+          googleEvents: googleEvents.filter(e => {
+            const eventDate = new Date(e.start).toISOString().split('T')[0];
+            return eventDate === day.dateStr;
+          }),
+          isToday: day.weekNum === 0 && day.date.getTime() === today.getTime(),
+          isPast: false,
+        });
+      }
+
+      setScheduledTasks(tasks);
+      setCalendar(days);
+      return; // Done — member calendar doesn't generate anything locally
+    }
+    
+    // ================================================================
+    // ADMIN CALENDAR: Full local schedule generation
+    // ================================================================
     
     // Add release dates from artist profile
     const releases = (artistProfile as any)?.releases || [];
@@ -951,8 +1039,8 @@ export function EnhancedCalendar({
       });
     };
 
-    // PREP PHASE (Weeks 1-2): Only for admin — team members don't see prep tasks
-    if (!isMember) {
+    // PREP PHASE (Weeks 1-2): Admin-only (members return early above)
+    {
       const week1Tasks = [...PREP_TASKS_WEEK1];
       const week2Tasks = [...PREP_TASKS_WEEK2];
       
@@ -1017,7 +1105,7 @@ export function EnhancedCalendar({
           }
         }
       }
-    } // end admin-only prep phase
+    } // end prep phase
     
     // POSTING PHASE (Weeks 3-4): Schedule posts (shared events) + prep tasks (admin only)
     for (let weekNum = 2; weekNum < 4; weekNum++) {
@@ -1046,10 +1134,7 @@ export function EnhancedCalendar({
         const maxPostsThisWeek = targetPostsPerWeek;
         
         // Schedule posts (not just on preferred days)
-        // For members, skip the alternation logic — just check if slot is free
-        const shouldPost = isMember
-          ? (tasks.filter(t => t.type !== 'prep' && t.date === day.dateStr).length === 0)
-          : (tasksScheduledThisWeek % 2 === 0 && tasks.filter(t => t.type !== 'prep' && t.date === day.dateStr).length === 0);
+        const shouldPost = tasksScheduledThisWeek % 2 === 0 && (tasks.filter(t => t.type !== 'prep' && t.date === day.dateStr).length === 0);
         
         // Count total posts scheduled in this week so far
         const postsThisWeek = tasks.filter(t => {
@@ -1144,8 +1229,8 @@ export function EnhancedCalendar({
           }
         }
         
-        // Fill remaining time with prep tasks for future content (admin only)
-        if (!isMember && timeSpentPerWeek[weekNum] < weeklyBudgetMinutes && prepTaskIndex < POSTING_TASKS.length) {
+        // Fill remaining time with prep tasks for future content
+        if (timeSpentPerWeek[weekNum] < weeklyBudgetMinutes && prepTaskIndex < POSTING_TASKS.length) {
           const prepTask = POSTING_TASKS[prepTaskIndex];
           const adjustedDuration = Math.min(prepTask.duration, weeklyBudgetMinutes - timeSpentPerWeek[weekNum]);
           
@@ -1202,10 +1287,8 @@ export function EnhancedCalendar({
         }
       }
       
-      // 2. Add edit day tasks — only for admin or the assignee
+      // 2. Add edit day tasks (admin view — members get these via team_tasks)
       for (const editDay of brainstormResult.editDays) {
-        // For members, only show edit days assigned to them
-        if (isMember && editDay.assignedTo && editDay.assignedTo !== currentUserId) continue;
         
         const FORMAT_LABELS: Record<string, string> = {
           'music_video_snippet': 'Music Video Snippet',
@@ -1251,20 +1334,17 @@ export function EnhancedCalendar({
     }
     
     // ================================================================
-    // ADD TEAM TASKS FROM SUPABASE
-    // These are tasks explicitly assigned to the current user or shared events
+    // ADD ADMIN'S TEAM TASKS FROM SUPABASE (tasks assigned to the admin)
     // ================================================================
     if (teamTasks && teamTasks.length > 0) {
       for (const tt of teamTasks) {
-        // Skip tasks that are already represented by generated schedule items
+        // Skip shared events — admin already generates these locally
+        if (tt.taskCategory === 'event') continue;
+        // Skip tasks already represented by generated schedule
         if (tasks.some(t => t.id === tt.id)) continue;
+        // Skip tasks assigned to someone else
+        if (tt.assignedTo && tt.assignedTo !== currentUserId) continue;
         
-        // Only show tasks assigned to the current user, or shared events
-        // (Both admin and member only see their own tasks on the calendar)
-        if (tt.taskCategory === 'event') { /* shared events — always show */ }
-        else if (tt.assignedTo && tt.assignedTo !== currentUserId) continue;
-        
-        // Map team task type to calendar type
         let calType: ScheduledTask['type'] = 'prep';
         if (tt.type === 'edit') calType = 'edit';
         else if (tt.type === 'shoot') calType = 'shoot';
@@ -1300,6 +1380,26 @@ export function EnhancedCalendar({
     
     setScheduledTasks(tasks);
     setCalendar(days);
+
+    // ================================================================
+    // SAVE SHARED EVENTS: Notify parent of the shared events (posts + release day)
+    // so they can be saved to Supabase for team members to see
+    // ================================================================
+    if (onSharedEventsGenerated) {
+      const sharedEvents: SharedCalendarEvent[] = tasks
+        .filter(t => t.type === 'audience-builder' || t.type === 'teaser' || t.type === 'promo' || t.type === 'release')
+        .map(t => ({
+          title: t.title,
+          description: t.description,
+          type: t.type as SharedCalendarEvent['type'],
+          date: t.date,
+          startTime: t.startTime,
+          endTime: t.endTime,
+        }));
+      if (sharedEvents.length > 0) {
+        onSharedEventsGenerated(sharedEvents);
+      }
+    }
   }, [googleEvents, releaseDate, timeBudget, preferredDays, brainstormResult, userPermissions, currentUserId, teamTasks]);
 
   const formatTime = (time: string) => {
@@ -1372,16 +1472,23 @@ export function EnhancedCalendar({
 
       {/* Artist Info Banner */}
       <div className="mb-4 p-3 bg-gray-800/50 border border-gray-700 rounded-lg flex justify-between items-center">
-        <div className="flex gap-6">
-          <div>
-            <span className="text-xs text-gray-500">Weekly Time Budget</span>
-            <p className="text-yellow-400 font-semibold">{timeBudget} hours/week</p>
+        {isAdmin ? (
+          <div className="flex gap-6">
+            <div>
+              <span className="text-xs text-gray-500">Weekly Time Budget</span>
+              <p className="text-yellow-400 font-semibold">{timeBudget} hours/week</p>
+            </div>
+            <div>
+              <span className="text-xs text-gray-500">Preferred Days</span>
+              <p className="text-green-400 font-semibold capitalize">{preferredDays.join(', ')}</p>
+            </div>
           </div>
+        ) : (
           <div>
-            <span className="text-xs text-gray-500">Preferred Days</span>
-            <p className="text-green-400 font-semibold capitalize">{preferredDays.join(', ')}</p>
+            <span className="text-xs text-gray-500">Role</span>
+            <p className="text-purple-400 font-semibold">Team Member</p>
           </div>
-        </div>
+        )}
         <div className="flex items-center gap-3">
           {artistProfile?.hasTeam && (
             <div className="text-right">
@@ -1415,8 +1522,8 @@ export function EnhancedCalendar({
         </div>
       </div>
 
-      {/* Phase Labels - only show in calendar view */}
-      {viewMode === 'calendar' && (
+      {/* Phase Labels - only show in calendar view for admin */}
+      {viewMode === 'calendar' && isAdmin && (
         <div className="flex mb-4 text-sm">
           <div className="flex-1 text-center py-2 bg-blue-500/20 border border-blue-500/50 rounded-l-lg text-blue-300">
             📋 Prep Phase (2 weeks)

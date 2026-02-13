@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { connectGoogleCalendar, checkCalendarConnection } from '@/lib/google-oauth';
 import dynamic from 'next/dynamic';
 import type {
@@ -482,6 +482,46 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
       console.error('[GalaxyView] Error rescheduling task:', err);
     }
   };
+
+  // Save shared events (posts + release day) to Supabase so team members can see them
+  const sharedEventsSavedRef = useRef(false); // prevent duplicate saves
+  const handleSharedEventsGenerated = useCallback(async (events: { title: string; description: string; type: string; date: string; startTime: string; endTime: string }[]) => {
+    if (!team || !effectiveIsAdmin || sharedEventsSavedRef.current) return;
+
+    // Check if shared events already exist for this galaxy
+    const existingEvents = teamTasks.filter(t => t.taskCategory === 'event' && t.galaxyId === galaxy.id);
+    if (existingEvents.length >= events.length) {
+      console.log('[GalaxyView] Shared events already saved:', existingEvents.length);
+      return;
+    }
+
+    sharedEventsSavedRef.current = true;
+    console.log('[GalaxyView] 📤 Saving', events.length, 'shared events to Supabase for team members...');
+
+    try {
+      for (const event of events) {
+        // Map calendar type to team task type
+        let taskType: string = 'post';
+        if (event.type === 'release') taskType = 'release';
+
+        await createTask(team.id, {
+          galaxyId: galaxy.id,
+          title: event.title,
+          description: event.description,
+          type: taskType as any,
+          taskCategory: 'event',
+          date: event.date,
+          startTime: event.startTime,
+          endTime: event.endTime,
+        });
+      }
+      console.log('[GalaxyView] ✅ Shared events saved successfully');
+      loadTeamData(); // Reload to include the new events
+    } catch (err) {
+      console.error('[GalaxyView] Error saving shared events:', err);
+      sharedEventsSavedRef.current = false; // Allow retry on error
+    }
+  }, [team, effectiveIsAdmin, teamTasks, galaxy.id]);
 
   // Build display tasks — use real team tasks if available, else generate defaults
   // IMPORTANT: Only admin users see default tasks. Invited members only see tasks assigned to them.
@@ -969,7 +1009,7 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
                   songName={galaxy.name}
                   releaseDate={galaxy.releaseDate || ''}
                   showGoogleSync={false}
-                  artistProfile={effectiveIsAdmin ? artistProfile : (adminArtistProfile || artistProfile) || undefined}
+                  artistProfile={artistProfile || undefined}
                   brainstormResult={brainstormResult || undefined}
                   teamTasks={teamTasks}
                   teamMembers={teamMembers}
@@ -977,6 +1017,7 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
                   userPermissions={effectiveIsAdmin ? 'full' : 'member'}
                   onTaskReschedule={handleTaskReschedule}
                   onAssignTask={effectiveIsAdmin ? handleAssignTask : undefined}
+                  onSharedEventsGenerated={effectiveIsAdmin ? handleSharedEventsGenerated : undefined}
                   onTaskComplete={(taskId) => {
                     console.log('[GalaxyView] Task completed:', taskId);
                     loadTeamData();
