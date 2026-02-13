@@ -25,10 +25,23 @@ import type {
 
 /** Create a team for a universe (called after onboarding) */
 export async function createTeam(universeId: string, name: string): Promise<Team | null> {
-  if (!isSupabaseConfigured()) return null;
+  console.log('[Team] createTeam called:', { universeId, name });
+  
+  if (!isSupabaseConfigured()) {
+    console.error('[Team] Supabase not configured!');
+    return null;
+  }
 
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError) {
+    console.error('[Team] Auth error:', authError);
+    return null;
+  }
+  if (!user) {
+    console.error('[Team] No authenticated user!');
+    return null;
+  }
+  console.log('[Team] Authenticated user:', user.id);
 
   const { data, error } = await supabase
     .from('teams')
@@ -41,12 +54,20 @@ export async function createTeam(universeId: string, name: string): Promise<Team
     .single();
 
   if (error) {
-    console.error('[Team] Error creating team:', error);
+    console.error('[Team] Error creating team:', {
+      code: error.code,
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+    });
     return null;
   }
 
+  console.log('[Team] Team created successfully:', data.id);
+
   // Add creator as admin member
-  await addTeamMember(data.id, user.id, 'admin', 'full', name.replace("'s Team", ''));
+  const member = await addTeamMember(data.id, user.id, 'admin', 'full', name.replace("'s Team", ''));
+  console.log('[Team] Admin member added:', member ? 'success' : 'FAILED');
 
   return mapTeamFromDb(data);
 }

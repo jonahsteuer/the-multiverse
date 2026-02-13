@@ -28,20 +28,25 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { universeId, name } = await request.json();
+    const body = await request.json();
+    console.log('[API/team POST] Request body:', body);
+    const { universeId, name } = body;
     if (!universeId || !name) {
+      console.log('[API/team POST] Missing required fields:', { universeId, name });
       return NextResponse.json({ error: 'universeId and name required' }, { status: 400 });
     }
 
+    console.log('[API/team POST] Calling createTeam...');
     const team = await createTeam(universeId, name);
+    console.log('[API/team POST] createTeam result:', team);
     if (!team) {
-      return NextResponse.json({ error: 'Failed to create team' }, { status: 500 });
+      return NextResponse.json({ error: 'Failed to create team — createTeam returned null' }, { status: 500 });
     }
 
     return NextResponse.json({ success: true, team });
-  } catch (error) {
-    console.error('[API/team] Error:', error);
-    return NextResponse.json({ error: 'Failed to create team' }, { status: 500 });
+  } catch (error: any) {
+    console.error('[API/team POST] Error:', error?.message || error, error?.stack);
+    return NextResponse.json({ error: `Failed to create team: ${error?.message || 'unknown'}` }, { status: 500 });
   }
 }
 

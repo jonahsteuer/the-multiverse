@@ -26,7 +26,7 @@ const creatorOnboardingSchema = z.object({
 type CreatorOnboardingFormData = z.infer<typeof creatorOnboardingSchema>;
 
 interface CreatorOnboardingFormProps {
-  onSuccess?: (data: CreatorAccountData) => void;
+  onSuccess?: (data: CreatorAccountData) => void | Promise<void>;
 }
 
 const USER_TYPES: { value: UserType; label: string }[] = [
@@ -122,12 +122,15 @@ export function CreatorOnboardingForm({ onSuccess }: CreatorOnboardingFormProps)
         // Use Supabase authentication
         if (isLogin) {
           // Sign in
+          console.log('[SignIn] 🔄 Attempting sign in for:', data.email);
           const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
             email: data.email,
             password: data.password,
           });
+          console.log('[SignIn] ✅ Auth response received');
 
           if (authError) {
+            console.error('[SignIn] ❌ Auth error:', authError.message);
             // Handle email confirmation error specifically
             if (authError.message?.includes('Email not confirmed') || authError.message?.includes('email_not_confirmed')) {
               throw new Error(
@@ -138,8 +141,10 @@ export function CreatorOnboardingForm({ onSuccess }: CreatorOnboardingFormProps)
             throw authError;
           }
           if (!authData.user) throw new Error('Sign in failed');
+          console.log('[SignIn] ✅ User authenticated:', authData.user.id);
 
           // Load account from database
+          console.log('[SignIn] 🔄 Loading profile from database...');
           const { data: profileData } = await supabase
             .from('profiles')
             .select('*')
@@ -149,6 +154,7 @@ export function CreatorOnboardingForm({ onSuccess }: CreatorOnboardingFormProps)
           if (!profileData) {
             throw new Error('Profile not found. Please sign up first.');
           }
+          console.log('[SignIn] ✅ Profile loaded:', profileData.creator_name, 'onboarding_complete:', profileData.onboarding_complete);
 
           // Load onboarding data from profile if it exists
           const onboardingComplete = profileData.onboarding_complete || false;
@@ -493,8 +499,22 @@ export function CreatorOnboardingForm({ onSuccess }: CreatorOnboardingFormProps)
       // Save account (to Supabase or localStorage)
       await saveAccount(accountData);
 
+      console.log('[CreatorOnboarding] ✅ Account saved, calling onSuccess');
+      
       if (onSuccess) {
-        onSuccess(accountData);
+        // Don't await — let the parent handle loading state independently
+        // This ensures the form becomes interactive again quickly
+        try {
+          const result = onSuccess(accountData);
+          // If it's a promise, attach error handler to prevent unhandled rejection
+          if (result && typeof (result as any).catch === 'function') {
+            (result as any).catch((err: Error) => {
+              console.error('[CreatorOnboarding] onSuccess handler error:', err);
+            });
+          }
+        } catch (err) {
+          console.error('[CreatorOnboarding] onSuccess sync error:', err);
+        }
       }
     } catch (error) {
       console.error('Error with account:', error);

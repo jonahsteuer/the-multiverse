@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { acceptInvitation } from '@/lib/team';
 import type { TeamInvitation } from '@/types';
 
 export default function InviteAcceptPage() {
@@ -98,19 +99,17 @@ export default function InviteAcceptPage() {
           return;
         }
 
-        // Accept the invitation with existing user
-        const response = await fetch('/api/team/invite', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: 'accept',
-            token,
-            userId: signInData.user.id,
-            displayName,
-          }),
-        });
+        // Save to localStorage for main page
+        localStorage.setItem('multiverse_account', JSON.stringify({
+          creatorName: displayName,
+          email,
+          password: '',
+          userType: invitation?.role || 'videographer',
+          onboardingComplete: true,
+        }));
 
-        const result = await response.json();
+        // Accept the invitation directly (client-side, so Supabase has the user session)
+        const result = await acceptInvitation(token, signInData.user.id, displayName);
         if (result.success) {
           setAccepted(true);
         } else {
@@ -136,19 +135,17 @@ export default function InviteAcceptPage() {
         updated_at: new Date().toISOString(),
       });
 
-      // 3. Accept the invitation
-      const response = await fetch('/api/team/invite', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'accept',
-          token,
-          userId: authData.user.id,
-          displayName,
-        }),
-      });
+      // 2b. Save to localStorage so main page can load account
+      localStorage.setItem('multiverse_account', JSON.stringify({
+        creatorName: displayName,
+        email,
+        password: '',
+        userType: invitation?.role || 'videographer',
+        onboardingComplete: true,
+      }));
 
-      const result = await response.json();
+      // 3. Accept the invitation directly (client-side, so Supabase has the user session)
+      const result = await acceptInvitation(token, authData.user.id, displayName);
       if (result.success) {
         setAccepted(true);
       } else {

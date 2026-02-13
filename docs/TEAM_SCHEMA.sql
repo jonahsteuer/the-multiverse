@@ -78,7 +78,7 @@ CREATE TABLE IF NOT EXISTS public.notifications (
   team_id uuid REFERENCES public.teams(id) ON DELETE CASCADE,
   type text NOT NULL CHECK (type IN (
     'task_assigned', 'task_completed', 'task_rescheduled', 
-    'invite_accepted', 'member_joined', 'general'
+    'invite_accepted', 'member_joined', 'brainstorm_completed', 'general'
   )),
   title text NOT NULL,
   message text NOT NULL,
@@ -120,10 +120,11 @@ ALTER TABLE public.team_invitations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.team_tasks ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
 
--- TEAMS: Users can see teams they're a member of
+-- TEAMS: Users can see teams they created or are a member of
 CREATE POLICY "Users can view their teams" ON public.teams
   FOR SELECT USING (
-    id IN (SELECT team_id FROM public.team_members WHERE user_id = auth.uid())
+    created_by = auth.uid()
+    OR id IN (SELECT team_id FROM public.team_members WHERE user_id = auth.uid())
   );
 
 CREATE POLICY "Users can create teams" ON public.teams
@@ -137,15 +138,23 @@ CREATE POLICY "Admins can update their teams" ON public.teams
     )
   );
 
--- TEAM MEMBERS: Users can see members of their teams
+-- TEAM MEMBERS: Users can see members of teams they created or belong to
 CREATE POLICY "Users can view team members" ON public.team_members
   FOR SELECT USING (
-    team_id IN (SELECT team_id FROM public.team_members WHERE user_id = auth.uid())
+    -- You can see members of teams you created
+    team_id IN (SELECT id FROM public.teams WHERE created_by = auth.uid())
+    -- Or you can see your own membership row (prevents recursion)
+    OR user_id = auth.uid()
   );
 
 CREATE POLICY "Admins can add team members" ON public.team_members
   FOR INSERT WITH CHECK (
+    -- Team creator can add the first member (themselves)
     team_id IN (
+      SELECT id FROM public.teams WHERE created_by = auth.uid()
+    )
+    -- Existing admins can add members
+    OR team_id IN (
       SELECT team_id FROM public.team_members 
       WHERE user_id = auth.uid() AND permissions = 'full'
     )
@@ -155,16 +164,14 @@ CREATE POLICY "Admins can add team members" ON public.team_members
 CREATE POLICY "Admins can update team members" ON public.team_members
   FOR UPDATE USING (
     team_id IN (
-      SELECT team_id FROM public.team_members 
-      WHERE user_id = auth.uid() AND permissions = 'full'
+      SELECT id FROM public.teams WHERE created_by = auth.uid()
     )
   );
 
 CREATE POLICY "Admins can remove team members" ON public.team_members
   FOR DELETE USING (
     team_id IN (
-      SELECT team_id FROM public.team_members 
-      WHERE user_id = auth.uid() AND permissions = 'full'
+      SELECT id FROM public.teams WHERE created_by = auth.uid()
     )
   );
 
@@ -172,8 +179,7 @@ CREATE POLICY "Admins can remove team members" ON public.team_members
 CREATE POLICY "Admins can create invitations" ON public.team_invitations
   FOR INSERT WITH CHECK (
     team_id IN (
-      SELECT team_id FROM public.team_members 
-      WHERE user_id = auth.uid() AND permissions = 'full'
+      SELECT id FROM public.teams WHERE created_by = auth.uid()
     )
   );
 
@@ -186,12 +192,23 @@ CREATE POLICY "Invitations can be updated" ON public.team_invitations
 -- TEAM TASKS: Members see their tasks + shared events
 CREATE POLICY "Members can view their tasks and events" ON public.team_tasks
   FOR SELECT USING (
-    team_id IN (SELECT team_id FROM public.team_members WHERE user_id = auth.uid())
+    -- Team creator can see all tasks
+    team_id IN (SELECT id FROM public.teams WHERE created_by = auth.uid())
+    -- Or tasks assigned to this user
+    OR assigned_to = auth.uid()
+    -- Or shared events (visible to everyone on the team)
+    OR (task_category = 'event' AND team_id IN (
+      SELECT id FROM public.teams WHERE created_by = auth.uid()
+    ))
   );
 
 CREATE POLICY "Admins can create tasks" ON public.team_tasks
   FOR INSERT WITH CHECK (
+    -- Team creator can create tasks
     team_id IN (
+      SELECT id FROM public.teams WHERE created_by = auth.uid()
+    )
+    OR team_id IN (
       SELECT team_id FROM public.team_members 
       WHERE user_id = auth.uid() AND permissions = 'full'
     )
@@ -201,16 +218,14 @@ CREATE POLICY "Task owners and admins can update tasks" ON public.team_tasks
   FOR UPDATE USING (
     assigned_to = auth.uid() -- Task assignee can update (reschedule)
     OR team_id IN (
-      SELECT team_id FROM public.team_members 
-      WHERE user_id = auth.uid() AND permissions = 'full'
+      SELECT id FROM public.teams WHERE created_by = auth.uid()
     )
   );
 
 CREATE POLICY "Admins can delete tasks" ON public.team_tasks
   FOR DELETE USING (
     team_id IN (
-      SELECT team_id FROM public.team_members 
-      WHERE user_id = auth.uid() AND permissions = 'full'
+      SELECT id FROM public.teams WHERE created_by = auth.uid()
     )
   );
 

@@ -26,6 +26,7 @@ interface GalaxyViewWrapperProps {
   onDeleteGalaxy?: () => void;
   onDeleteWorld?: (worldId: string) => void;
   onSignOut?: () => void;
+  onDeleteAccount?: () => void;
 }
 
 export function GalaxyViewWrapper(props: GalaxyViewWrapperProps) {

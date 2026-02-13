@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import type { TeamRole, TeamInvitation } from '@/types';
+import { createInvitation } from '@/lib/team';
 
 interface InviteModalProps {
   teamId: string;
@@ -34,27 +35,23 @@ export function InviteModal({ teamId, teamName, onClose, onInviteCreated }: Invi
     setError(null);
 
     try {
-      const response = await fetch('/api/team/invite', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          teamId,
-          role: selectedRole,
-          invitedName: name || undefined,
-          invitedEmail: email || undefined,
-        }),
-      });
+      const invitation = await createInvitation(
+        teamId,
+        selectedRole,
+        name || undefined,
+        email || undefined,
+      );
 
-      const data = await response.json();
-      if (data.success && data.invitation) {
+      if (invitation) {
         const baseUrl = window.location.origin;
-        const link = `${baseUrl}/invite/${data.invitation.inviteToken}`;
+        const link = `${baseUrl}/invite/${invitation.inviteToken}`;
         setInviteLink(link);
-        onInviteCreated?.(data.invitation);
+        onInviteCreated?.(invitation);
       } else {
-        setError(data.error || 'Failed to create invite');
+        setError('Failed to create invite. Please try again.');
       }
     } catch (err) {
+      console.error('[InviteModal] Error creating invite:', err);
       setError('Failed to create invite. Please try again.');
     } finally {
       setIsCreating(false);

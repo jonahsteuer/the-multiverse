@@ -9,11 +9,27 @@ import type {
 } from '@/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { TodoList } from './TodoList';
+
 import { NotificationBell, showToast } from './NotificationBell';
 import { InviteModal } from './InviteModal';
 import { TaskAssignmentDropdown } from './TaskAssignmentDropdown';
 import { BrainstormReview } from './BrainstormReview';
+import {
+  createTeam as createTeamDirect,
+  getTeamForUniverse,
+  getTeamTasks,
+  getMyTasks,
+  createTask,
+  updateTask,
+  completeTask,
+  assignTask,
+  rescheduleTask,
+  createTasksFromBrainstorm,
+  createNotification,
+  getTeamMembers,
+} from '@/lib/team';
+import { supabase } from '@/lib/supabase';
+import { clearAllData } from '@/lib/storage';
 
 // Dynamically import Galaxy3DWrapper to prevent Next.js from analyzing Three.js during compilation
 const Galaxy3DWrapper = dynamic(
@@ -56,9 +72,10 @@ interface GalaxyViewProps {
   onDeleteGalaxy?: () => void;
   onDeleteWorld?: (worldId: string) => void;
   onSignOut?: () => void;
+  onDeleteAccount?: () => void;
 }
 
-export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onDeleteGalaxy, onDeleteWorld, onSignOut }: GalaxyViewProps) {
+export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onDeleteGalaxy, onDeleteWorld, onSignOut, onDeleteAccount }: GalaxyViewProps) {
   const [selectedWorld, setSelectedWorld] = useState<World | null>(null);
   const [showWorldForm, setShowWorldForm] = useState(false);
   const [showWorldDetail, setShowWorldDetail] = useState(false);
@@ -72,11 +89,14 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
   const [teamTasks, setTeamTasks] = useState<TeamTask[]>([]);
   const [teamMembers, setTeamMembers] = useState<TeamMemberRecord[]>([]);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(true); // Default true for solo users
   const [showInviteModal, setShowInviteModal] = useState(false);
+  const [isCreatingTeam, setIsCreatingTeam] = useState(false);
   const [assigningTaskId, setAssigningTaskId] = useState<string | null>(null);
   const [showBrainstormReview, setShowBrainstormReview] = useState(false);
   const [pendingBrainstormReview, setPendingBrainstormReview] = useState<BrainstormResult | null>(null);
+  const [showProfilePanel, setShowProfilePanel] = useState(false);
 
   // Check Google Calendar connection status when calendar modal opens
   useEffect(() => {
@@ -90,45 +110,63 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
     loadTeamData();
   }, [universe.id]);
 
+  // Load stored brainstorm result from Supabase on mount
+  useEffect(() => {
+    if (!brainstormResult && galaxy.id) {
+      (async () => {
+        try {
+          const { data } = await supabase
+            .from('galaxies')
+            .select('brainstorm_result')
+            .eq('id', galaxy.id)
+            .single();
+          if (data?.brainstorm_result) {
+            console.log('[GalaxyView] Loaded brainstorm result from Supabase');
+            setBrainstormResult(data.brainstorm_result as BrainstormResult);
+          }
+        } catch (err) {
+          // Column may not exist yet, that's fine
+        }
+      })();
+    }
+  }, [galaxy.id]);
+
   const loadTeamData = useCallback(async () => {
     try {
-      // Get current user
-      const { createClient } = await import('@supabase/supabase-js');
-      const supabase = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
-      );
+      // Get current user (client-side — has session in localStorage)
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         setCurrentUserId(user.id);
+        setCurrentUserEmail(user.email || null);
       }
 
-      // Load team for this universe
-      const teamResponse = await fetch(`/api/team?universeId=${universe.id}`);
-      const teamData = await teamResponse.json();
-      if (teamData.success && teamData.team) {
-        setTeam(teamData.team);
+      // Load team for this universe (direct Supabase call, not API route)
+      const teamData = await getTeamForUniverse(universe.id);
+      if (teamData) {
+        setTeam(teamData);
 
         // Determine admin status
-        const members: TeamMemberRecord[] = teamData.team.members || [];
+        const members: TeamMemberRecord[] = teamData.members || [];
         setTeamMembers(members);
+        let userIsAdmin = false;
         if (user) {
           const myMember = members.find(m => m.userId === user.id);
-          setIsAdmin(myMember?.permissions === 'full' || !myMember); // Default admin if not a team member yet
+          // Only full permission holders are admins; unknown members are NOT admin
+          userIsAdmin = myMember?.permissions === 'full' || false;
+          setIsAdmin(userIsAdmin);
         }
 
-        // Load tasks
-        const tasksResponse = await fetch(`/api/team/tasks?teamId=${teamData.team.id}&view=${isAdmin ? 'all' : 'my'}`);
-        const tasksData = await tasksResponse.json();
-        if (tasksData.success) {
-          setTeamTasks(tasksData.tasks || []);
-        }
+        // Load tasks (direct Supabase call)
+        const tasks = userIsAdmin
+          ? await getTeamTasks(teamData.id)
+          : await getMyTasks(teamData.id);
+        setTeamTasks(tasks);
       }
     } catch (err) {
       // Team system not set up yet — that's fine, will work in solo mode
-      console.log('[GalaxyView] Team system not loaded (may not be set up yet)');
+      console.log('[GalaxyView] Team system not loaded (may not be set up yet)', err);
     }
-  }, [universe.id, isAdmin]);
+  }, [universe.id]);
 
   const handleWorldClick = (world: World) => {
     if (world.name && world.name !== 'Unnamed World') {
@@ -173,32 +211,43 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
     // Create tasks from brainstorm result if team exists
     if (team) {
       try {
-        await fetch('/api/team/tasks', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: 'brainstorm',
-            teamId: team.id,
-            galaxyId: galaxy.id,
-            brainstormResult: result,
-          }),
-        });
+        await createTasksFromBrainstorm(team.id, galaxy.id, result);
 
         // Mark the brainstorm task as completed
         const brainstormTask = teamTasks.find(t => t.type === 'brainstorm' && t.galaxyId === galaxy.id);
         if (brainstormTask) {
-          await fetch('/api/team/tasks', {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'complete', taskId: brainstormTask.id }),
-          });
+          await completeTask(brainstormTask.id);
         }
 
-        // Notify admin about brainstorm completion
-        const admins = teamMembers.filter(m => m.permissions === 'full' && m.userId !== currentUserId);
-        if (admins.length > 0) {
-          // The notification is auto-sent by completeTask in the backend
-          console.log('[GalaxyView] Admin(s) notified about brainstorm completion');
+        // Store the brainstorm result in Supabase (galaxy metadata)
+        try {
+          await supabase
+            .from('galaxies')
+            .update({ brainstorm_result: result })
+            .eq('id', galaxy.id);
+          console.log('[GalaxyView] Brainstorm result saved to galaxy');
+        } catch (saveErr) {
+          console.warn('[GalaxyView] Could not save brainstorm result to galaxy:', saveErr);
+        }
+
+        // Send brainstorm_completed notification to all admins
+        const members = await getTeamMembers(team.id);
+        const admins = members.filter(m => m.permissions === 'full' && m.userId !== currentUserId);
+        for (const admin of admins) {
+          await createNotification(
+            admin.userId,
+            team.id,
+            'brainstorm_completed',
+            'Content brainstorm completed!',
+            `Content formats have been chosen for ${galaxy.name}. Tap to review.`,
+            {
+              galaxyId: galaxy.id,
+              galaxyName: galaxy.name,
+              formatCount: result.formatAssignments.length,
+              editDays: result.editDays.length,
+              shootDays: result.shootDays.length,
+            }
+          );
         }
 
         // Reload tasks
@@ -209,18 +258,46 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
     }
   };
 
+  /** Ensure a team exists — creates one on-demand if needed */
+  const ensureTeam = async (): Promise<Team | null> => {
+    if (team) return team;
+    setIsCreatingTeam(true);
+    try {
+      const teamName = `${galaxy.name}'s Team`;
+      console.log('[GalaxyView] Creating team:', teamName);
+      const newTeam = await createTeamDirect(universe.id, teamName);
+      if (newTeam) {
+        console.log('[GalaxyView] Team created:', newTeam.id);
+        setTeam(newTeam);
+        await loadTeamData();
+        return newTeam;
+      } else {
+        console.error('[GalaxyView] createTeam returned null');
+      }
+    } catch (err) {
+      console.error('[GalaxyView] Error creating team:', err);
+    } finally {
+      setIsCreatingTeam(false);
+    }
+    return null;
+  };
+
+  /** Handle opening the invite modal — auto-creates team if needed */
+  const handleOpenInviteModal = async () => {
+    const t = await ensureTeam();
+    if (t) {
+      setShowInviteModal(true);
+    }
+  };
+
   const handleTaskClick = async (task: TeamTask) => {
     // Handle specific task types
     switch (task.type) {
       case 'invite_team':
-        setShowInviteModal(true);
+        await handleOpenInviteModal();
         // Auto-complete invite task when modal opens
-        if (team) {
-          await fetch('/api/team/tasks', {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'complete', taskId: task.id }),
-          });
+        if (team && task.id && !task.id.startsWith('default-')) {
+          await completeTask(task.id);
           loadTeamData();
         }
         break;
@@ -229,12 +306,8 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
         break;
       default:
         // For other tasks, just mark them as in_progress
-        if (task.status === 'pending') {
-          await fetch('/api/team/tasks', {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ taskId: task.id, status: 'in_progress' }),
-          });
+        if (task.status === 'pending' && task.id && !task.id.startsWith('default-')) {
+          await updateTask(task.id, { status: 'in_progress' });
           loadTeamData();
         }
         break;
@@ -263,21 +336,17 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
     // Create a "Revise Content Plan" task for the original assignee
     const assignee = pendingBrainstormReview.completedBy;
     if (assignee) {
-      await fetch('/api/team/tasks', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          teamId: team.id,
-          galaxyId: galaxy.id,
-          title: 'Revise Content Plan',
-          description: notes,
-          type: 'brainstorm',
-          taskCategory: 'task',
-          date: new Date().toISOString().split('T')[0],
-          startTime: `${new Date().getHours().toString().padStart(2, '0')}:${new Date().getMinutes().toString().padStart(2, '0')}`,
-          endTime: `${new Date().getHours().toString().padStart(2, '0')}:${Math.min(new Date().getMinutes() + 30, 59).toString().padStart(2, '0')}`,
-          assignedTo: assignee,
-        }),
+      const now = new Date();
+      await createTask(team.id, {
+        galaxyId: galaxy.id,
+        title: 'Revise Content Plan',
+        description: notes,
+        type: 'brainstorm',
+        taskCategory: 'task',
+        date: now.toISOString().split('T')[0],
+        startTime: `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`,
+        endTime: `${now.getHours().toString().padStart(2, '0')}:${Math.min(now.getMinutes() + 30, 59).toString().padStart(2, '0')}`,
+        assignedTo: assignee,
       });
     }
 
@@ -299,23 +368,60 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
   const handleTaskReschedule = async (taskId: string, newDate: string, startTime: string, endTime: string) => {
     if (!team) return;
     try {
-      await fetch('/api/team/tasks', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'reschedule',
-          taskId,
-          teamId: team.id,
-          date: newDate,
-          startTime,
-          endTime,
-        }),
-      });
+      await rescheduleTask(taskId, newDate, startTime, endTime, team.id);
       loadTeamData();
     } catch (err) {
       console.error('[GalaxyView] Error rescheduling task:', err);
     }
   };
+
+  // Build display tasks — use real team tasks if available, else generate defaults
+  // IMPORTANT: Only admin users see default tasks. Invited members only see tasks assigned to them.
+  const displayTasks: TeamTask[] = (() => {
+    if (teamTasks.length > 0) return teamTasks;
+    // If not admin (invited user), show nothing — they only see explicitly assigned tasks
+    if (!isAdmin) return [];
+    // Admin with no tasks yet — show default tasks
+    const now = new Date();
+    const todayStr = now.toISOString().split('T')[0];
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    const h = now.getHours();
+    const m = now.getMinutes();
+    return [
+      {
+        id: 'default-invite',
+        teamId: '',
+        galaxyId: galaxy.id,
+        title: 'Invite team members',
+        description: 'Add your collaborators so they can help with content creation.',
+        type: 'invite_team' as const,
+        taskCategory: 'task' as const,
+        date: todayStr,
+        startTime: `${pad(h)}:${pad(m)}`,
+        endTime: `${pad(h)}:${pad(Math.min(m + 15, 59))}`,
+        status: 'pending' as const,
+        assignedBy: '',
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+      },
+      {
+        id: 'default-brainstorm',
+        teamId: '',
+        galaxyId: galaxy.id,
+        title: 'Brainstorm Content',
+        description: 'Choose content formats for your scheduled posts.',
+        type: 'brainstorm' as const,
+        taskCategory: 'task' as const,
+        date: todayStr,
+        startTime: `${pad(h)}:${pad(Math.min(m + 15, 59))}`,
+        endTime: `${pad(h + (m + 30 >= 60 ? 1 : 0))}:${pad((m + 30) % 60)}`,
+        status: brainstormResult ? 'completed' as const : 'pending' as const,
+        assignedBy: '',
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+      },
+    ];
+  })();
 
   return (
     <div className="relative w-full h-screen bg-black">
@@ -326,18 +432,12 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
         onWorldClick={handleWorldClick}
       />
 
-      {/* Info Panel with Todo List */}
-      <div className="absolute top-4 left-4 z-10 bg-black/80 border border-yellow-500/30 rounded-lg p-4 max-w-xs">
-        <h2 className="text-xl font-star-wars text-yellow-400 mb-2">{galaxy.name}</h2>
-        <p className="text-sm text-gray-400 mb-2">
-          {galaxy.worlds.length} world{galaxy.worlds.length !== 1 ? 's' : ''} created
-        </p>
+      {/* Info Panel (top-left) — compact action buttons only */}
+      <div className="absolute top-4 left-4 z-10 bg-black/80 border border-yellow-500/30 rounded-lg p-4 max-w-[260px]">
         <p className="text-xs text-gray-500 mb-3">
           Click on a world to view timeline, shoot days, and calendar sync
         </p>
-
-        {/* Action Buttons */}
-        <div className="flex flex-col gap-2 mb-3">
+        <div className="flex flex-col gap-2">
           <div className="flex gap-2">
             <button
               onClick={() => setShowCalendar(true)}
@@ -359,44 +459,72 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
               </button>
             )}
           </div>
-          {/* Brainstorm Content Button */}
-          <button
-            onClick={() => setShowBrainstorm(true)}
-            className={`w-full px-3 py-2 font-star-wars font-bold rounded text-sm transition-all ${
-              brainstormResult
-                ? 'bg-green-600/30 border border-green-500/50 text-green-300 hover:bg-green-600/40'
-                : 'bg-purple-600 hover:bg-purple-700 text-white animate-pulse'
-            }`}
-          >
-            {brainstormResult ? '✅ Content Brainstormed' : '🧠 Brainstorm Content'}
-          </button>
-          {/* Invite Team Button (admin only) */}
-          {isAdmin && (
-            <button
-              onClick={() => setShowInviteModal(true)}
-              className="w-full px-3 py-2 bg-blue-600/80 hover:bg-blue-600 text-white font-star-wars font-bold rounded text-sm transition-all"
-            >
-              👥 Invite Team
-            </button>
-          )}
         </div>
-
-        {/* Todo List */}
-        {teamTasks.length > 0 && (
-          <TodoList
-            teamId={team?.id || ''}
-            galaxyId={galaxy.id}
-            tasks={teamTasks}
-            teamMembers={teamMembers}
-            currentUserId={currentUserId || undefined}
-            isAdmin={isAdmin}
-            onTaskClick={handleTaskClick}
-            onAssignTask={isAdmin ? handleAssignTask : undefined}
-          />
-        )}
       </div>
 
-      {/* Top Right: Sign Out + Notifications */}
+      {/* Centered Todo List — below the galaxy title */}
+      <div className="absolute top-[160px] left-1/2 transform -translate-x-1/2 z-10 w-full max-w-sm px-4">
+        <div className="bg-black/85 backdrop-blur-sm border border-yellow-500/30 rounded-xl p-4">
+          {/* Todo List Header */}
+          <div className="flex items-center gap-2 mb-3 pb-2 border-b border-yellow-500/20">
+            <span className="text-base">📋</span>
+            <h3 className="text-sm font-star-wars text-yellow-400 uppercase tracking-wider">Todo List</h3>
+            <span className="text-xs text-gray-500 ml-auto">
+              {displayTasks.filter(t => t.status !== 'completed').length} remaining
+            </span>
+          </div>
+
+          {/* Todo Items */}
+          <div className="space-y-1">
+            {displayTasks
+              .filter(t => t.status !== 'completed')
+              .map((task) => {
+                const isInvite = task.type === 'invite_team';
+                const isBrainstorm = task.type === 'brainstorm';
+                const emoji = isInvite ? '👥' : isBrainstorm ? '🧠' : '✨';
+                return (
+                  <button
+                    key={task.id}
+                    onClick={() => {
+                      if (isInvite) handleOpenInviteModal();
+                      else if (isBrainstorm) setShowBrainstorm(true);
+                      else handleTaskClick(task);
+                    }}
+                    disabled={isCreatingTeam && isInvite}
+                    className="w-full flex items-center gap-3 p-2.5 rounded-lg hover:bg-white/5 transition-all group text-left"
+                  >
+                    {/* Checkbox circle */}
+                    <div className="flex-shrink-0 w-5 h-5 rounded border-2 border-gray-600 group-hover:border-yellow-400 transition-colors" />
+
+                    {/* Emoji + Title */}
+                    <div className="flex-1 min-w-0 flex items-center gap-1.5">
+                      <span className="text-sm">{emoji}</span>
+                      <span className="text-sm text-white truncate">
+                        {isCreatingTeam && isInvite ? 'Setting up...' : task.title}
+                      </span>
+                    </div>
+
+                    {/* Due indicator */}
+                    <span className="flex-shrink-0 text-[11px] text-gray-500 font-mono">
+                      Today
+                    </span>
+                  </button>
+                );
+              })}
+
+            {/* All done / empty state */}
+            {displayTasks.filter(t => t.status !== 'completed').length === 0 && (
+              <div className="text-center py-3 text-gray-500 text-sm">
+                {!isAdmin && displayTasks.length === 0 
+                  ? 'No tasks assigned yet — your admin will add tasks for you'
+                  : 'All caught up ✨'}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Top Right: Profile + Notifications */}
       <div className="absolute top-4 right-4 z-10 flex items-center gap-2">
         {/* Notification Bell */}
         {currentUserId && (
@@ -408,19 +536,142 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
           </div>
         )}
 
-        {/* Sign Out */}
-        {onSignOut && (
-          <div className="bg-black/80 border border-yellow-500/30 rounded-lg p-2">
-            <button
-              onClick={onSignOut}
-              className="px-3 py-2 bg-yellow-500 hover:bg-yellow-600 text-black font-star-wars font-bold rounded text-sm"
-              title="Sign Out"
-            >
-              🚪 Sign Out
-            </button>
-          </div>
-        )}
+        {/* Profile Button */}
+        <div className="bg-black/80 border border-yellow-500/30 rounded-lg p-1">
+          <button
+            onClick={() => setShowProfilePanel(true)}
+            className="p-2 rounded-lg hover:bg-white/10 transition-colors flex items-center gap-2"
+            title="Profile"
+          >
+            <div className="w-7 h-7 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center text-white text-xs font-bold">
+              {(artistProfile as any)?.creatorName?.[0]?.toUpperCase() 
+                || teamMembers.find(m => m.userId === currentUserId)?.displayName?.[0]?.toUpperCase()
+                || '?'}
+            </div>
+          </button>
+        </div>
       </div>
+
+      {/* Profile Side Panel */}
+      {showProfilePanel && (
+        <>
+          <div 
+            className="fixed inset-0 bg-black/60 z-50" 
+            onClick={() => setShowProfilePanel(false)}
+          />
+          <div className="fixed top-0 right-0 h-full w-80 bg-gray-900/95 border-l border-purple-500/20 z-[51] shadow-2xl shadow-black/50 flex flex-col animate-slide-in-right">
+            {/* Panel Header */}
+            <div className="p-6 border-b border-gray-700/50">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-star-wars text-white">Profile</h2>
+                <button
+                  onClick={() => setShowProfilePanel(false)}
+                  className="text-gray-400 hover:text-white transition-colors text-xl"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* User Avatar & Info */}
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center text-white text-lg font-bold flex-shrink-0">
+                  {(artistProfile as any)?.creatorName?.[0]?.toUpperCase() 
+                    || teamMembers.find(m => m.userId === currentUserId)?.displayName?.[0]?.toUpperCase()
+                    || '?'}
+                </div>
+                <div className="min-w-0">
+                  <div className="text-white font-medium truncate">
+                    {teamMembers.find(m => m.userId === currentUserId)?.displayName
+                      || (artistProfile as any)?.creatorName
+                      || 'User'}
+                  </div>
+                  <div className="text-gray-400 text-sm truncate">
+                    {currentUserEmail || ''}
+                  </div>
+                  {!isAdmin && (
+                    <div className="text-purple-400 text-xs mt-0.5 flex items-center gap-1">
+                      <span>👤</span>
+                      <span>{teamMembers.find(m => m.userId === currentUserId)?.role || 'Team Member'}</span>
+                    </div>
+                  )}
+                  {isAdmin && (
+                    <div className="text-yellow-400 text-xs mt-0.5 flex items-center gap-1">
+                      <span>⭐</span>
+                      <span>Admin</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Panel Body */}
+            <div className="flex-1 p-6">
+              {/* Team Info */}
+              {team && (
+                <div className="mb-6">
+                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Team</h3>
+                  <div className="bg-gray-800/50 rounded-lg p-3">
+                    <div className="text-white text-sm font-medium">{team.name}</div>
+                    <div className="text-gray-400 text-xs mt-1">
+                      {teamMembers.length} member{teamMembers.length !== 1 ? 's' : ''}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Galaxy Info */}
+              <div className="mb-6">
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Current Galaxy</h3>
+                <div className="bg-gray-800/50 rounded-lg p-3">
+                  <div className="text-white text-sm font-medium">{galaxy.name}</div>
+                  <div className="text-gray-400 text-xs mt-1">
+                    {galaxy.worlds.length} world{galaxy.worlds.length !== 1 ? 's' : ''}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Panel Footer — Actions */}
+            <div className="p-6 border-t border-gray-700/50 space-y-3">
+              {onSignOut && (
+                <button
+                  onClick={() => {
+                    setShowProfilePanel(false);
+                    onSignOut();
+                  }}
+                  className="w-full px-4 py-2.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+                >
+                  <span>🚪</span>
+                  <span>Sign Out</span>
+                </button>
+              )}
+              <button
+                onClick={async () => {
+                  if (confirm('Are you sure you want to delete your account? This will remove all your data permanently. This action cannot be undone.')) {
+                    setShowProfilePanel(false);
+                    try {
+                      await clearAllData();
+                      if (onDeleteAccount) {
+                        onDeleteAccount();
+                      } else {
+                        // Force reload to reset everything
+                        window.location.href = window.location.origin + window.location.pathname;
+                      }
+                    } catch (err) {
+                      console.error('[Profile] Error deleting account:', err);
+                      alert('Failed to delete account. Please try again.');
+                    }
+                  }
+                }}
+                className="w-full px-4 py-2.5 bg-red-600/10 hover:bg-red-600/20 border border-red-500/30 text-red-400 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+              >
+                <span>🗑️</span>
+                <span>Delete Account</span>
+              </button>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* Create World Button */}
       {galaxy.worlds.length < 10 && (
@@ -540,10 +791,10 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
       )}
 
       {/* Invite Modal */}
-      {showInviteModal && team && (
+      {showInviteModal && (
         <InviteModal
-          teamId={team.id}
-          teamName={team.name}
+          teamId={team?.id || ''}
+          teamName={team?.name || `${galaxy.name}'s Team`}
           onClose={() => setShowInviteModal(false)}
           onInviteCreated={() => {
             loadTeamData();
@@ -565,7 +816,7 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
               onAssign={handleTaskAssigned}
               onInviteNew={() => {
                 setAssigningTaskId(null);
-                setShowInviteModal(true);
+                handleOpenInviteModal();
               }}
               onClose={() => setAssigningTaskId(null)}
             />

@@ -5,8 +5,9 @@ import dynamic from 'next/dynamic';
 import { CreatorOnboardingForm } from '@/components/multiverse/CreatorOnboardingForm';
 import { LoadingScreen } from '@/components/multiverse/LoadingScreen';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
-import { loadAccount, loadUniverse, saveUniverse, saveGalaxy, saveWorld, loadCurrentGalaxyId, saveCurrentGalaxyId, deleteGalaxy, deleteWorld, clearAllData, saveAccount } from '@/lib/storage';
+import { loadAccount, loadUniverse, loadGalaxy, saveUniverse, saveGalaxy, saveWorld, loadCurrentGalaxyId, saveCurrentGalaxyId, deleteGalaxy, deleteWorld, clearAllData, saveAccount } from '@/lib/storage';
 import { isTestUser, getTestUserProfile } from '@/lib/test-data';
+import { getMyTeams } from '@/lib/team';
 import type { CreatorAccountData, Universe, Galaxy, World, ArtistProfile } from '@/types';
 
 // Dynamically import heavy components to improve compilation time
@@ -89,6 +90,62 @@ const DEV_TEST_DATA = {
   ]
 };
 // ============================================================================
+
+/** Load the universe for an invited team member (they don't own a universe, they're part of a team) */
+async function loadTeamUniverse(): Promise<Universe | null> {
+  try {
+    const teams = await getMyTeams();
+    if (!teams || teams.length === 0) return null;
+    
+    // Use the first team's universe
+    const team = teams[0];
+    const universeId = team.universeId;
+    if (!universeId) return null;
+    
+    console.log('[loadTeamUniverse] Found team:', team.name, 'with universe:', universeId);
+    
+    // Load the universe directly from Supabase
+    const { data: universeData, error: universeError } = await supabase
+      .from('universes')
+      .select('id, name, creator_id, created_at')
+      .eq('id', universeId)
+      .single();
+    
+    if (universeError || !universeData) {
+      console.warn('[loadTeamUniverse] Could not load universe:', universeError);
+      return null;
+    }
+    
+    // Load galaxies for this universe
+    const { data: galaxiesData } = await supabase
+      .from('galaxies')
+      .select('id, name, universe_id, release_date, visual_landscape, created_at')
+      .eq('universe_id', universeId)
+      .order('created_at', { ascending: true });
+    
+    const galaxies: Galaxy[] = [];
+    if (galaxiesData) {
+      for (const gd of galaxiesData) {
+        const galaxy = await loadGalaxy(gd.id);
+        if (galaxy) galaxies.push(galaxy);
+      }
+    }
+    
+    const universe: Universe = {
+      id: universeData.id,
+      name: universeData.name,
+      creatorId: universeData.creator_id,
+      createdAt: universeData.created_at,
+      galaxies,
+    };
+    
+    console.log('[loadTeamUniverse] Loaded team universe with', galaxies.length, 'galaxies');
+    return universe;
+  } catch (err) {
+    console.warn('[loadTeamUniverse] Error:', err);
+    return null;
+  }
+}
 
 export default function Home() {
   const [account, setAccount] = useState<CreatorAccountData | null>(null);
@@ -432,16 +489,21 @@ export default function Home() {
             }
               
               setAccount(loadedAccount);
+              console.log('[Initialize] Generic account handler for:', loadedAccount.creatorName);
+              console.log('[Initialize] Onboarding complete:', loadedAccount.onboardingComplete);
+              console.log('[Initialize] Has onboarding profile:', !!loadedAccount.onboardingProfile);
               
               // Check if onboarding is complete
               if (!loadedAccount.onboardingComplete) {
                 // Show onboarding to resume
+                console.log('[Initialize] Onboarding not complete, showing enhanced onboarding');
                 setShowEnhancedOnboarding(true);
               } else {
                 // Onboarding complete, skip onboarding and go straight to universe
                 // If we have onboarding profile data, create universe/galaxies from it
                 if (loadedAccount.onboardingProfile?.releases && loadedAccount.onboardingProfile.releases.length > 0) {
                   setIsLoading(true);
+                  console.log('[Initialize] Loading universe for returning user...');
                   try {
                     let existingUniverse = await loadUniverse();
                     
@@ -528,14 +590,32 @@ export default function Home() {
                     }
                   } catch (error) {
                     console.error('[Initialize] Error creating universe from profile:', error);
-                    const fallbackUniverse = await loadUniverse();
-                    if (fallbackUniverse) setUniverse(fallbackUniverse);
+                    // Try localStorage fallback instead of calling loadUniverse again
+                    if (typeof window !== 'undefined') {
+                      const stored = localStorage.getItem('multiverse_universe');
+                      if (stored) {
+                        try {
+                          const fallbackUniverse = JSON.parse(stored);
+                          if (fallbackUniverse) setUniverse(fallbackUniverse);
+                        } catch (e) {
+                          console.warn('[Initialize] Error parsing fallback universe:', e);
+                        }
+                      }
+                    }
                   } finally {
                     setIsLoading(false);
                   }
                 } else {
-                  // No releases, just load existing universe
-                  const loadedUniverse = await loadUniverse();
+                  // No releases — could be an invited team member or solo user
+                  console.log('[Initialize] No releases, loading existing universe...');
+                  let loadedUniverse = await loadUniverse();
+                  
+                  // If no owned universe, check if user is part of a team (invited member)
+                  if (!loadedUniverse) {
+                    console.log('[Initialize] No owned universe, checking team membership...');
+                    loadedUniverse = await loadTeamUniverse();
+                  }
+                  
                   if (loadedUniverse) {
                     setUniverse(loadedUniverse);
                     
@@ -735,16 +815,27 @@ export default function Home() {
       }
     };
 
+    // Add overall timeout to prevent indefinite loading
+    const initTimeout = setTimeout(() => {
+      console.warn('[Initialize] ⚠️ Initialization timed out after 20 seconds, forcing completion');
+      setIsInitializing(false);
+      setIsLoading(false);
+    }, 20000);
+    
     initializeApp().catch((error) => {
       console.error('[Initialize] Unhandled error in initializeApp:', error);
       setIsInitializing(false);
       setIsLoading(false);
+    }).finally(() => {
+      clearTimeout(initTimeout);
     });
   }, []);
 
   // Step 1: Account Creation
   const handleAccountCreated = async (accountData: CreatorAccountData) => {
     console.log('[Account Created]', accountData.creatorName);
+    console.log('[Account Created] onboardingComplete:', accountData.onboardingComplete);
+    console.log('[Account Created] hasProfile:', !!accountData.onboardingProfile);
     
     // Check if this is a test user (e.g., Cam Okoro)
     if (isTestUser(accountData.creatorName)) {
@@ -772,8 +863,8 @@ export default function Home() {
     
     setAccount(accountData);
     
-    // If onboarding is already complete (e.g., returning user), load their universe and go to galaxy view
-    if (accountData.onboardingComplete && accountData.onboardingProfile) {
+    // If onboarding is already complete (e.g., returning user or invited team member), load their universe
+    if (accountData.onboardingComplete) {
       console.log('[Account Created] Returning user detected - loading existing universe');
       console.log('[Account Created] Profile data:', {
         hasProfile: !!accountData.onboardingProfile,
@@ -783,8 +874,25 @@ export default function Home() {
       setIsLoading(true);
       
       try {
-        // Load their existing universe
-        const existingUniverse = await loadUniverse();
+        // Load their existing universe with a timeout to prevent hanging
+        const universePromise = loadUniverse();
+        const timeoutPromise = new Promise<null>((resolve) => {
+          setTimeout(() => {
+            console.warn('[Account Created] ⚠️ loadUniverse timed out after 15s');
+            resolve(null);
+          }, 15000);
+        });
+        
+        let existingUniverse = await Promise.race([universePromise, timeoutPromise]);
+        
+        // If no owned universe, check if user is part of a team (invited member)
+        if (!existingUniverse || !existingUniverse.galaxies || existingUniverse.galaxies.length === 0) {
+          console.log('[Account Created] No owned universe, checking team membership...');
+          const teamUniverse = await loadTeamUniverse();
+          if (teamUniverse) {
+            existingUniverse = teamUniverse;
+          }
+        }
         
         console.log('[Account Created] Universe load result:', {
           hasUniverse: !!existingUniverse,
@@ -792,19 +900,24 @@ export default function Home() {
         });
         
         if (existingUniverse && existingUniverse.galaxies && existingUniverse.galaxies.length > 0) {
-          console.log('[Account Created] Found existing universe with', existingUniverse.galaxies.length, 'galaxies');
+          console.log('[Account Created] Found universe with', existingUniverse.galaxies.length, 'galaxies');
           setUniverse(existingUniverse);
           setCurrentGalaxy(existingUniverse.galaxies[0]);
           // Galaxy view will render automatically when currentGalaxy is set
-        } else {
+        } else if (accountData.onboardingProfile) {
           console.log('[Account Created] No universe found - showing post-onboarding');
-          // No universe yet, show post-onboarding to create one
+          // Has onboarding profile but no universe yet, show post-onboarding to create one
           setShowPostOnboarding(true);
+        } else {
+          console.log('[Account Created] Invited user with no universe yet - waiting for admin setup');
+          // Invited user whose admin hasn't set up the universe yet
+          // Just show galaxy view with empty state
         }
       } catch (error) {
         console.error('[Account Created] Error loading universe:', error);
-        // If there's an error, fall back to post-onboarding
-        setShowPostOnboarding(true);
+        if (accountData.onboardingProfile) {
+          setShowPostOnboarding(true);
+        }
       } finally {
         setIsLoading(false);
       }
@@ -1247,7 +1360,7 @@ export default function Home() {
     }
   };
 
-  // Sign out function - clears session but keeps data
+  // Sign out function - clears session and state
   const handleSignOut = async () => {
     console.log('[handleSignOut] Signing out...');
     
@@ -1260,14 +1373,22 @@ export default function Home() {
       }
     }
     
-    // Clear account state (this will show the signup page)
+    // Clear ALL state
     setAccount(null);
     setUniverse(null);
     setCurrentGalaxy(null);
+    setShowEnhancedOnboarding(false);
+    setShowPostOnboarding(false);
+    setSkipToCalendar(false);
+    setIsLoading(false);
     
-    // Clear session-related localStorage items (but keep data)
+    // Clear ALL localStorage items so the new user starts fresh
     if (typeof window !== 'undefined') {
-      // Only clear session/auth keys, not data
+      localStorage.removeItem('multiverse_account');
+      localStorage.removeItem('multiverse_universe');
+      localStorage.removeItem('multiverse_current_galaxy');
+      localStorage.removeItem('postOnboarding_inProgress');
+      // Also clear Supabase auth keys
       Object.keys(localStorage).forEach(key => {
         if (key.startsWith('sb-') || key.includes('supabase.auth')) {
           localStorage.removeItem(key);
@@ -1276,6 +1397,14 @@ export default function Home() {
     }
     
     console.log('[handleSignOut] Signed out successfully');
+  };
+
+  const handleDeleteAccount = async () => {
+    console.log('[handleDeleteAccount] Deleting account...');
+    // clearAllData is already called in GalaxyView before this callback
+    // Just sign out and reset state
+    await handleSignOut();
+    console.log('[handleDeleteAccount] Account deleted and signed out');
   };
 
   // Clear all data function (for testing)
@@ -1439,6 +1568,7 @@ export default function Home() {
         onDeleteGalaxy={handleDeleteGalaxy}
         onDeleteWorld={handleDeleteWorld}
         onSignOut={handleSignOut}
+        onDeleteAccount={handleDeleteAccount}
       />
     );
   }

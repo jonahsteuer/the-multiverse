@@ -314,10 +314,14 @@ export async function loadUniverse(): Promise<Universe | null> {
           
           const galaxies: Galaxy[] = [];
           if (galaxiesData) {
-            for (const galaxyData of galaxiesData) {
-              const galaxy = await loadGalaxy(galaxyData.id);
+            console.log(`[loadUniverse] Loading ${galaxiesData.length} galaxies...`);
+            // Load all galaxies in parallel for better performance
+            const galaxyPromises = galaxiesData.map(gd => loadGalaxy(gd.id));
+            const galaxyResults = await Promise.all(galaxyPromises);
+            for (const galaxy of galaxyResults) {
               if (galaxy) galaxies.push(galaxy);
             }
+            console.log(`[loadUniverse] Loaded ${galaxies.length} galaxies`);
           }
           
           const universe: Universe = {
@@ -489,10 +493,19 @@ export async function loadGalaxy(galaxyId: string): Promise<Galaxy | null> {
     }
   }
   
-  // Fallback: try to get from localStorage universe
-  const universe = await loadUniverse();
-  if (universe) {
-    return universe.galaxies.find(g => g.id === galaxyId) || null;
+  // Fallback: try to get from localStorage universe data (no recursive loadUniverse call)
+  if (typeof window !== 'undefined') {
+    const stored = localStorage.getItem('multiverse_universe');
+    if (stored) {
+      try {
+        const universe = JSON.parse(stored);
+        if (universe?.galaxies) {
+          return universe.galaxies.find((g: any) => g.id === galaxyId) || null;
+        }
+      } catch (e) {
+        console.warn('[loadGalaxy] Error parsing localStorage universe:', e);
+      }
+    }
   }
   
   return null;
