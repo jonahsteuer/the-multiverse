@@ -93,17 +93,75 @@ const DEV_TEST_DATA = {
 
 /** Load the universe for an invited team member (they don't own a universe, they're part of a team) */
 async function loadTeamUniverse(): Promise<Universe | null> {
+  let universeId: string | null = null;
+
+  // Strategy 1: Query team membership via Supabase
   try {
     const teams = await getMyTeams();
-    if (!teams || teams.length === 0) return null;
-    
-    // Use the first team's universe
-    const team = teams[0];
-    const universeId = team.universeId;
-    if (!universeId) return null;
-    
-    console.log('[loadTeamUniverse] Found team:', team.name, 'with universe:', universeId);
-    
+    if (teams && teams.length > 0) {
+      universeId = teams[0].universeId;
+      console.log('[loadTeamUniverse] Found team via Supabase:', teams[0].name, 'universe:', universeId);
+    }
+  } catch (err) {
+    console.warn('[loadTeamUniverse] Supabase team query failed:', err);
+  }
+
+  // Strategy 2: Query team_members directly (bypasses teams RLS issue)
+  if (!universeId) {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        // team_members SELECT policy allows user_id = auth.uid()
+        const { data: memberRows } = await supabase
+          .from('team_members')
+          .select('team_id')
+          .eq('user_id', user.id)
+          .limit(1);
+        
+        if (memberRows && memberRows.length > 0) {
+          const teamId = memberRows[0].team_id;
+          console.log('[loadTeamUniverse] Found team_id via direct query:', teamId);
+          
+          // Try to get universe_id from teams table
+          const { data: teamRow } = await supabase
+            .from('teams')
+            .select('universe_id')
+            .eq('id', teamId)
+            .single();
+          
+          if (teamRow?.universe_id) {
+            universeId = teamRow.universe_id;
+            console.log('[loadTeamUniverse] Found universe via team_members→teams:', universeId);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[loadTeamUniverse] Direct team_members query failed:', err);
+    }
+  }
+
+  // Strategy 3: Fallback to localStorage (saved during invite acceptance)
+  if (!universeId && typeof window !== 'undefined') {
+    try {
+      const stored = localStorage.getItem('multiverse_team_info');
+      if (stored) {
+        const teamInfo = JSON.parse(stored);
+        if (teamInfo.universeId) {
+          universeId = teamInfo.universeId;
+          console.log('[loadTeamUniverse] Found universe via localStorage:', universeId);
+        }
+      }
+    } catch (e) {
+      console.warn('[loadTeamUniverse] Error reading localStorage:', e);
+    }
+  }
+
+  if (!universeId) {
+    console.log('[loadTeamUniverse] No team universe found');
+    return null;
+  }
+
+  try {
     // Load the universe directly from Supabase
     const { data: universeData, error: universeError } = await supabase
       .from('universes')
@@ -112,7 +170,7 @@ async function loadTeamUniverse(): Promise<Universe | null> {
       .single();
     
     if (universeError || !universeData) {
-      console.warn('[loadTeamUniverse] Could not load universe:', universeError);
+      console.warn('[loadTeamUniverse] Could not load universe from Supabase:', universeError);
       return null;
     }
     
@@ -139,10 +197,10 @@ async function loadTeamUniverse(): Promise<Universe | null> {
       galaxies,
     };
     
-    console.log('[loadTeamUniverse] Loaded team universe with', galaxies.length, 'galaxies');
+    console.log('[loadTeamUniverse] ✅ Loaded team universe with', galaxies.length, 'galaxies');
     return universe;
   } catch (err) {
-    console.warn('[loadTeamUniverse] Error:', err);
+    console.warn('[loadTeamUniverse] Error loading universe:', err);
     return null;
   }
 }
@@ -1387,6 +1445,8 @@ export default function Home() {
       localStorage.removeItem('multiverse_account');
       localStorage.removeItem('multiverse_universe');
       localStorage.removeItem('multiverse_current_galaxy');
+      // NOTE: Keep multiverse_team_info — it's needed when the same user signs back in
+      // It will be overwritten if a different user accepts an invitation
       localStorage.removeItem('postOnboarding_inProgress');
       // Also clear Supabase auth keys
       Object.keys(localStorage).forEach(key => {

@@ -90,7 +90,7 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
   const [teamMembers, setTeamMembers] = useState<TeamMemberRecord[]>([]);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
-  const [isAdmin, setIsAdmin] = useState(true); // Default true for solo users
+  const [isAdmin, setIsAdmin] = useState<boolean | null>(null); // null = not yet determined
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [isCreatingTeam, setIsCreatingTeam] = useState(false);
   const [assigningTaskId, setAssigningTaskId] = useState<string | null>(null);
@@ -145,7 +145,7 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
       if (teamData) {
         setTeam(teamData);
 
-        // Determine admin status
+        // Determine admin status from team membership
         const members: TeamMemberRecord[] = teamData.members || [];
         setTeamMembers(members);
         let userIsAdmin = false;
@@ -161,12 +161,33 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
           ? await getTeamTasks(teamData.id)
           : await getMyTasks(teamData.id);
         setTeamTasks(tasks);
+      } else {
+        // No team found — determine admin status by universe ownership
+        if (user) {
+          const ownsUniverse = universe.creatorId === user.id;
+          console.log('[GalaxyView] No team found. User owns universe:', ownsUniverse);
+          setIsAdmin(ownsUniverse);
+        } else {
+          setIsAdmin(false);
+        }
       }
     } catch (err) {
-      // Team system not set up yet — that's fine, will work in solo mode
+      // Team system not set up yet — determine admin by universe ownership
       console.log('[GalaxyView] Team system not loaded (may not be set up yet)', err);
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          setCurrentUserId(user.id);
+          setCurrentUserEmail(user.email || null);
+          setIsAdmin(universe.creatorId === user.id);
+        } else {
+          setIsAdmin(false);
+        }
+      } catch {
+        setIsAdmin(false);
+      }
     }
-  }, [universe.id]);
+  }, [universe.id, universe.creatorId]);
 
   const handleWorldClick = (world: World) => {
     if (world.name && world.name !== 'Unnamed World') {
@@ -377,10 +398,11 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
 
   // Build display tasks — use real team tasks if available, else generate defaults
   // IMPORTANT: Only admin users see default tasks. Invited members only see tasks assigned to them.
+  const effectiveIsAdmin = isAdmin === null ? false : isAdmin; // Treat "loading" as non-admin (safe default)
   const displayTasks: TeamTask[] = (() => {
     if (teamTasks.length > 0) return teamTasks;
-    // If not admin (invited user), show nothing — they only see explicitly assigned tasks
-    if (!isAdmin) return [];
+    // If not admin (invited user) or still determining, show nothing
+    if (!effectiveIsAdmin) return [];
     // Admin with no tasks yet — show default tasks
     const now = new Date();
     const todayStr = now.toISOString().split('T')[0];
@@ -515,7 +537,7 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
             {/* All done / empty state */}
             {displayTasks.filter(t => t.status !== 'completed').length === 0 && (
               <div className="text-center py-3 text-gray-500 text-sm">
-                {!isAdmin && displayTasks.length === 0 
+                {!effectiveIsAdmin && displayTasks.length === 0 
                   ? 'No tasks assigned yet — your admin will add tasks for you'
                   : 'All caught up ✨'}
               </div>
@@ -588,13 +610,13 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
                   <div className="text-gray-400 text-sm truncate">
                     {currentUserEmail || ''}
                   </div>
-                  {!isAdmin && (
+                  {!effectiveIsAdmin && (
                     <div className="text-purple-400 text-xs mt-0.5 flex items-center gap-1">
                       <span>👤</span>
                       <span>{teamMembers.find(m => m.userId === currentUserId)?.role || 'Team Member'}</span>
                     </div>
                   )}
-                  {isAdmin && (
+                  {effectiveIsAdmin && (
                     <div className="text-yellow-400 text-xs mt-0.5 flex items-center gap-1">
                       <span>⭐</span>
                       <span>Admin</span>
@@ -763,9 +785,9 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
                   teamTasks={teamTasks}
                   teamMembers={teamMembers}
                   currentUserId={currentUserId || undefined}
-                  userPermissions={isAdmin ? 'full' : 'member'}
+                  userPermissions={effectiveIsAdmin ? 'full' : 'member'}
                   onTaskReschedule={handleTaskReschedule}
-                  onAssignTask={isAdmin ? handleAssignTask : undefined}
+                  onAssignTask={effectiveIsAdmin ? handleAssignTask : undefined}
                   onTaskComplete={(taskId) => {
                     console.log('[GalaxyView] Task completed:', taskId);
                     loadTeamData();

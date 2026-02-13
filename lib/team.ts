@@ -263,7 +263,7 @@ export async function acceptInvitation(
   token: string,
   userId: string,
   displayName: string
-): Promise<{ success: boolean; teamId?: string }> {
+): Promise<{ success: boolean; teamId?: string; universeId?: string | null }> {
   if (!isSupabaseConfigured()) return { success: false };
 
   // 1. Get the invitation
@@ -298,17 +298,25 @@ export async function acceptInvitation(
     invitation.invitedBy
   );
 
-  // 4. Notify the inviter
-  await createNotification(
-    invitation.invitedBy,
-    invitation.teamId,
-    'member_joined',
-    `${displayName} joined your team!`,
-    `${displayName} accepted your invitation and joined as ${invitation.role}.`,
-    { memberId: userId, memberName: displayName, role: invitation.role }
-  );
+  // 4. Notify the inviter (non-blocking — don't fail if notification fails)
+  try {
+    await createNotification(
+      invitation.invitedBy,
+      invitation.teamId,
+      'member_joined',
+      `${displayName} joined your team!`,
+      `${displayName} accepted your invitation and joined as ${invitation.role}.`,
+      { memberId: userId, memberName: displayName, role: invitation.role }
+    );
+  } catch (notifErr) {
+    console.warn('[Team] Notification creation failed (non-critical):', notifErr);
+  }
 
-  return { success: true, teamId: invitation.teamId };
+  return {
+    success: true,
+    teamId: invitation.teamId,
+    universeId: invitation.team?.universeId || null,
+  };
 }
 
 /** Get pending invitations for a team */
