@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { MarkContext } from '@/lib/mark-knowledge';
+import { VoiceInput } from './VoiceInput';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -135,7 +136,6 @@ export function MarkChatPanel({ isOpen, onClose, context }: MarkChatPanelProps) 
       timestamp: new Date(),
     },
   ]);
-  const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
@@ -195,17 +195,16 @@ export function MarkChatPanel({ isOpen, onClose, context }: MarkChatPanelProps) 
     }
   };
 
-  const handleSend = async () => {
-    if (!input.trim() || isLoading) return;
+  const handleUserMessage = async (userText: string) => {
+    if (!userText.trim() || isLoading) return;
 
     const userMessage: Message = {
       role: 'user',
-      content: input.trim(),
+      content: userText.trim(),
       timestamp: new Date(),
     };
 
     setMessages(prev => [...prev, userMessage]);
-    setInput('');
     setIsLoading(true);
 
     try {
@@ -248,13 +247,6 @@ export function MarkChatPanel({ isOpen, onClose, context }: MarkChatPanelProps) 
       speak(errorMessage.content);
     } finally {
       setIsLoading(false);
-    }
-  };
-
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
     }
   };
 
@@ -361,27 +353,13 @@ export function MarkChatPanel({ isOpen, onClose, context }: MarkChatPanelProps) 
 
         {/* Input */}
         <div className="p-4 border-t border-gray-700/50">
-          <div className="flex gap-2">
-            <textarea
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyPress={handleKeyPress}
-              placeholder={isSpeaking ? "Listening to Mark..." : "Ask Mark anything..."}
-              disabled={isLoading || isSpeaking}
-              rows={2}
-              className="flex-1 px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 resize-none focus:outline-none focus:border-purple-500 disabled:opacity-50"
-            />
-            <button
-              onClick={handleSend}
-              disabled={!input.trim() || isLoading || isSpeaking}
-              className="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white rounded-lg transition-colors font-medium"
-            >
-              Send
-            </button>
-          </div>
-          <p className="text-[10px] text-gray-500 mt-2">
-            Press Enter to send • Shift+Enter for new line
-          </p>
+          <VoiceInput
+            onTranscript={handleUserMessage}
+            disabled={isLoading || isSpeaking}
+            autoSubmit={true}
+            autoStartAfterDisabled={true}
+            placeholder={isSpeaking ? "Listening to Mark..." : "Ask Mark anything..."}
+          />
         </div>
       </div>
     </>
