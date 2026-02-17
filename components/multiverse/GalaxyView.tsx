@@ -14,6 +14,8 @@ import { NotificationBell, showToast } from './NotificationBell';
 import { InviteModal } from './InviteModal';
 import { TaskAssignmentDropdown } from './TaskAssignmentDropdown';
 import { BrainstormReview } from './BrainstormReview';
+import { MarkChatPanel } from './MarkChatPanel';
+import { MarkContext } from '@/lib/mark-knowledge';
 import {
   createTeam as createTeamDirect,
   getTeamForUniverse,
@@ -97,6 +99,7 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
   const [showBrainstormReview, setShowBrainstormReview] = useState(false);
   const [pendingBrainstormReview, setPendingBrainstormReview] = useState<BrainstormResult | null>(null);
   const [showProfilePanel, setShowProfilePanel] = useState(false);
+  const [showMarkChat, setShowMarkChat] = useState(false);
   const [adminArtistProfile, setAdminArtistProfile] = useState<ArtistProfile | null>(null);
   const [taskContextMenu, setTaskContextMenu] = useState<{ taskId: string; x: number; y: number } | null>(null);
 
@@ -483,6 +486,9 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
     }
   };
 
+  // Treat "loading" (null) as non-admin — safe default
+  const effectiveIsAdmin = isAdmin === null ? false : isAdmin;
+
   // Save shared events (posts + release day) to Supabase so team members can see them
   const sharedEventsSavedRef = useRef(false); // prevent duplicate saves
   const handleSharedEventsGenerated = useCallback(async (events: { title: string; description: string; type: string; date: string; startTime: string; endTime: string }[]) => {
@@ -526,13 +532,12 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
   // Build display tasks — use real team tasks if available, else generate defaults
   // IMPORTANT: Only admin users see default tasks. Invited members only see tasks assigned to them.
   // Tasks assigned to other users are HIDDEN from the current user's todo list.
-  const effectiveIsAdmin = isAdmin === null ? false : isAdmin; // Treat "loading" as non-admin (safe default)
   const displayTasks: TeamTask[] = (() => {
     if (teamTasks.length > 0) {
       // Filter: only show tasks assigned to the current user, or unassigned tasks (admin only)
       return teamTasks.filter(t => {
-        // Shared events are visible to everyone
-        if (t.taskCategory === 'event') return true;
+        // Events (posts, release day) are CALENDAR-ONLY, never show in todo list
+        if (t.taskCategory === 'event') return false;
         // Tasks assigned to someone else → hide from this user's todo
         if (t.assignedTo && t.assignedTo !== currentUserId) return false;
         // Unassigned tasks → only visible to admin
@@ -674,7 +679,7 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
 
                     {/* Due indicator */}
                     <span className="flex-shrink-0 text-[11px] text-gray-500 font-mono">
-                      Today
+                      {task.startTime ? task.startTime.slice(0, 5) : 'TBD'}
                     </span>
                   </button>
                 );
@@ -730,8 +735,20 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
         </>
       )}
 
-      {/* Top Right: Profile + Notifications */}
+      {/* Top Right: Profile + Notifications + Call Mark */}
       <div className="absolute top-4 right-4 z-10 flex items-center gap-2">
+        {/* Call Mark Button */}
+        <div className="bg-black/80 border border-yellow-500/30 rounded-lg p-1">
+          <button
+            onClick={() => setShowMarkChat(true)}
+            className="p-2 rounded-lg hover:bg-white/10 transition-colors flex items-center gap-2"
+            title="Call Mark"
+          >
+            <span className="text-xl">💬</span>
+            <span className="text-xs text-yellow-400 font-star-wars hidden sm:block">CALL MARK</span>
+          </button>
+        </div>
+
         {/* Notification Bell */}
         {currentUserId && (
           <div className="bg-black/80 border border-yellow-500/30 rounded-lg p-1">
@@ -1093,6 +1110,35 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
           }}
         />
       )}
+
+      {/* Mark Chat Panel */}
+      <MarkChatPanel
+        isOpen={showMarkChat}
+        onClose={() => setShowMarkChat(false)}
+        context={{
+          userId: currentUserId || '',
+          userName: teamMembers.find(m => m.userId === currentUserId)?.displayName 
+            || (artistProfile as any)?.creatorName 
+            || 'User',
+          artistProfile: artistProfile || undefined,
+          currentRelease: galaxy.worlds.length > 0 ? {
+            name: galaxy.worlds[0].name,
+            releaseDate: galaxy.worlds[0].releaseDate || 'TBD',
+            type: galaxy.worlds[0].type || 'single',
+          } : undefined,
+          teamMembers: teamMembers.map(m => ({
+            displayName: m.displayName,
+            role: m.role,
+            permissions: m.permissions,
+          })),
+          upcomingTasks: displayTasks.slice(0, 5).map(t => ({
+            title: t.title,
+            date: t.date,
+            assignedTo: t.assignedTo ? teamMembers.find(m => m.userId === t.assignedTo)?.displayName : undefined,
+          })),
+          budget: (artistProfile as any)?.budget,
+        }}
+      />
     </div>
   );
 
