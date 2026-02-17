@@ -357,8 +357,8 @@ export function MarkChatPanel({ isOpen, onClose, context }: MarkChatPanelProps) 
             onTranscript={handleUserMessage}
             disabled={isLoading || isSpeaking}
             autoSubmit={true}
-            autoStartAfterDisabled={true}
-            placeholder={isSpeaking ? "Listening to Mark..." : "Ask Mark anything..."}
+            autoStartAfterDisabled={false}
+            placeholder={isSpeaking ? "Listening to Mark..." : "Tap the mic to speak with Mark..."}
           />
         </div>
       </div>
