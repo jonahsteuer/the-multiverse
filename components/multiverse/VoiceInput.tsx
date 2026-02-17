@@ -304,13 +304,13 @@ export function VoiceInput({
     // Detect transition: was disabled, now enabled
     if (autoStartAfterDisabled && wasDisabled && !disabled) {
       console.log('[VoiceInput] Bot finished speaking, auto-starting mic...');
-      // Small delay to ensure audio is fully stopped
+      // Longer delay to ensure audio is fully stopped (Mark needs more time)
       const timer = setTimeout(() => {
         if (inputMode === 'voice' && isSupported && !isListening) {
           console.log('[VoiceInput] Starting listening...');
           startListening();
         }
-      }, 600);
+      }, 1000); // Increased from 600ms to 1000ms
       return () => clearTimeout(timer);
     }
   }, [disabled, autoStartAfterDisabled, inputMode, isSupported, isListening, startListening]);
