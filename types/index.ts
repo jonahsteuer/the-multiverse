@@ -447,6 +447,16 @@ export interface TeamTask {
   // Populated client-side
   assigneeName?: string;
   assignerName?: string;
+  // Video / post fields (set via Upload Posts modal)
+  videoUrl?: string;
+  videoSource?: 'google_drive' | 'dropbox' | 'youtube' | 'direct';
+  videoEmbedUrl?: string;
+  markNotes?: string;
+  markAnalysis?: Record<string, unknown>;
+  caption?: string;
+  hashtags?: string;
+  postStatus?: string; // 'unlinked' | 'linked' | 'analyzed' | 'caption_written' | 'revision_requested' | 'approved' | 'scheduled' | 'posted'
+  revisionNotes?: string;
 }
 
 // Notification

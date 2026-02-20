@@ -927,6 +927,16 @@ function mapTaskFromDb(row: any): TeamTask {
     completedAt: row.completed_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    // Video / post fields
+    videoUrl: row.video_url,
+    videoSource: row.video_source,
+    videoEmbedUrl: row.video_embed_url,
+    markNotes: row.mark_notes,
+    markAnalysis: row.mark_analysis,
+    caption: row.caption,
+    hashtags: row.hashtags,
+    postStatus: row.post_status,
+    revisionNotes: row.revision_notes,
   };
 }
 

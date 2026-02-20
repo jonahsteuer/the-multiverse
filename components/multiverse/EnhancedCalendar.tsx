@@ -41,6 +41,7 @@ interface ScheduledTask {
   endTime: string;   // e.g., "11:00"
   completed: boolean;
   contentFormat?: string; // e.g., "Music Video Snippet" — from brainstorm
+  isPostEvent?: boolean;  // true for shared calendar post/release events
 }
 
 interface CalendarDay {
@@ -78,6 +79,8 @@ interface EnhancedCalendarProps {
   onAssignTask?: (taskId: string) => void;
   // Callback: fires when admin calendar generates shared events (posts + release day)
   onSharedEventsGenerated?: (events: SharedCalendarEvent[]) => void;
+  // Callback: fires when a post event card is clicked (open PostDetailModal)
+  onPostCardClick?: (taskId: string) => void;
 }
 
 // Task templates - duration in minutes
@@ -121,7 +124,8 @@ function DraggableTask({
   onComplete,
   onTimeChange,
   formatTime, 
-  getTaskColor 
+  getTaskColor,
+  onPostClick,
 }: {
   task: ScheduledTask;
   isExpanded: boolean;
@@ -130,6 +134,7 @@ function DraggableTask({
   onTimeChange?: (taskId: string, startTime: string, endTime: string) => void;
   formatTime: (time: string) => string;
   getTaskColor: (type: string) => string;
+  onPostClick?: () => void;
 }) {
   const [isEditingTime, setIsEditingTime] = useState(false);
   const [editedStartTime, setEditedStartTime] = useState(task.startTime);
@@ -399,10 +404,17 @@ function SortableTask({
       onClick={(e) => {
         if (!isEditingTime) {
           e.stopPropagation();
-          onToggle();
+          // Post events open the PostDetailModal instead of expanding inline
+          if (task.isPostEvent && onPostClick) {
+            onPostClick();
+          } else {
+            onToggle();
+          }
         }
       }}
-      className={`p-3 mb-2 border rounded-lg cursor-grab active:cursor-grabbing transition-all ${getTaskColor(task.type)} ${
+      className={`p-3 mb-2 border rounded-lg transition-all ${
+        task.isPostEvent ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing'
+      } ${getTaskColor(task.type)} ${
         isExpanded ? 'ring-2 ring-white/30' : 'hover:ring-1 hover:ring-white/20'
       }`}
     >
@@ -496,6 +508,7 @@ function DroppableDay({
   onTimeChange,
   formatTime,
   getTaskColor,
+  onPostCardClick,
 }: {
   dateStr: string;
   day: CalendarDay;
@@ -509,6 +522,7 @@ function DroppableDay({
   onTimeChange?: (taskId: string, startTime: string, endTime: string) => void;
   formatTime: (time: string) => string;
   getTaskColor: (type: string) => string;
+  onPostCardClick?: (taskId: string) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({
     id: dateStr,
@@ -577,6 +591,7 @@ function DroppableDay({
                 onTimeChange={onTimeChange}
                 formatTime={formatTime}
                 getTaskColor={getTaskColor}
+                onPostClick={item.task.isPostEvent ? () => onPostCardClick?.(item.task.id) : undefined}
               />
             );
           }
@@ -954,6 +969,7 @@ export function EnhancedCalendar({
             startTime: tt.startTime || '09:00',
             endTime: tt.endTime || '10:00',
             completed: tt.status === 'completed',
+            isPostEvent: tt.taskCategory === 'event',
           });
         }
       }
@@ -1338,11 +1354,41 @@ export function EnhancedCalendar({
     // ================================================================
     if (teamTasks && teamTasks.length > 0) {
       for (const tt of teamTasks) {
-        // Skip shared events — admin already generates these locally
-        if (tt.taskCategory === 'event') continue;
-        // Skip tasks already represented by generated schedule
+
+        if (tt.taskCategory === 'event') {
+          // Shared post/release events: replace the matching locally-generated task
+          // with the real DB-backed version (real UUID, isPostEvent: true) so clicks work.
+          let calType: ScheduledTask['type'] = 'audience-builder';
+          if (tt.title.toLowerCase().includes('release')) calType = 'release';
+          else if (tt.title.toLowerCase().includes('teaser')) calType = 'teaser';
+          else if (tt.title.toLowerCase().includes('promo')) calType = 'promo';
+
+          const dbTask: ScheduledTask = {
+            id: tt.id,
+            title: tt.title,
+            description: tt.description || '',
+            type: calType,
+            date: tt.date,
+            startTime: tt.startTime || '09:00',
+            endTime: tt.endTime || '10:00',
+            completed: tt.status === 'completed',
+            isPostEvent: true,
+          };
+
+          // Find a locally-generated task on the same date with matching type to swap
+          const existingIdx = tasks.findIndex(t =>
+            t.date === tt.date && t.type === calType && !t.isPostEvent
+          );
+          if (existingIdx >= 0) {
+            tasks[existingIdx] = dbTask; // Swap local → DB-backed
+          } else if (!tasks.some(t => t.id === tt.id)) {
+            tasks.push(dbTask); // Add if no local equivalent
+          }
+          continue;
+        }
+
+        // Non-event tasks assigned to the admin
         if (tasks.some(t => t.id === tt.id)) continue;
-        // Skip tasks assigned to someone else
         if (tt.assignedTo && tt.assignedTo !== currentUserId) continue;
         
         let calType: ScheduledTask['type'] = 'prep';
@@ -1566,6 +1612,7 @@ export function EnhancedCalendar({
                     onTimeChange={handleTimeChange}
                     formatTime={formatTime}
                     getTaskColor={getTaskColor}
+                    onPostCardClick={onPostCardClick}
                   />
                 );
               })}

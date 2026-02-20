@@ -16,6 +16,7 @@ import { TaskAssignmentDropdown } from './TaskAssignmentDropdown';
 import { BrainstormReview } from './BrainstormReview';
 import { MarkChatPanel } from './MarkChatPanel';
 import { UploadPostsModal } from './UploadPostsModal';
+import { PostDetailModal } from './PostDetailModal';
 import { MarkContext } from '@/lib/mark-knowledge';
 import {
   createTeam as createTeamDirect,
@@ -106,6 +107,7 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
   const [showUploadPosts, setShowUploadPosts] = useState(false);
   const [isInstagramConnected, setIsInstagramConnected] = useState(false);
   const [isCheckingInstagram, setIsCheckingInstagram] = useState(false);
+  const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
 
   // Check Google Calendar connection status when calendar modal opens
   useEffect(() => {
@@ -1138,6 +1140,7 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
                     console.log('[GalaxyView] Task completed:', taskId);
                     loadTeamData();
                   }}
+                  onPostCardClick={(taskId) => setSelectedPostId(taskId)}
                 />
               </CardContent>
             </Card>
@@ -1220,6 +1223,23 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
           onClose={() => setShowUploadPosts(false)}
         />
       )}
+
+      {/* Post Detail Modal — opened by clicking a post card in the calendar */}
+      {selectedPostId && (() => {
+        const selectedTask = teamTasks.find(t => t.id === selectedPostId);
+        if (!selectedTask) return null;
+        return (
+          <PostDetailModal
+            task={selectedTask}
+            teamMembers={teamMembers}
+            onClose={() => setSelectedPostId(null)}
+            onPostUpdated={(updated) => {
+              // Sync the updated task back into teamTasks state
+              setTeamTasks(prev => prev.map(t => t.id === updated.id ? updated : t));
+            }}
+          />
+        );
+      })()}
 
       {/* Mark Chat Panel */}
       <MarkChatPanel
