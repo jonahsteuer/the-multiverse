@@ -148,40 +148,27 @@ export async function clearAllData(): Promise<void> {
   // Clear Supabase data if configured (do this before signing out)
   if (isSupabaseConfigured()) {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        // Get all universes for this user
-        const { data: universesData } = await supabase
-          .from('universes')
-          .select('id')
-          .eq('creator_id', user.id);
-        
-        if (universesData && universesData.length > 0) {
-          // For each universe, get galaxies
-          for (const universe of universesData) {
-            const { data: galaxiesData } = await supabase
-              .from('galaxies')
-              .select('id')
-              .eq('universe_id', universe.id);
-            
-            if (galaxiesData && galaxiesData.length > 0) {
-              // For each galaxy, delete worlds
-              for (const galaxy of galaxiesData) {
-                await supabase.from('worlds').delete().eq('galaxy_id', galaxy.id);
-              }
-              // Delete galaxies
-              await supabase.from('galaxies').delete().eq('universe_id', universe.id);
-            }
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        // Call the server-side delete-account route which uses the service role
+        // key to fully remove the user from auth.users (not possible client-side)
+        try {
+          const res = await fetch('/api/auth/delete-account', {
+            method: 'DELETE',
+            headers: { Authorization: `Bearer ${session.access_token}` },
+          });
+          if (!res.ok) {
+            const body = await res.json().catch(() => ({}));
+            console.warn('[clearAllData] Server delete returned error:', body);
+          } else {
+            console.log('[clearAllData] Auth user deleted from Supabase');
           }
-          // Delete universes
-          await supabase.from('universes').delete().eq('creator_id', user.id);
+        } catch (fetchErr) {
+          console.warn('[clearAllData] Could not call delete-account API:', fetchErr);
         }
-        
-        // Delete profile
-        await supabase.from('profiles').delete().eq('id', user.id);
       }
       
-      // Sign out (this clears the session)
+      // Sign out (this clears the local session)
       await supabase.auth.signOut();
       
       // Wait a bit to ensure signout completes
