@@ -104,6 +104,8 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
   const [adminArtistProfile, setAdminArtistProfile] = useState<ArtistProfile | null>(null);
   const [taskContextMenu, setTaskContextMenu] = useState<{ taskId: string; x: number; y: number } | null>(null);
   const [showUploadPosts, setShowUploadPosts] = useState(false);
+  const [isInstagramConnected, setIsInstagramConnected] = useState(false);
+  const [isCheckingInstagram, setIsCheckingInstagram] = useState(false);
 
   // Check Google Calendar connection status when calendar modal opens
   useEffect(() => {
@@ -111,6 +113,16 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
       checkCalendarConnection().then(setIsGoogleCalendarConnected);
     }
   }, [showCalendar]);
+
+  // Check Instagram connection status when profile panel opens
+  useEffect(() => {
+    if (showProfilePanel && effectiveIsAdmin) {
+      fetch('/api/instagram/status')
+        .then(r => r.json())
+        .then(data => setIsInstagramConnected(data.connected === true))
+        .catch(() => setIsInstagramConnected(false));
+    }
+  }, [showProfilePanel, effectiveIsAdmin]);
 
   // Load team data
   useEffect(() => {
@@ -914,6 +926,59 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
                       <span>Invite Team Members</span>
                     </button>
                   )}
+                </div>
+              )}
+
+              {/* Connections (admin only) */}
+              {effectiveIsAdmin && (
+                <div className="mb-6">
+                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Connections</h3>
+                  <div className="space-y-2">
+                    {/* Google Calendar */}
+                    <div className="flex items-center justify-between bg-gray-800/50 rounded-lg px-3 py-2.5">
+                      <div className="flex items-center gap-2">
+                        <span className="text-base">📅</span>
+                        <span className="text-sm text-white">Google Calendar</span>
+                      </div>
+                      {isGoogleCalendarConnected ? (
+                        <span className="text-xs text-green-400 flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-green-400 inline-block" />
+                          Connected
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => connectGoogleCalendar()}
+                          className="text-xs text-yellow-400 hover:text-yellow-300 transition-colors"
+                        >
+                          Connect →
+                        </button>
+                      )}
+                    </div>
+                    {/* Instagram */}
+                    <div className="flex items-center justify-between bg-gray-800/50 rounded-lg px-3 py-2.5">
+                      <div className="flex items-center gap-2">
+                        <span className="text-base">📸</span>
+                        <span className="text-sm text-white">Instagram</span>
+                      </div>
+                      {isInstagramConnected ? (
+                        <span className="text-xs text-green-400 flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-green-400 inline-block" />
+                          Connected
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => {
+                            setIsCheckingInstagram(true);
+                            window.location.href = '/api/instagram/auth';
+                          }}
+                          disabled={isCheckingInstagram}
+                          className="text-xs text-pink-400 hover:text-pink-300 transition-colors disabled:opacity-50"
+                        >
+                          {isCheckingInstagram ? 'Connecting…' : 'Connect →'}
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 </div>
               )}
 
