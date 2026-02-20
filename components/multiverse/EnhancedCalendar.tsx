@@ -218,10 +218,16 @@ function DraggableTask({
       onClick={(e) => {
         if (!isEditingTime) {
           e.stopPropagation();
-          onToggle();
+          if (task.isPostEvent && onPostClick) {
+            onPostClick();
+          } else {
+            onToggle();
+          }
         }
       }}
-      className={`text-[10px] p-1.5 mb-1 border rounded cursor-grab active:cursor-grabbing transition-all ${getTaskColor(task.type)} ${
+      className={`text-[10px] p-1.5 mb-1 border rounded transition-all ${
+        task.isPostEvent ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing'
+      } ${getTaskColor(task.type)} ${
         isExpanded ? 'ring-2 ring-white/30' : 'hover:ring-1 hover:ring-white/20'
       }`}
     >
@@ -404,17 +410,10 @@ function SortableTask({
       onClick={(e) => {
         if (!isEditingTime) {
           e.stopPropagation();
-          // Post events open the PostDetailModal instead of expanding inline
-          if (task.isPostEvent && onPostClick) {
-            onPostClick();
-          } else {
-            onToggle();
-          }
+          onToggle();
         }
       }}
-      className={`p-3 mb-2 border rounded-lg transition-all ${
-        task.isPostEvent ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing'
-      } ${getTaskColor(task.type)} ${
+      className={`p-3 mb-2 border rounded-lg cursor-grab active:cursor-grabbing transition-all ${getTaskColor(task.type)} ${
         isExpanded ? 'ring-2 ring-white/30' : 'hover:ring-1 hover:ring-white/20'
       }`}
     >
@@ -617,6 +616,7 @@ export function EnhancedCalendar({
   onTaskReschedule,
   onAssignTask,
   onSharedEventsGenerated,
+  onPostCardClick,
 }: EnhancedCalendarProps) {
   const isAdmin = userPermissions === 'full';
   const timeBudget = artistProfile?.timeBudgetHoursPerWeek || 7; // Default to 7 hours

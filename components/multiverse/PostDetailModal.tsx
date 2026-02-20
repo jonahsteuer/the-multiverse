@@ -359,10 +359,10 @@ export function PostDetailModal({ task: initialTask, teamMembers, onClose, onPos
                   {typeof markAnalysis.cameraDistance === 'string' && markAnalysis.cameraDistance !== 'unknown' && (
                     <span className="text-[10px] px-2 py-0.5 bg-gray-700 rounded-full text-gray-400">📷 {markAnalysis.cameraDistance as string}</span>
                   )}
-                  {markAnalysis.hasInstrument && (
+                  {!!markAnalysis.hasInstrument && (
                     <span className="text-[10px] px-2 py-0.5 bg-gray-700 rounded-full text-gray-400">🎸 instrument</span>
                   )}
-                  {markAnalysis.hasTextOverlay && (
+                  {!!markAnalysis.hasTextOverlay && (
                     <span className="text-[10px] px-2 py-0.5 bg-gray-700 rounded-full text-gray-400">Ⓣ text overlay</span>
                   )}
                   {typeof markAnalysis.energyLevel === 'string' && markAnalysis.energyLevel !== 'unknown' && (
