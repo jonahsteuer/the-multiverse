@@ -116,13 +116,13 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
 
   // Check Instagram connection status when profile panel opens
   useEffect(() => {
-    if (showProfilePanel && effectiveIsAdmin) {
+    if (showProfilePanel && isAdmin) {
       fetch('/api/instagram/status')
         .then(r => r.json())
         .then(data => setIsInstagramConnected(data.connected === true))
         .catch(() => setIsInstagramConnected(false));
     }
-  }, [showProfilePanel, effectiveIsAdmin]);
+  }, [showProfilePanel, isAdmin]);
 
   // Load team data
   useEffect(() => {
