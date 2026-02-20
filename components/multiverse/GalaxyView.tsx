@@ -1140,7 +1140,17 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
                     console.log('[GalaxyView] Task completed:', taskId);
                     loadTeamData();
                   }}
-                  onPostCardClick={(taskId) => setSelectedPostId(taskId)}
+                  onPostCardClick={(taskId) => {
+                    // DB-backed task (has real UUID) → open single-post detail modal
+                    const dbTask = teamTasks.find(t => t.id === taskId);
+                    if (dbTask) {
+                      setSelectedPostId(taskId);
+                    } else {
+                      // Locally-generated placeholder (no DB record yet) → open Upload Posts modal
+                      // The user needs to save events first; Upload Posts does this automatically
+                      setShowUploadPosts(true);
+                    }
+                  }}
                 />
               </CardContent>
             </Card>

@@ -1019,6 +1019,7 @@ export function EnhancedCalendar({
             startTime: '00:00',
             endTime: '23:59',
             completed: false,
+            isPostEvent: true,
           });
           console.log('[EnhancedCalendar] Added release date:', releaseName, releaseDateStr);
         }
@@ -1238,6 +1239,7 @@ export function EnhancedCalendar({
                 startTime: timeSlot.start,
                 endTime: timeSlot.end,
                 completed: false,
+                isPostEvent: true,
               });
               timeSpentPerWeek[weekNum] += postDuration;
               tasksScheduledThisWeek++;
