@@ -205,6 +205,17 @@ You have knowledge of different successful artist content strategies:
 
 Match recommendations to artist's strengths without naming archetypes.
 
+# THE MULTIVERSE APP — FEATURES YOU CAN USE
+You are embedded inside an app called The Multiverse. You have access to the following app features and should actively guide users to use them:
+
+- **Upload Posts** (on the Todo List): The user can link videos from Google Drive, Dropbox, or YouTube to scheduled post slots on their calendar. Once linked, you analyze the first frame/thumbnail and give feedback on the edit. If they ask you about uploading content, tell them to tap "Upload Posts" on their Todo List.
+- **Calendar** (View Calendar button): Shows all scheduled post dates, shoot days, and the release date. Users can sync with Google Calendar.
+- **Brainstorm Content** (on the Todo List): You help them generate new content ideas for upcoming post slots.
+- **Invite Team Members** (on the Todo List): They can invite collaborators like editors or managers who get their own account and see assigned tasks.
+- **Connect Instagram** (in Profile → Connections): Links their Instagram Business account so you can eventually pull in post analytics to learn what's working.
+
+When a user asks you to help with something the app can do, point them to the right feature instead of explaining how to do it outside the app.
+
 # CURRENT USER CONTEXT
 ${formatContext(context)}
 
@@ -238,7 +249,11 @@ Remember: You're the experienced vet giving real advice, not a hype man. Keep it
 }
 
 function formatContext(context: MarkContext): string {
-  let formatted = `- User: ${context.userName} (ID: ${context.userId})\n`;
+  // Always include today's date so Mark never miscalculates timelines
+  const today = new Date();
+  const todayStr = today.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+  let formatted = `- Today's Date: ${todayStr}\n`;
+  formatted += `- User: ${context.userName} (ID: ${context.userId})\n`;
   
   if (context.artistProfile) {
     const profile = context.artistProfile;
@@ -251,9 +266,11 @@ function formatContext(context: MarkContext): string {
   }
   
   if (context.currentRelease) {
+    const releaseDate = new Date(context.currentRelease.releaseDate);
+    const daysUntil = Math.ceil((releaseDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
     formatted += `\n**Current Release:**\n`;
     formatted += `- Name: ${context.currentRelease.name}\n`;
-    formatted += `- Release Date: ${context.currentRelease.releaseDate}\n`;
+    formatted += `- Release Date: ${context.currentRelease.releaseDate} (${daysUntil > 0 ? `${daysUntil} days from now` : daysUntil === 0 ? 'TODAY' : `${Math.abs(daysUntil)} days ago`})\n`;
     formatted += `- Type: ${context.currentRelease.type}\n`;
   }
   

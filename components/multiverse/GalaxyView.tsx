@@ -198,8 +198,10 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
         let userIsAdmin = false;
         if (user) {
           const myMember = members.find(m => m.userId === user.id);
-          // Only full permission holders are admins; unknown members are NOT admin
-          userIsAdmin = myMember?.permissions === 'full' || false;
+          // Full-permission member → admin
+          // Fall back to universe ownership in case the member record hasn't
+          // been written yet (e.g. right after ensureTeam creates the team)
+          userIsAdmin = myMember?.permissions === 'full' || universe.creatorId === user.id;
           setIsAdmin(userIsAdmin);
         }
 
@@ -559,18 +561,20 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
   // IMPORTANT: Only admin users see default tasks. Invited members only see tasks assigned to them.
   // Tasks assigned to other users are HIDDEN from the current user's todo list.
   const displayTasks: TeamTask[] = (() => {
-    if (teamTasks.length > 0) {
-      // Filter: only show tasks assigned to the current user, or unassigned tasks (admin only)
-      return teamTasks.filter(t => {
-        // Events (posts, release day) are CALENDAR-ONLY, never show in todo list
-        if (t.taskCategory === 'event') return false;
-        // Tasks assigned to someone else → hide from this user's todo
-        if (t.assignedTo && t.assignedTo !== currentUserId) return false;
-        // Unassigned tasks → only visible to admin
-        if (!t.assignedTo) return effectiveIsAdmin;
-        // Task assigned to current user → show
-        return true;
-      });
+    // Filter real tasks: hide calendar events and tasks assigned to others
+    const realTasks = teamTasks.filter(t => {
+      // Events (posts, release day) are CALENDAR-ONLY, never show in todo list
+      if (t.taskCategory === 'event') return false;
+      // Tasks assigned to someone else → hide from this user's todo
+      if (t.assignedTo && t.assignedTo !== currentUserId) return false;
+      // Unassigned tasks → only visible to admin
+      if (!t.assignedTo) return effectiveIsAdmin;
+      // Task assigned to current user → show
+      return true;
+    });
+
+    if (realTasks.length > 0) {
+      return realTasks;
     }
     // If not admin (invited user) or still determining, show nothing
     if (!effectiveIsAdmin) return [];
