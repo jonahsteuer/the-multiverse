@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
     const oauth2Client = new google.auth.OAuth2(
       process.env.GOOGLE_CLIENT_ID,
       process.env.GOOGLE_CLIENT_SECRET,
-      `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/calendar/callback`
+      `${request.nextUrl.origin}/api/calendar/callback`
     );
 
     // Set credentials

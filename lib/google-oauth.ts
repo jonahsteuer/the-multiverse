@@ -6,7 +6,11 @@
  * Get OAuth authorization URL
  */
 export function getGoogleCalendarAuthUrl(returnUrl?: string): string {
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+  // Use the current browser origin so this works on any deployment (localhost, Vercel, custom domain)
+  // without needing NEXT_PUBLIC_APP_URL to be set
+  const baseUrl = typeof window !== 'undefined'
+    ? window.location.origin
+    : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
   const url = new URL(`${baseUrl}/api/calendar/auth`);
   if (returnUrl) {
     url.searchParams.set('return_url', returnUrl);

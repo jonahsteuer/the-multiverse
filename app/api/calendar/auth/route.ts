@@ -6,7 +6,7 @@ import { NextRequest, NextResponse } from 'next/server';
  */
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
-  const redirectUri = searchParams.get('redirect_uri') || `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/calendar/callback`;
+  const redirectUri = searchParams.get('redirect_uri') || `${request.nextUrl.origin}/api/calendar/callback`;
   const returnUrl = searchParams.get('return_url'); // URL to redirect back to after OAuth
 
   // Google OAuth configuration

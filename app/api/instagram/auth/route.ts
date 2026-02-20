@@ -7,8 +7,9 @@ import { NextRequest, NextResponse } from 'next/server';
 // ============================================================================
 
 export async function GET(request: NextRequest) {
-  const appId = process.env.INSTAGRAM_APP_ID;
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+  const appId = process.env.INSTAGRAM_APP_ID || process.env.NEXT_PUBLIC_META_APP_ID;
+  // Use the actual request origin so this works on localhost, Vercel, and custom domains
+  const appUrl = request.nextUrl.origin;
   const redirectUri = `${appUrl}/api/instagram/callback`;
 
   if (!appId) {

@@ -21,9 +21,11 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  const appUrl = request.nextUrl.origin;
+
   if (error) {
     return NextResponse.redirect(
-      `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}?error=${encodeURIComponent(error)}`
+      `${appUrl}?error=${encodeURIComponent(error)}`
     );
   }
 
@@ -36,7 +38,7 @@ export async function GET(request: NextRequest) {
 
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-  const redirectUri = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/calendar/callback`;
+  const redirectUri = `${appUrl}/api/calendar/callback`;
 
   if (!clientId || !clientSecret) {
     return NextResponse.json(
@@ -84,7 +86,7 @@ export async function GET(request: NextRequest) {
       // Redirect back to original page with error, or to root if no return URL
       const redirectUrl = returnUrl
         ? `${returnUrl}${returnUrl.includes('?') ? '&' : '?'}calendar_error=${encodeURIComponent(errorMessage)}`
-        : `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}?calendar_error=${encodeURIComponent(errorMessage)}`;
+        : `${appUrl}?calendar_error=${encodeURIComponent(errorMessage)}`;
       
       return NextResponse.redirect(redirectUrl);
     }
@@ -99,7 +101,7 @@ export async function GET(request: NextRequest) {
     // Redirect back to the original page if available, otherwise to root
     const redirectUrl = returnUrl 
       ? `${returnUrl}${returnUrl.includes('?') ? '&' : '?'}calendar_connected=true`
-      : `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}?calendar_connected=true`;
+      : `${appUrl}?calendar_connected=true`;
     
     const response = NextResponse.redirect(redirectUrl);
 
@@ -139,7 +141,7 @@ export async function GET(request: NextRequest) {
     // Redirect back to original page with error, or to root if no return URL
     const redirectUrl = returnUrl
       ? `${returnUrl}${returnUrl.includes('?') ? '&' : '?'}calendar_error=${encodeURIComponent(errorMessage)}`
-      : `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}?calendar_error=${encodeURIComponent(errorMessage)}`;
+      : `${appUrl}?calendar_error=${encodeURIComponent(errorMessage)}`;
     
     return NextResponse.redirect(redirectUrl);
   }

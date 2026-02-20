@@ -11,7 +11,8 @@ export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const code = searchParams.get('code');
   const error = searchParams.get('error');
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+  // Use the actual request origin so this works on localhost, Vercel, and custom domains
+  const appUrl = request.nextUrl.origin;
 
   if (error) {
     console.error('[Instagram OAuth] Error from Facebook:', error, searchParams.get('error_description'));
@@ -22,8 +23,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(`${appUrl}?instagram_error=no_code`);
   }
 
-  const appId = process.env.INSTAGRAM_APP_ID;
-  const appSecret = process.env.INSTAGRAM_APP_SECRET;
+  const appId = process.env.INSTAGRAM_APP_ID || process.env.NEXT_PUBLIC_META_APP_ID;
+  const appSecret = process.env.INSTAGRAM_APP_SECRET || process.env.META_APP_SECRET;
   const redirectUri = `${appUrl}/api/instagram/callback`;
 
   if (!appId || !appSecret) {
