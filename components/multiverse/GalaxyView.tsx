@@ -524,10 +524,12 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
   const handleSharedEventsGenerated = useCallback(async (events: { title: string; description: string; type: string; date: string; startTime: string; endTime: string }[]) => {
     if (!team || !effectiveIsAdmin || sharedEventsSavedRef.current) return;
 
-    // Check if shared events already exist for this galaxy
+    // If ANY shared events already exist for this galaxy, never re-create them.
+    // This prevents duplicates when the calendar re-renders or the page reloads.
     const existingEvents = teamTasks.filter(t => t.taskCategory === 'event' && t.galaxyId === galaxy.id);
-    if (existingEvents.length >= events.length) {
-      console.log('[GalaxyView] Shared events already saved:', existingEvents.length);
+    if (existingEvents.length > 0) {
+      console.log('[GalaxyView] Shared events already saved:', existingEvents.length, '— skipping re-creation');
+      sharedEventsSavedRef.current = true; // Prevent future attempts this session
       return;
     }
 

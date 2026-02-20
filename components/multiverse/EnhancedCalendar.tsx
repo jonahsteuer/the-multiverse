@@ -1352,20 +1352,35 @@ export function EnhancedCalendar({
     }
     
     // ================================================================
-    // ADD ADMIN'S TEAM TASKS FROM SUPABASE (tasks assigned to the admin)
+    // ADD ADMIN'S TEAM TASKS FROM SUPABASE
     // ================================================================
     if (teamTasks && teamTasks.length > 0) {
-      for (const tt of teamTasks) {
+      // Separate DB events from non-event tasks
+      const dbEvents = teamTasks.filter(t => t.taskCategory === 'event');
 
-        if (tt.taskCategory === 'event') {
-          // Shared post/release events: replace the matching locally-generated task
-          // with the real DB-backed version (real UUID, isPostEvent: true) so clicks work.
+      if (dbEvents.length > 0) {
+        // DB post/release events exist → remove ALL locally-generated post tasks
+        // (they have fake IDs like 'post-w*' or 'release-*') and use DB-backed ones only.
+        // This prevents duplicate events when the calendar has been generated before.
+        const POST_TYPES_SET = new Set(['teaser', 'promo', 'audience-builder', 'release']);
+        for (let i = tasks.length - 1; i >= 0; i--) {
+          if (POST_TYPES_SET.has(tasks[i].type)) {
+            tasks.splice(i, 1);
+          }
+        }
+
+        // Add DB-backed events (deduplicated by ID)
+        const seenIds = new Set<string>();
+        for (const tt of dbEvents) {
+          if (seenIds.has(tt.id)) continue;
+          seenIds.add(tt.id);
+
           let calType: ScheduledTask['type'] = 'audience-builder';
           if (tt.title.toLowerCase().includes('release')) calType = 'release';
           else if (tt.title.toLowerCase().includes('teaser')) calType = 'teaser';
           else if (tt.title.toLowerCase().includes('promo')) calType = 'promo';
 
-          const dbTask: ScheduledTask = {
+          tasks.push({
             id: tt.id,
             title: tt.title,
             description: tt.description || '',
@@ -1375,30 +1390,22 @@ export function EnhancedCalendar({
             endTime: tt.endTime || '10:00',
             completed: tt.status === 'completed',
             isPostEvent: true,
-          };
-
-          // Find a locally-generated task on the same date with matching type to swap
-          const existingIdx = tasks.findIndex(t =>
-            t.date === tt.date && t.type === calType && !t.isPostEvent
-          );
-          if (existingIdx >= 0) {
-            tasks[existingIdx] = dbTask; // Swap local → DB-backed
-          } else if (!tasks.some(t => t.id === tt.id)) {
-            tasks.push(dbTask); // Add if no local equivalent
-          }
-          continue;
+          });
         }
+      }
 
-        // Non-event tasks assigned to the admin
+      // Non-event tasks assigned to the admin
+      for (const tt of teamTasks) {
+        if (tt.taskCategory === 'event') continue; // already handled above
         if (tasks.some(t => t.id === tt.id)) continue;
         if (tt.assignedTo && tt.assignedTo !== currentUserId) continue;
-        
+
         let calType: ScheduledTask['type'] = 'prep';
         if (tt.type === 'edit') calType = 'edit';
         else if (tt.type === 'shoot') calType = 'shoot';
         else if (tt.type === 'brainstorm') calType = 'prep';
         else if (tt.type === 'invite_team') calType = 'prep';
-        
+
         tasks.push({
           id: tt.id,
           title: tt.title,
