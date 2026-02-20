@@ -40,15 +40,18 @@ function parseVideoLink(url: string): {
       };
     }
 
-    // Dropbox: https://www.dropbox.com/s/{hash}/filename.mp4?dl=0
-    const dropboxMatch = url.match(/dropbox\.com\/(s|sh)\/([^?]+)/);
+    // Dropbox: old format /s/{hash}/ or new format /scl/fi/{uuid}/
+    // Convert to ?raw=1 which serves the file inline (streamable in <video> tag)
+    const dropboxMatch = url.match(/dropbox\.com\/(s|sh|scl\/fi)\//);
     if (dropboxMatch) {
-      // Convert to direct link for embedding
-      const directUrl = url.replace('www.dropbox.com', 'dl.dropboxusercontent.com').replace('?dl=0', '').replace('?dl=1', '');
+      // Remove any existing dl/raw params and add raw=1 for inline streaming
+      const cleanUrl = url.replace(/[?&](dl|raw)=[^&]*/g, '').replace(/[?&]$/, '');
+      const separator = cleanUrl.includes('?') ? '&' : '?';
+      const streamUrl = `${cleanUrl}${separator}raw=1`;
       return {
         source: 'dropbox',
-        embedUrl: directUrl,
-        thumbnailUrl: null, // Dropbox thumbnails require API auth
+        embedUrl: streamUrl,
+        thumbnailUrl: null,
       };
     }
 

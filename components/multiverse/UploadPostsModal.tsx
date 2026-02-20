@@ -154,6 +154,20 @@ function PostCard({
                     title={task.title}
                   />
                 </div>
+              ) : taskExt.videoSource === 'dropbox' ? (
+                <div className="rounded-lg overflow-hidden bg-gray-900 aspect-video flex flex-col items-center justify-center gap-3 border border-gray-700">
+                  <span className="text-3xl">📦</span>
+                  <p className="text-sm text-gray-300 font-medium">Dropbox Video</p>
+                  <p className="text-xs text-gray-500 text-center px-4">Dropbox videos can't be previewed directly in the app.<br/>Open it in a new tab to watch.</p>
+                  <a
+                    href={taskExt.videoUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg transition-colors"
+                  >
+                    Open in Dropbox →
+                  </a>
+                </div>
               ) : (
                 <div className="rounded-lg overflow-hidden bg-black aspect-video">
                   <video
