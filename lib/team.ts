@@ -944,3 +944,149 @@ function mapNotificationFromDb(row: any): AppNotification {
   };
 }
 
+// ============================================================================
+// VIDEO / POST MANAGEMENT
+// ============================================================================
+
+export interface VideoAnalysis {
+  colorPalette: string[];
+  setting: string;
+  hasInstrument: boolean;
+  cameraDistance: string;
+  hasTextOverlay: boolean;
+  energyLevel: string;
+  score: number;
+  strengths: string[];
+  improvements: string[];
+  markNotes: string;
+}
+
+export interface PostVideoUpdate {
+  videoUrl: string;
+  videoSource: 'google_drive' | 'dropbox' | 'youtube' | 'direct';
+  videoEmbedUrl: string;
+  markNotes?: string;
+  markAnalysis?: VideoAnalysis;
+  postStatus?: string;
+}
+
+/** Link a video to a scheduled post task */
+export async function updatePostVideo(
+  taskId: string,
+  update: PostVideoUpdate
+): Promise<boolean> {
+  if (!isSupabaseConfigured()) return false;
+
+  const { error } = await supabase
+    .from('team_tasks')
+    .update({
+      video_url: update.videoUrl,
+      video_source: update.videoSource,
+      video_embed_url: update.videoEmbedUrl,
+      mark_notes: update.markNotes || null,
+      mark_analysis: update.markAnalysis || null,
+      post_status: update.postStatus || 'linked',
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', taskId);
+
+  if (error) {
+    console.error('[Team] Error updating post video:', error);
+    return false;
+  }
+  return true;
+}
+
+/** Update caption and hashtags for a post */
+export async function updatePostCaption(
+  taskId: string,
+  caption: string,
+  hashtags: string
+): Promise<boolean> {
+  if (!isSupabaseConfigured()) return false;
+
+  const { error } = await supabase
+    .from('team_tasks')
+    .update({
+      caption,
+      hashtags,
+      post_status: 'caption_written',
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', taskId);
+
+  if (error) {
+    console.error('[Team] Error updating post caption:', error);
+    return false;
+  }
+  return true;
+}
+
+/** Approve a post (mark as ready to schedule) */
+export async function approvePost(taskId: string): Promise<boolean> {
+  if (!isSupabaseConfigured()) return false;
+
+  const { error } = await supabase
+    .from('team_tasks')
+    .update({
+      post_status: 'approved',
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', taskId);
+
+  if (error) {
+    console.error('[Team] Error approving post:', error);
+    return false;
+  }
+  return true;
+}
+
+/** Send a post to a team member for revision with notes */
+export async function sendPostForRevision(
+  taskId: string,
+  assignedTo: string,
+  revisionNotes: string
+): Promise<boolean> {
+  if (!isSupabaseConfigured()) return false;
+
+  const { data: { user } } = await supabase.auth.getUser();
+
+  const { error } = await supabase
+    .from('team_tasks')
+    .update({
+      assigned_to: assignedTo,
+      assigned_by: user?.id || null,
+      revision_notes: revisionNotes,
+      post_status: 'revision_requested',
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', taskId);
+
+  if (error) {
+    console.error('[Team] Error sending post for revision:', error);
+    return false;
+  }
+  return true;
+}
+
+/** Get all post-type events for a galaxy (for Upload Posts modal) */
+export async function getPostEvents(teamId: string, galaxyId: string): Promise<TeamTask[]> {
+  if (!isSupabaseConfigured()) return [];
+
+  const { data, error } = await supabase
+    .from('team_tasks')
+    .select('*')
+    .eq('team_id', teamId)
+    .eq('galaxy_id', galaxyId)
+    .eq('task_category', 'event')
+    .in('type', ['post', 'release'])
+    .order('date', { ascending: true });
+
+  if (error) {
+    console.error('[Team] Error fetching post events:', error);
+    return [];
+  }
+
+  return (data || []).map(mapTaskFromDb);
+}
+

@@ -15,6 +15,7 @@ import { InviteModal } from './InviteModal';
 import { TaskAssignmentDropdown } from './TaskAssignmentDropdown';
 import { BrainstormReview } from './BrainstormReview';
 import { MarkChatPanel } from './MarkChatPanel';
+import { UploadPostsModal } from './UploadPostsModal';
 import { MarkContext } from '@/lib/mark-knowledge';
 import {
   createTeam as createTeamDirect,
@@ -102,6 +103,7 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
   const [showMarkChat, setShowMarkChat] = useState(false);
   const [adminArtistProfile, setAdminArtistProfile] = useState<ArtistProfile | null>(null);
   const [taskContextMenu, setTaskContextMenu] = useState<{ taskId: string; x: number; y: number } | null>(null);
+  const [showUploadPosts, setShowUploadPosts] = useState(false);
 
   // Check Google Calendar connection status when calendar modal opens
   useEffect(() => {
@@ -358,6 +360,18 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
       case 'brainstorm':
         setShowBrainstorm(true);
         break;
+      case 'prep':
+        // "Upload Posts" task
+        if (task.id === 'default-upload' || task.title === 'Upload Posts') {
+          await ensureTeam();
+          setShowUploadPosts(true);
+        } else {
+          if (task.status === 'pending' && task.id && !task.id.startsWith('default-')) {
+            await updateTask(task.id, { status: 'in_progress' });
+            loadTeamData();
+          }
+        }
+        break;
       default:
         // For other tasks, just mark them as in_progress
         if (task.status === 'pending' && task.id && !task.id.startsWith('default-')) {
@@ -572,6 +586,22 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
         updatedAt: now.toISOString(),
       },
       {
+        id: 'default-upload',
+        teamId: '',
+        galaxyId: galaxy.id,
+        title: 'Upload Posts',
+        description: 'Link your videos to each scheduled post slot. Mark will review and give feedback.',
+        type: 'prep' as const,
+        taskCategory: 'task' as const,
+        date: todayStr,
+        startTime: `${pad(h)}:${pad(Math.min(m + 15, 59))}`,
+        endTime: `${pad(h + (m + 30 >= 60 ? 1 : 0))}:${pad((m + 30) % 60)}`,
+        status: 'pending' as const,
+        assignedBy: '',
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+      },
+      {
         id: 'default-brainstorm',
         teamId: '',
         galaxyId: galaxy.id,
@@ -580,8 +610,8 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
         type: 'brainstorm' as const,
         taskCategory: 'task' as const,
         date: todayStr,
-        startTime: `${pad(h)}:${pad(Math.min(m + 15, 59))}`,
-        endTime: `${pad(h + (m + 30 >= 60 ? 1 : 0))}:${pad((m + 30) % 60)}`,
+        startTime: `${pad(h)}:${pad(Math.min(m + 30, 59))}`,
+        endTime: `${pad(h + (m + 45 >= 60 ? 1 : 0))}:${pad((m + 45) % 60)}`,
         status: brainstormResult ? 'completed' as const : 'pending' as const,
         assignedBy: '',
         createdAt: now.toISOString(),
@@ -1108,6 +1138,17 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
             setShowBrainstormReview(false);
             setPendingBrainstormReview(null);
           }}
+        />
+      )}
+
+      {/* Upload Posts Modal */}
+      {showUploadPosts && team && (
+        <UploadPostsModal
+          teamId={team.id}
+          galaxyId={galaxy.id}
+          galaxyName={galaxy.name}
+          teamMembers={teamMembers}
+          onClose={() => setShowUploadPosts(false)}
         />
       )}
 
