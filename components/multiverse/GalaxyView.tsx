@@ -1124,7 +1124,7 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
           currentRelease: galaxy.worlds.length > 0 ? {
             name: galaxy.worlds[0].name,
             releaseDate: galaxy.worlds[0].releaseDate || 'TBD',
-            type: galaxy.worlds[0].type || 'single',
+            type: (galaxy.worlds[0] as any).type || 'single',
           } : undefined,
           teamMembers: teamMembers.map(m => ({
             displayName: m.displayName,
