@@ -599,7 +599,7 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
       ? `You have ${editedClipCount} edited clips ready. Start by linking the first 10 to their scheduled post slots.`
       : 'Link your videos to each scheduled post slot. Mark will review and give feedback.';
 
-    const defaultTasks = [
+    const defaultTasks: TeamTask[] = [
       {
         id: 'default-invite',
         teamId: '',
