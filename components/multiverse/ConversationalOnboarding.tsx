@@ -761,7 +761,7 @@ export function ConversationalOnboarding({
 
       const data = await response.json();
       
-      // Store extracted profile data
+        // Store extracted profile data
       if (data.profileData) {
         claudeProfileData.current = {
           ...claudeProfileData.current,
@@ -777,8 +777,11 @@ export function ConversationalOnboarding({
           enjoyedContentFormats: data.profileData.enjoyedContentFormats || claudeProfileData.current.enjoyedContentFormats,
           equipment: data.profileData.equipment || claudeProfileData.current.equipment,
           timeBudgetHoursPerWeek: data.profileData.timeBudgetHoursPerWeek || claudeProfileData.current.timeBudgetHoursPerWeek,
-          preferredDays: data.profileData.preferredDays || claudeProfileData.current.preferredDays,
           hasTeam: data.profileData.hasTeam ?? claudeProfileData.current.hasTeam,
+          // New fields
+          ...(data.profileData.editedClipCount != null && { editedClipCount: data.profileData.editedClipCount } as any),
+          ...(data.profileData.rawFootageDescription && { rawFootageDescription: data.profileData.rawFootageDescription } as any),
+          ...(data.profileData.teamMembers && { teamMembers: data.profileData.teamMembers }),
         };
         
         // Store release data for galaxy/world creation
