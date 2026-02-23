@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
-import { writeFile, mkdir } from 'fs/promises';
-import { join } from 'path';
+import { createClient } from '@supabase/supabase-js';
 
 const SYSTEM_PROMPT = `You are a friendly onboarding assistant for "The Multiverse," a music promotion platform that helps artists find their fans through social media content strategy.
 
@@ -15,13 +14,14 @@ CRITICAL RULES:
 3. Briefly acknowledge what they said, then ask the next thing
 4. Don't repeat back everything they told you - just show you heard it and move on
 5. When calculating dates (e.g., "3 weeks from now"), use the CURRENT DATE provided above
+6. NEVER ask for confirmation on something you can reasonably infer. If you suggest a visual aesthetic based on their influences, just move on - don't ask "does that feel right?"
 
 Your personality: Warm but efficient. Like a cool friend who respects their time but also helps them think strategically.
 
 Information to gather (in roughly this order):
 1. Genre/style of music
 2. Artists that inspire them
-3. Visual aesthetic (suggest based on their influences if you can)
+3. Visual aesthetic - INFER this from their genre and influences, mention it briefly, and move on. Do NOT ask them to confirm it.
 4. RELEASES - This is important! Ask: "Do you have music out right now or coming soon that you want to promote?"
    - If YES (upcoming): Ask if it's a single, EP, or album. Get the name and release date.
    - If YES (already out): Ask what song/project and when it was released.
@@ -32,11 +32,12 @@ Information to gather (in roughly this order):
 5. Posts: Ask "What's been your most successful post so far - even if it wasn't huge? And why do you think it worked?" (If they haven't posted, skip)
 6. Which platforms they use
 7. Current vs desired posting frequency
-8. Existing assets - Ask: "Do you have any footage or videos already shot for this release - music videos, BTS clips, photos? These can save you a ton of time." Capture what they have.
-9. CONTENT INVENTORY - Ask: "How many edited clips or videos do you have ready to post right now?" This is important for building the calendar. If they mention unedited raw footage too, note that separately.
-10. Equipment they have
-11. Hours per week for content - ADD CONTEXT: "I'll make sure suggestions fit your real schedule."
-12. Team members who can help - IMPORTANT: Get their actual names and roles (e.g. "Ruby - editor/videographer"). These will be pre-populated as invite suggestions in the app. Structure each person as {name, role}.
+8. Existing assets + content inventory - Combine into one efficient exchange:
+   - First ask: "Do you have any footage or videos already shot for this release - music videos, BTS clips, photos?"
+   - If yes: follow up with "How many of those are already edited and ready to post?" 
+   - If they mention unedited raw footage, note that separately as rawFootageDescription
+9. Hours per week for content - ADD CONTEXT: "I'll make sure suggestions fit your real schedule."
+10. Team members who can help - IMPORTANT: Get their actual names and roles (e.g. "Ruby - editor/videographer"). These will be pre-populated as invite suggestions in the app. Structure each person as {name, role}.
 
 RELEASE LOGIC (important!):
 - If they have an EP/Album: Create ONE project with multiple songs inside
@@ -51,10 +52,10 @@ EXAMPLES OF GOOD RESPONSES:
 - "Got it. Do you have music out or coming soon you want to promote?"
 - "An EP - cool! What's it called and when does it drop?"
 - "What songs are on the EP?"
-- "Got it - 'Sunset Dreams' dropping April 10th. Let's build a teaser campaign leading up to it."
+- "Got it - 'Sunset Dreams' dropping April 10th. What's been your most successful post so far?"
 - "Makes sense. How many hours a week can you realistically put into content? I'll make sure suggestions fit your real schedule."
-- "Do you have any footage or videos already shot for this release - music videos, BTS clips, photos? These can save you a ton of time."
-- "How many edited clips or videos do you have ready to post right now?"
+- "Do you have any footage or videos already shot for this release - music videos, BTS clips, photos?"
+- "Nice! How many of those are already edited and ready to post?"
 - "Anyone on your team who can help - editors, videographers, anyone? What are their names and what do they do?"
 
 When done, say something brief like "Perfect, I've got what I need. Let's build your universe! 🚀" and add [ONBOARDING_COMPLETE] at the end.
@@ -85,7 +86,6 @@ At the end of EVERY response, include extracted data:
   "existingAssetsDescription": "what they have (music video, BTS footage, photos, etc)",
   "editedClipCount": null,
   "rawFootageDescription": "description of any unedited footage they have",
-  "equipment": "phone/camera/etc",
   "timeBudgetHoursPerWeek": 6,
   "hasTeam": true/false,
   "teamMembers": [
@@ -95,28 +95,37 @@ At the end of EVERY response, include extracted data:
 }
 </profile_data>`;
 
-// Log conversation to file for debugging
-async function logConversation(creatorName: string, messages: any[], response: string, profileData: any) {
+// Save conversation to Supabase
+async function saveToSupabase(
+  creatorName: string,
+  messages: any[],
+  profileData: any,
+  isComplete: boolean,
+  userId?: string
+) {
   try {
-    const logsDir = join(process.cwd(), 'logs', 'onboarding-chats');
-    await mkdir(logsDir, { recursive: true });
-    
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const filename = `${creatorName || 'unknown'}-${timestamp}.json`;
-    const filepath = join(logsDir, filename);
-    
-    const logData = {
-      creatorName,
-      timestamp: new Date().toISOString(),
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (!supabaseUrl || !supabaseServiceKey) {
+      // Fall back silently if Supabase not configured
+      return;
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    await supabase.from('onboarding_logs').insert({
+      creator_name: creatorName,
+      user_id: userId || null,
       messages,
-      latestResponse: response,
-      extractedProfile: profileData,
-    };
-    
-    await writeFile(filepath, JSON.stringify(logData, null, 2));
-    console.log(`[Onboarding] Logged conversation to ${filepath}`);
+      extracted_profile: profileData,
+      is_complete: isComplete,
+    });
+
+    console.log(`[Onboarding] Saved log to Supabase for ${creatorName}`);
   } catch (error) {
-    console.error('[Onboarding] Failed to log conversation:', error);
+    // Non-blocking - don't fail the request if logging fails
+    console.error('[Onboarding] Failed to save to Supabase:', error);
   }
 }
 
@@ -130,7 +139,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { messages, creatorName } = await request.json();
+    const { messages, creatorName, userId } = await request.json();
 
     if (!messages || !Array.isArray(messages)) {
       return NextResponse.json(
@@ -141,13 +150,11 @@ export async function POST(request: NextRequest) {
 
     const client = new Anthropic({ apiKey });
 
-    // Convert our message format to Claude's format
     const claudeMessages = messages.map((msg: { role: string; content: string }) => ({
       role: msg.role as 'user' | 'assistant',
       content: msg.content,
     }));
 
-    // If this is the start, add the creator's name context and current date
     const currentDate = new Date().toLocaleDateString('en-US', { 
       weekday: 'long', 
       year: 'numeric', 
@@ -155,9 +162,7 @@ export async function POST(request: NextRequest) {
       day: 'numeric' 
     });
     
-    const systemPrompt = SYSTEM_PROMPT
-      .replace("You're helping artists", `You're helping ${creatorName || 'an artist'}`)
-      .replace('{{CURRENT_DATE}}', currentDate);
+    const systemPrompt = SYSTEM_PROMPT.replace('{{CURRENT_DATE}}', currentDate);
 
     const response = await client.messages.create({
       model: 'claude-sonnet-4-20250514',
@@ -179,19 +184,17 @@ export async function POST(request: NextRequest) {
     if (profileMatch) {
       try {
         profileData = JSON.parse(profileMatch[1]);
-        // Remove the profile data from the display text
         displayText = content.text.replace(/<profile_data>[\s\S]*?<\/profile_data>/, '').trim();
       } catch (e) {
         console.error('Failed to parse profile data:', e);
       }
     }
 
-    // Check if onboarding is complete
     const isComplete = displayText.includes('[ONBOARDING_COMPLETE]') || profileData?.isComplete;
     displayText = displayText.replace('[ONBOARDING_COMPLETE]', '').trim();
 
-    // Log the conversation for debugging/improvement
-    await logConversation(creatorName, claudeMessages, displayText, profileData);
+    // Save to Supabase (non-blocking)
+    saveToSupabase(creatorName, claudeMessages, profileData, isComplete, userId);
 
     return NextResponse.json({
       message: displayText,
@@ -207,4 +210,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-

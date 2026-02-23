@@ -744,12 +744,21 @@ export function ConversationalOnboarding({
       // Add the new user message
       chatHistory.push({ role: 'user', content: userMessage });
 
+      // Get current user ID if available
+      const { createClient } = await import('@supabase/supabase-js');
+      const supabase = createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+      );
+      const { data: { user } } = await supabase.auth.getUser();
+
       const response = await fetch('/api/onboarding-chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages: chatHistory,
           creatorName,
+          userId: user?.id,
         }),
       });
 
@@ -877,7 +886,7 @@ export function ConversationalOnboarding({
               messages: [{ role: 'user', content: `Hi, I'm ${creatorName}. I just signed up and I'm ready to get started.` }],
               creatorName,
             }),
-          });
+          }); // userId not needed for welcome message
           const data = await response.json();
           welcomeMessage = data.message || `Hey ${creatorName}! 👋 I'm here to help you find your fans through social media. What genre best describes your music?`;
           setClaudeQuestionCount(1);
