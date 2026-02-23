@@ -582,13 +582,24 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
     }
     // If not admin (invited user) or still determining, show nothing
     if (!effectiveIsAdmin) return [];
-    // Admin with no tasks yet — show default tasks
+    // Admin with no tasks yet — show default tasks based on their profile
     const now = new Date();
     const todayStr = now.toISOString().split('T')[0];
     const pad = (n: number) => n.toString().padStart(2, '0');
     const h = now.getHours();
     const m = now.getMinutes();
-    return [
+    const editedClipCount = (artistProfile as any)?.editedClipCount ?? 0;
+    const isContentReady = editedClipCount >= 10;
+
+    // Upload task: specific if we know clip count, generic otherwise
+    const uploadTitle = isContentReady
+      ? `Upload 10 post edits (est. 30 min)`
+      : 'Upload Posts';
+    const uploadDescription = isContentReady
+      ? `You have ${editedClipCount} edited clips ready. Start by linking the first 10 to their scheduled post slots.`
+      : 'Link your videos to each scheduled post slot. Mark will review and give feedback.';
+
+    const defaultTasks = [
       {
         id: 'default-invite',
         teamId: '',
@@ -609,19 +620,23 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
         id: 'default-upload',
         teamId: '',
         galaxyId: galaxy.id,
-        title: 'Upload Posts',
-        description: 'Link your videos to each scheduled post slot. Mark will review and give feedback.',
+        title: uploadTitle,
+        description: uploadDescription,
         type: 'prep' as const,
         taskCategory: 'task' as const,
         date: todayStr,
         startTime: `${pad(h)}:${pad(Math.min(m + 15, 59))}`,
-        endTime: `${pad(h + (m + 30 >= 60 ? 1 : 0))}:${pad((m + 30) % 60)}`,
+        endTime: `${pad(h + (m + 45 >= 60 ? 1 : 0))}:${pad((m + 45) % 60)}`,
         status: 'pending' as const,
         assignedBy: '',
         createdAt: now.toISOString(),
         updatedAt: now.toISOString(),
       },
-      {
+    ];
+
+    // Only show Brainstorm Content if artist doesn't have clips ready
+    if (!isContentReady) {
+      defaultTasks.push({
         id: 'default-brainstorm',
         teamId: '',
         galaxyId: galaxy.id,
@@ -630,14 +645,16 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
         type: 'brainstorm' as const,
         taskCategory: 'task' as const,
         date: todayStr,
-        startTime: `${pad(h)}:${pad(Math.min(m + 30, 59))}`,
-        endTime: `${pad(h + (m + 45 >= 60 ? 1 : 0))}:${pad((m + 45) % 60)}`,
+        startTime: `${pad(h + (m + 45 >= 60 ? 1 : 0))}:${pad((m + 45) % 60)}`,
+        endTime: `${pad(h + (m + 60 >= 60 ? 1 : 0))}:${pad(m % 60)}`,
         status: brainstormResult ? 'completed' as const : 'pending' as const,
         assignedBy: '',
         createdAt: now.toISOString(),
         updatedAt: now.toISOString(),
-      },
-    ];
+      });
+    }
+
+    return defaultTasks;
   })();
 
   return (

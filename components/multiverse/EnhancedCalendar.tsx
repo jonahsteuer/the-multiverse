@@ -84,17 +84,15 @@ interface EnhancedCalendarProps {
 }
 
 // Task templates - duration in minutes
-// Week 1: Ideation & initial filming (7 hours = 420 min)
-const PREP_TASKS_WEEK1 = [
+// These are the CONTENT-LIGHT defaults (artist has little/no footage ready)
+const PREP_TASKS_WEEK1_LIGHT = [
   { title: 'Plan content ideas', description: 'Brainstorm 5-7 post concepts for your content', duration: 90 },
   { title: 'Scout locations', description: 'Find good spots to film your content', duration: 60 },
   { title: 'Film Session 1', description: 'Capture your first batch of content', duration: 150 },
   { title: 'Review & organize', description: 'Review footage and organize files', duration: 60 },
   { title: 'Film Session 2', description: 'Capture additional shots', duration: 60 },
 ];
-
-// Week 2: More filming & editing (7 hours = 420 min)
-const PREP_TASKS_WEEK2 = [
+const PREP_TASKS_WEEK2_LIGHT = [
   { title: 'Film Session 3', description: 'Final filming session for this batch', duration: 120 },
   { title: 'Edit batch 1 (Posts 1-3)', description: 'Edit your first 3 posts', duration: 120 },
   { title: 'Edit batch 2 (Posts 4-6)', description: 'Edit your next 3 posts', duration: 90 },
@@ -102,13 +100,78 @@ const PREP_TASKS_WEEK2 = [
   { title: 'Schedule posts', description: 'Schedule all posts for the next 2 weeks', duration: 30 },
 ];
 
-// Posting weeks (3-4): Include posting + prep for future content (7 hours = 420 min)
-const POSTING_TASKS = [
+// CONTENT-READY prep tasks (artist has 10+ edited clips ready)
+// Focus is on uploading, assigning to post slots, writing captions, and reviewing
+function buildContentReadyPrepTasks(editedClipCount: number, hasRawFootage: boolean): {
+  week1: { title: string; description: string; duration: number }[];
+  week2: { title: string; description: string; duration: number }[];
+} {
+  const batchSize = 10; // Upload ~10 clips per session (~30 min)
+  const totalBatches = Math.ceil(editedClipCount / batchSize);
+  const week1: { title: string; description: string; duration: number }[] = [];
+  const week2: { title: string; description: string; duration: number }[] = [];
+
+  // Spread upload batches across week 1 and 2
+  for (let i = 0; i < totalBatches; i++) {
+    const start = i * batchSize + 1;
+    const end = Math.min((i + 1) * batchSize, editedClipCount);
+    const task = {
+      title: `Upload post edits ${start}-${end}`,
+      description: `Link ${end - start + 1} edited clips to their scheduled post slots`,
+      duration: 30,
+    };
+    if (i < 2) week1.push(task);
+    else week2.push(task);
+  }
+
+  // Always add caption writing
+  week1.push({
+    title: 'Write captions (batch 1)',
+    description: 'Write captions and hashtags for your first wave of posts',
+    duration: 45,
+  });
+  week2.push({
+    title: 'Write captions (batch 2)',
+    description: 'Write captions for remaining posts',
+    duration: 45,
+  });
+
+  // If they have raw footage (e.g. music video), add an editing task
+  if (hasRawFootage) {
+    week2.push({
+      title: 'Edit MV clips into posts',
+      description: 'Cut music video footage down into shareable post-sized clips',
+      duration: 90,
+    });
+  }
+
+  // Final review before going live
+  week2.push({
+    title: 'Review & finalize posts',
+    description: 'Do a final pass on all uploaded posts before posting begins',
+    duration: 30,
+  });
+
+  return { week1, week2 };
+}
+
+// Posting weeks (3-4): Include posting + ongoing content tasks
+const POSTING_TASKS_LIGHT = [
   { title: '🎬 Film new content', description: 'Capture content for next cycle', duration: 120, type: 'prep' },
   { title: '✂️ Quick edit', description: 'Edit and prep upcoming posts', duration: 90, type: 'prep' },
   { title: '💡 Brainstorm ideas', description: 'Plan content for future weeks', duration: 60, type: 'prep' },
   { title: '📱 Engage with audience', description: 'Respond to comments, build community', duration: 45, type: 'prep' },
 ];
+const POSTING_TASKS_READY = [
+  { title: '📱 Engage with audience', description: 'Respond to comments, build community', duration: 45, type: 'prep' },
+  { title: '🎬 Film new content', description: 'Capture fresh content for next cycle', duration: 90, type: 'prep' },
+  { title: '✂️ Quick edit', description: 'Edit and prep any remaining clips', duration: 60, type: 'prep' },
+];
+
+// Keep old names as aliases for backward compat
+const PREP_TASKS_WEEK1 = PREP_TASKS_WEEK1_LIGHT;
+const PREP_TASKS_WEEK2 = PREP_TASKS_WEEK2_LIGHT;
+const POSTING_TASKS = POSTING_TASKS_LIGHT;
 
 const POST_TYPES = {
   'audience-builder': { emoji: '🌱', color: 'green', description: 'Build connection with your audience' },
@@ -1058,8 +1121,22 @@ export function EnhancedCalendar({
 
     // PREP PHASE (Weeks 1-2): Admin-only (members return early above)
     {
-      const week1Tasks = [...PREP_TASKS_WEEK1];
-      const week2Tasks = [...PREP_TASKS_WEEK2];
+      // Determine content tier from profile
+      const editedClipCount = (artistProfile as any)?.editedClipCount ?? 0;
+      const hasRawFootage = !!((artistProfile as any)?.rawFootageDescription);
+      const isContentReady = editedClipCount >= 10;
+
+      let week1Tasks: { title: string; description: string; duration: number }[];
+      let week2Tasks: { title: string; description: string; duration: number }[];
+
+      if (isContentReady) {
+        const tasks = buildContentReadyPrepTasks(editedClipCount, hasRawFootage);
+        week1Tasks = tasks.week1;
+        week2Tasks = tasks.week2;
+      } else {
+        week1Tasks = [...PREP_TASKS_WEEK1_LIGHT];
+        week2Tasks = [...PREP_TASKS_WEEK2_LIGHT];
+      }
       
       const week1Days = allDays.filter(d => d.weekNum === 0);
       const week2Days = allDays.filter(d => d.weekNum === 1);
@@ -1125,6 +1202,10 @@ export function EnhancedCalendar({
     } // end prep phase
     
     // POSTING PHASE (Weeks 3-4): Schedule posts (shared events) + prep tasks (admin only)
+    const postingTaskSet = ((artistProfile as any)?.editedClipCount ?? 0) >= 10
+      ? POSTING_TASKS_READY
+      : POSTING_TASKS_LIGHT;
+
     for (let weekNum = 2; weekNum < 4; weekNum++) {
       const weekDays = allDays.filter(d => d.weekNum === weekNum);
       const sortedDays = sortByPreference(weekDays);
@@ -1248,8 +1329,8 @@ export function EnhancedCalendar({
         }
         
         // Fill remaining time with prep tasks for future content
-        if (timeSpentPerWeek[weekNum] < weeklyBudgetMinutes && prepTaskIndex < POSTING_TASKS.length) {
-          const prepTask = POSTING_TASKS[prepTaskIndex];
+        if (timeSpentPerWeek[weekNum] < weeklyBudgetMinutes && prepTaskIndex < postingTaskSet.length) {
+          const prepTask = postingTaskSet[prepTaskIndex];
           const adjustedDuration = Math.min(prepTask.duration, weeklyBudgetMinutes - timeSpentPerWeek[weekNum]);
           
           if (adjustedDuration >= 30) { // Only schedule if at least 30 min
@@ -1532,10 +1613,6 @@ export function EnhancedCalendar({
             <div>
               <span className="text-xs text-gray-500">Weekly Time Budget</span>
               <p className="text-yellow-400 font-semibold">{timeBudget} hours/week</p>
-            </div>
-            <div>
-              <span className="text-xs text-gray-500">Preferred Days</span>
-              <p className="text-green-400 font-semibold capitalize">{preferredDays.join(', ')}</p>
             </div>
           </div>
         ) : (

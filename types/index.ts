@@ -50,7 +50,11 @@ export interface ArtistProfile {
   
   // NEW: Time Budget & Availability (from conversational onboarding)
   timeBudgetHoursPerWeek?: number; // e.g., 6
-  preferredDays?: string[]; // e.g., ['saturday', 'sunday']
+  preferredDays?: string[]; // e.g., ['saturday', 'sunday'] — kept for data storage but not shown in UI
+
+  // NEW: Content inventory (from conversational onboarding)
+  editedClipCount?: number; // How many edited clips are ready to post
+  rawFootageDescription?: string; // Description of any unedited raw footage
   
   // NEW: Existing Assets
   existingAssets?: ExistingAssets;
