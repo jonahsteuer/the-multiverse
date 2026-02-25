@@ -1627,11 +1627,18 @@ export function EnhancedCalendar({
           }
         }
 
-        // Add DB-backed events (deduplicated by ID)
+        // Add DB-backed events — deduplicate by both ID and date.
+        // Multiple entries on the same date can appear if a previous bug saved duplicates;
+        // keep only one per date (the most recently saved one, i.e. last in the array).
         const seenIds = new Set<string>();
-        for (const tt of dbEvents) {
+        const seenDates = new Set<string>();
+        // Process in reverse so we keep the last-saved event per date
+        const reversedDbEvents = [...dbEvents].reverse();
+        for (const tt of reversedDbEvents) {
           if (seenIds.has(tt.id)) continue;
+          if (seenDates.has(tt.date)) continue; // skip duplicate date
           seenIds.add(tt.id);
+          seenDates.add(tt.date);
 
           let calType: ScheduledTask['type'] = 'audience-builder';
           if (tt.title.toLowerCase().includes('release')) calType = 'release';

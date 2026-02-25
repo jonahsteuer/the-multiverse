@@ -548,61 +548,55 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
   const sharedEventsSavedRef = useRef(false); // prevent duplicate saves
   const handleSharedEventsGenerated = useCallback(async (events: { title: string; description: string; type: string; date: string; startTime: string; endTime: string }[]) => {
     if (!team || !effectiveIsAdmin || sharedEventsSavedRef.current) return;
+    sharedEventsSavedRef.current = true;
 
     const existingEvents = teamTasks.filter(t => t.taskCategory === 'event' && t.galaxyId === galaxy.id);
 
-    // Detect stale events: check if any stored post event has a different type than the generated one for the same date.
-    // This catches the case where a timezone bug previously saved "audience-builder" where "teaser" should be.
-    let hasStaleEvents = false;
-    if (existingEvents.length > 0) {
-      const postTypeEvents = events.filter(e => ['audience-builder', 'teaser', 'promo'].includes(e.type));
-      for (const gen of postTypeEvents) {
-        const stored = existingEvents.find(e => e.date === gen.date);
-        if (stored) {
-          const storedType = stored.title.toLowerCase().includes('teaser') ? 'teaser'
-            : stored.title.toLowerCase().includes('promo') ? 'promo'
-            : 'audience-builder';
-          if (storedType !== gen.type) {
-            console.log('[GalaxyView] 🔄 Stale event detected on', gen.date, '— stored:', storedType, '→ should be:', gen.type);
-            hasStaleEvents = true;
-            break;
-          }
-        }
+    // Deduplicate existing DB events: if multiple events share the same date, keep
+    // the first and delete the rest. This repairs duplicates from previous bugs.
+    const keptByDate = new Map<string, string>(); // date → id of event to keep
+    const toDelete: string[] = [];
+    for (const ev of existingEvents) {
+      if (keptByDate.has(ev.date)) {
+        toDelete.push(ev.id); // duplicate — mark for deletion
+      } else {
+        keptByDate.set(ev.date, ev.id);
       }
     }
+    if (toDelete.length > 0) {
+      console.log('[GalaxyView] 🗑 Removing', toDelete.length, 'duplicate events...');
+      await Promise.allSettled(toDelete.map(id => deleteTask(id)));
+    }
 
-    if (existingEvents.length > 0 && !hasStaleEvents) {
-      console.log('[GalaxyView] Shared events already saved:', existingEvents.length, '— skipping re-creation');
-      sharedEventsSavedRef.current = true;
+    // Build a map of currently kept events by date (after dedup)
+    const existingByDate = new Map(
+      existingEvents
+        .filter(e => keptByDate.get(e.date) === e.id)
+        .map(e => [e.date, e])
+    );
+
+    // Only create events for dates that don't already have one (idempotent inserts)
+    const toCreate = events.filter(e => !existingByDate.has(e.date));
+    if (toCreate.length === 0 && toDelete.length === 0) {
+      console.log('[GalaxyView] Shared events up to date — nothing to save');
       return;
     }
 
-    sharedEventsSavedRef.current = true;
-
     try {
-      // If stale events exist, delete them first so we can recreate with correct types
-      if (hasStaleEvents && existingEvents.length > 0) {
-        console.log('[GalaxyView] 🗑 Deleting', existingEvents.length, 'stale events...');
-        await Promise.all(existingEvents.map(ev => deleteTask(ev.id)));
-      }
-
-      console.log('[GalaxyView] 📤 Saving', events.length, 'shared events to Supabase for team members...');
-      for (const event of events) {
-        let taskType: string = 'post';
-        if (event.type === 'release') taskType = 'release';
-
+      console.log('[GalaxyView] 📤 Creating', toCreate.length, 'new shared events...');
+      for (const event of toCreate) {
         await createTask(team.id, {
           galaxyId: galaxy.id,
           title: event.title,
           description: event.description,
-          type: taskType as any,
+          type: event.type === 'release' ? 'release' : 'post' as any,
           taskCategory: 'event',
           date: event.date,
           startTime: event.startTime,
           endTime: event.endTime,
         });
       }
-      console.log('[GalaxyView] ✅ Shared events saved successfully');
+      console.log('[GalaxyView] ✅ Shared events saved');
       loadTeamData();
     } catch (err) {
       console.error('[GalaxyView] Error saving shared events:', err);
