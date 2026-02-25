@@ -319,34 +319,37 @@ function Scene({ galaxy, onWorldClick, distantGalaxies }: Galaxy3DViewProps) {
       <pointLight position={[-10, -10, -10]} intensity={0.5} />
       <Stars radius={50} depth={30} count={2000} factor={4} fade speed={1} />
 
-      {/* Sun in center */}
-      <Sun />
+      {/* Main galaxy group — shifted down so todo list (top-left) doesn't overlap */}
+      <group position={[0, -3, 0]}>
+        {/* Sun in center */}
+        <Sun />
 
-      {/* Worlds orbiting - each on its own concentric orbit */}
-      {worldData.map(({ world, angle, distance }, index) => (
-        <WorldSphere
-          key={world.id}
-          world={world}
-          angle={angle}
-          distance={distance}
-          onClick={() => onWorldClick?.(world)}
-        />
-      ))}
-
-      {/* Orbital rings (visual guides) - optional, can be removed if too cluttered */}
-      {worldData.map(({ distance }, index) => (
-        <mesh key={`ring-${index}`} rotation={[Math.PI / 2, 0, 0]}>
-          <ringGeometry args={[distance - 0.1, distance + 0.1, 64]} />
-          <meshStandardMaterial
-            color="#FFD700"
-            emissive="#FFD700"
-            emissiveIntensity={0.1}
-            transparent
-            opacity={0.2}
-            side={THREE?.DoubleSide || 2}
+        {/* Worlds orbiting - each on its own concentric orbit */}
+        {worldData.map(({ world, angle, distance }, index) => (
+          <WorldSphere
+            key={world.id}
+            world={world}
+            angle={angle}
+            distance={distance}
+            onClick={() => onWorldClick?.(world)}
           />
-        </mesh>
-      ))}
+        ))}
+
+        {/* Orbital rings (visual guides) */}
+        {worldData.map(({ distance }, index) => (
+          <mesh key={`ring-${index}`} rotation={[Math.PI / 2, 0, 0]}>
+            <ringGeometry args={[distance - 0.1, distance + 0.1, 64]} />
+            <meshStandardMaterial
+              color="#FFD700"
+              emissive="#FFD700"
+              emissiveIntensity={0.1}
+              transparent
+              opacity={0.2}
+              side={THREE?.DoubleSide || 2}
+            />
+          </mesh>
+        ))}
+      </group>
 
       {/* Distant galaxies — faint clusters in the background */}
       {distantGalaxies && distantGalaxies.map((info, i) => {

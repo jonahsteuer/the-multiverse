@@ -412,11 +412,31 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
   };
 
   // Handle context menu assignment — assigns a task to a team member
+  // Works for both todo list tasks and calendar tasks
   const handleContextMenuAssign = async (memberId: string) => {
     if (!taskContextMenu || !team) return;
-    const task = displayTasks.find(t => t.id === taskContextMenu.taskId);
-    if (!task) return;
     setTaskContextMenu(null);
+
+    // Check if this is a calendar task that already exists in the DB
+    const calendarTask = teamTasks.find(t => t.id === taskContextMenu.taskId);
+    if (calendarTask) {
+      await assignTask(calendarTask.id, memberId, team.id);
+      try {
+        await createNotification(memberId, team.id, 'task_assigned',
+          `New task: ${calendarTask.title}`,
+          `You've been assigned "${calendarTask.title}".`,
+          { taskId: calendarTask.id, taskTitle: calendarTask.title }
+        );
+      } catch (e) { console.warn('[Team] Notification failed:', e); }
+      loadTeamData();
+      return;
+    }
+
+    const task = displayTasks.find(t => t.id === taskContextMenu.taskId);
+    if (!task) {
+      console.warn('[GalaxyView] Cannot assign task — not found in todo list or DB. Save events first.');
+      return;
+    }
 
     try {
       // If it's a default (unsaved) task, create it in Supabase first
@@ -876,9 +896,14 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
                       </span>
                     </div>
 
-                    {/* Due indicator */}
+                    {/* Duration estimate */}
                     <span className="flex-shrink-0 text-[11px] text-gray-500 font-mono">
-                      {task.startTime ? task.startTime.slice(0, 5) : 'TBD'}
+                      {task.startTime && task.endTime ? (() => {
+                        const [sh, sm] = task.startTime.split(':').map(Number);
+                        const [eh, em] = task.endTime.split(':').map(Number);
+                        const mins = (eh * 60 + em) - (sh * 60 + sm);
+                        return mins > 0 ? `est. ${mins}m` : '';
+                      })() : ''}
                     </span>
                   </button>
                 );
@@ -1302,6 +1327,9 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
                       setShowUploadPosts(true);
                     }
                   }}
+                  onTaskContextMenu={effectiveIsAdmin && teamMembers.length > 0 ? (taskId, x, y) => {
+                    setTaskContextMenu({ taskId, x, y });
+                  } : undefined}
                 />
               </CardContent>
             </Card>

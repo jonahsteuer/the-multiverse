@@ -81,6 +81,8 @@ interface EnhancedCalendarProps {
   onSharedEventsGenerated?: (events: SharedCalendarEvent[]) => void;
   // Callback: fires when a post event card is clicked (open PostDetailModal)
   onPostCardClick?: (taskId: string) => void;
+  // Callback: fires when user right-clicks a calendar task to assign it
+  onTaskContextMenu?: (taskId: string, x: number, y: number) => void;
 }
 
 // ============================================================
@@ -323,9 +325,8 @@ const POSTING_TASKS_LIGHT = [
   { title: '📱 Engage with audience', description: 'Respond to comments, build community', duration: 45, type: 'prep' },
 ];
 const POSTING_TASKS_READY = [
-  { title: '📱 Engage with audience', description: 'Respond to comments, build community', duration: 45, type: 'prep' },
-  { title: '🎬 Film new content', description: 'Capture fresh content for next cycle', duration: 90, type: 'prep' },
-  { title: '✂️ Quick edit', description: 'Edit and prep any remaining clips', duration: 60, type: 'prep' },
+  { title: '📱 Engage with audience', description: 'Respond to comments, build community and reply to DMs', duration: 45, type: 'prep' },
+  { title: '📊 Review post performance', description: 'Check which posts performed best and note what worked', duration: 30, type: 'prep' },
 ];
 
 
@@ -345,6 +346,7 @@ function DraggableTask({
   formatTime, 
   getTaskColor,
   onPostClick,
+  onContextMenuAssign,
 }: {
   task: ScheduledTask;
   isExpanded: boolean;
@@ -354,6 +356,7 @@ function DraggableTask({
   formatTime: (time: string) => string;
   getTaskColor: (type: string) => string;
   onPostClick?: () => void;
+  onContextMenuAssign?: (taskId: string, x: number, y: number) => void;
 }) {
   const [isEditingTime, setIsEditingTime] = useState(false);
   const [editedStartTime, setEditedStartTime] = useState(task.startTime);
@@ -444,6 +447,13 @@ function DraggableTask({
           }
         }
       }}
+      onContextMenu={(e) => {
+        if (onContextMenuAssign && !task.isPostEvent) {
+          e.preventDefault();
+          e.stopPropagation();
+          onContextMenuAssign(task.id, e.clientX, e.clientY);
+        }
+      }}
       className={`text-[10px] p-1.5 mb-1 border rounded transition-all ${
         task.isPostEvent ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing'
       } ${getTaskColor(task.type)} ${
@@ -504,17 +514,7 @@ function DraggableTask({
       {/* Expanded details */}
       {isExpanded && (
         <div className="mt-2 pt-2 border-t border-white/20">
-          <p className="text-[9px] opacity-90 mb-2">{task.description}</p>
-          <Button
-            size="sm"
-            onClick={(e) => {
-              e.stopPropagation();
-              onComplete?.(task.id);
-            }}
-            className="w-full h-6 text-[9px] bg-green-500/50 hover:bg-green-500/70 text-white pointer-events-auto"
-          >
-            {task.completed ? '✓ Completed' : 'Mark Complete'}
-          </Button>
+          <p className="text-[9px] opacity-90">{task.description}</p>
         </div>
       )}
     </div>
@@ -695,17 +695,7 @@ function SortableTask({
       {/* Expanded details */}
       {isExpanded && (
         <div className="mt-2 pt-2 border-t border-white/20">
-          <p className="text-xs opacity-90 mb-2">{task.description}</p>
-          <Button
-            size="sm"
-            onClick={(e) => {
-              e.stopPropagation();
-              onComplete?.(task.id);
-            }}
-            className="w-full text-xs bg-green-500/50 hover:bg-green-500/70 text-white pointer-events-auto"
-          >
-            {task.completed ? '✓ Completed' : 'Mark Complete'}
-          </Button>
+          <p className="text-xs opacity-90">{task.description}</p>
         </div>
       )}
     </div>
@@ -727,6 +717,7 @@ function DroppableDay({
   formatTime,
   getTaskColor,
   onPostCardClick,
+  onTaskContextMenu,
 }: {
   dateStr: string;
   day: CalendarDay;
@@ -741,6 +732,7 @@ function DroppableDay({
   formatTime: (time: string) => string;
   getTaskColor: (type: string) => string;
   onPostCardClick?: (taskId: string) => void;
+  onTaskContextMenu?: (taskId: string, x: number, y: number) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({
     id: dateStr,
@@ -810,6 +802,7 @@ function DroppableDay({
                 formatTime={formatTime}
                 getTaskColor={getTaskColor}
                 onPostClick={item.task.isPostEvent ? () => onPostCardClick?.(item.task.id) : undefined}
+                onContextMenuAssign={onTaskContextMenu ?? undefined}
               />
             );
           }
@@ -836,6 +829,7 @@ export function EnhancedCalendar({
   onAssignTask,
   onSharedEventsGenerated,
   onPostCardClick,
+  onTaskContextMenu,
 }: EnhancedCalendarProps) {
   const isAdmin = userPermissions === 'full';
   const timeBudget = artistProfile?.timeBudgetHoursPerWeek || 7; // Default to 7 hours
@@ -860,6 +854,7 @@ export function EnhancedCalendar({
   const [isFetchingEvents, setIsFetchingEvents] = useState(false);
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
   const [scheduledTasks, setScheduledTasks] = useState<ScheduledTask[]>([]);
+  const [calendarPage, setCalendarPage] = useState(0); // 0 = weeks 1-4, 1 = weeks 5-8
   const [viewMode, setViewMode] = useState<'calendar' | 'posts' | 'list'>('calendar');
   
   // Drag & Drop state
@@ -931,7 +926,7 @@ export function EnhancedCalendar({
 
   // Find free time slot on a given day (between 8am and 10pm)
   const findFreeTimeSlot = (date: Date, durationMinutes: number, existingTasks: ScheduledTask[]): { start: string; end: string } | null => {
-    const dateStr = date.toISOString().split('T')[0];
+    const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
     
     // Get all busy times for this day
     const busyTimes: { start: number; end: number }[] = [];
@@ -1024,7 +1019,7 @@ export function EnhancedCalendar({
     
     // Rebuild calendar with updated tasks
     const updatedCalendar = calendar.map(day => {
-      const dateStr = day.date.toISOString().split('T')[0];
+      const dateStr = `${day.date.getFullYear()}-${String(day.date.getMonth() + 1).padStart(2, '0')}-${String(day.date.getDate()).padStart(2, '0')}`;
       return {
         ...day,
         tasks: updatedTasks.filter(t => t.date === dateStr),
@@ -1083,7 +1078,7 @@ export function EnhancedCalendar({
           
           // Rebuild calendar
           const updatedCalendar = calendar.map(day => {
-            const dateStr = day.date.toISOString().split('T')[0];
+            const dateStr = `${day.date.getFullYear()}-${String(day.date.getMonth() + 1).padStart(2, '0')}-${String(day.date.getDate()).padStart(2, '0')}`;
             return {
               ...day,
               tasks: reorderedTasks.filter(t => t.date === dateStr),
@@ -1112,7 +1107,7 @@ export function EnhancedCalendar({
       
       // Rebuild calendar with updated tasks
       const updatedCalendar = calendar.map(day => {
-        const dateStr = day.date.toISOString().split('T')[0];
+        const dateStr = `${day.date.getFullYear()}-${String(day.date.getMonth() + 1).padStart(2, '0')}-${String(day.date.getDate()).padStart(2, '0')}`;
         return {
           ...day,
           tasks: updatedTasks.filter(t => t.date === dateStr),
@@ -1147,13 +1142,13 @@ export function EnhancedCalendar({
     // No local schedule generation — all events come from admin's saved shared events
     // ================================================================
     if (isMember) {
-      // Generate 28 days of calendar grid
+      // Generate 56 days of calendar grid
       const allDays: { date: Date; dateStr: string; weekNum: number }[] = [];
-      for (let i = 0; i < 28; i++) {
+      for (let i = 0; i < 56; i++) {
         const date = new Date(today.getTime() + i * 24 * 60 * 60 * 1000);
         allDays.push({
           date,
-          dateStr: date.toISOString().split('T')[0],
+          dateStr: `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`,
           weekNum: Math.floor(i / 7),
         });
       }
@@ -1250,15 +1245,15 @@ export function EnhancedCalendar({
     console.log('[EnhancedCalendar] Weekly budget:', weeklyBudgetMinutes, 'minutes =', timeBudget, 'hours');
     
     // Track time spent per week
-    const timeSpentPerWeek = [0, 0, 0, 0]; // 4 weeks
+    const timeSpentPerWeek = [0, 0, 0, 0, 0, 0, 0, 0]; // 8 weeks
     
-    // First pass: generate all days
+    // First pass: generate all days (8 weeks = 56 days for calendar navigation)
     const allDays: { date: Date; dateStr: string; weekNum: number; isPrep: boolean; dayOfWeek: number }[] = [];
-    for (let i = 0; i < 28; i++) {
+    for (let i = 0; i < 56; i++) {
       const date = new Date(today.getTime() + i * 24 * 60 * 60 * 1000);
       allDays.push({
         date,
-        dateStr: date.toISOString().split('T')[0],
+        dateStr: `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`,
         weekNum: Math.floor(i / 7),
         isPrep: i < 14,
         dayOfWeek: date.getDay(),
@@ -1363,9 +1358,9 @@ export function EnhancedCalendar({
       const week1Days = allDays.filter(d => d.weekNum === 0);
       const week2Days = allDays.filter(d => d.weekNum === 1);
 
-      // Sort by natural weekday order (Mon-Sun), not by preference
-      const sortedWeek1 = [...week1Days].sort((a, b) => a.dayOfWeek - b.dayOfWeek);
-      const sortedWeek2 = [...week2Days].sort((a, b) => a.dayOfWeek - b.dayOfWeek);
+      // Sort by actual date (ascending) so tasks start filling from today forward
+      const sortedWeek1 = [...week1Days].sort((a, b) => a.date.getTime() - b.date.getTime());
+      const sortedWeek2 = [...week2Days].sort((a, b) => a.date.getTime() - b.date.getTime());
 
       scheduleTasksIntoDays(week1Tasks, sortedWeek1, 0, 'prep-w1');
       scheduleTasksIntoDays(week2Tasks, sortedWeek2, 1, 'prep-w2');
@@ -1376,9 +1371,9 @@ export function EnhancedCalendar({
       ? POSTING_TASKS_READY
       : POSTING_TASKS_LIGHT;
 
-    for (let weekNum = 2; weekNum < 4; weekNum++) {
+    for (let weekNum = 2; weekNum < 8; weekNum++) {
       const weekDays = allDays.filter(d => d.weekNum === weekNum);
-      const sortedDays = sortByPreference(weekDays);
+      const sortedDays = [...weekDays].sort((a, b) => a.date.getTime() - b.date.getTime());
       
       let tasksScheduledThisWeek = 0;
       let prepTaskIndex = 0;
@@ -1428,8 +1423,9 @@ export function EnhancedCalendar({
           let upcomingRelease = null;
           for (const release of releases) {
             if (!release.releaseDate || release.releaseDate === 'TBD') continue;
-            const releaseDate = new Date(release.releaseDate);
-            const daysUntilRelease = Math.floor((releaseDate.getTime() - postDate.getTime()) / (1000 * 60 * 60 * 24));
+            // Use local midnight to avoid timezone boundary issues
+            const releaseDate = new Date(release.releaseDate + 'T00:00:00');
+            const daysUntilRelease = Math.round((releaseDate.getTime() - postDate.getTime()) / (1000 * 60 * 60 * 24));
             
             if (daysUntilRelease > 0 && daysUntilRelease <= 14) {
               upcomingRelease = release;
@@ -1446,8 +1442,8 @@ export function EnhancedCalendar({
             let recentRelease = null;
             for (const release of releases) {
               if (!release.releaseDate || release.releaseDate === 'TBD') continue;
-              const releaseDate = new Date(release.releaseDate);
-              const daysSinceRelease = Math.floor((postDate.getTime() - releaseDate.getTime()) / (1000 * 60 * 60 * 24));
+              const releaseDate = new Date(release.releaseDate + 'T00:00:00');
+              const daysSinceRelease = Math.round((postDate.getTime() - releaseDate.getTime()) / (1000 * 60 * 60 * 24));
               
               if (daysSinceRelease > 0 && daysSinceRelease <= 30) {
                 recentRelease = release;
@@ -1729,11 +1725,30 @@ export function EnhancedCalendar({
     }
   };
 
-  // Split into weeks
-  const weeks = [];
+  // Split into weeks (8 weeks total)
+  const allWeeks: typeof calendar[] = [];
   for (let i = 0; i < calendar.length; i += 7) {
-    weeks.push(calendar.slice(i, i + 7));
+    allWeeks.push(calendar.slice(i, i + 7));
   }
+  // Show 4 weeks at a time based on calendarPage
+  const weeks = allWeeks.slice(calendarPage * 4, calendarPage * 4 + 4);
+  const totalPages = Math.ceil(allWeeks.length / 4);
+
+  // Compute dynamic phase label based on release proximity
+  const computePhaseLabel = (weekOffset: number): { label: string; color: string } => {
+    if (!releaseDate || releaseDate === 'TBD') {
+      return weekOffset < 2 ? { label: '📋 Prep Phase', color: 'blue' } : { label: '🚀 Posting Phase', color: 'yellow' };
+    }
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const release = new Date(releaseDate + 'T00:00:00');
+    const daysToRelease = Math.round((release.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    const weekStart = (calendarPage * 4 + weekOffset) * 7;
+    const weekEnd = weekStart + 6;
+    if (weekEnd < daysToRelease) return { label: '📋 Pre-release', color: 'blue' };
+    if (weekStart > daysToRelease) return { label: '🚀 Post-release', color: 'yellow' };
+    return { label: '🎵 Release Week', color: 'red' };
+  };
 
   return (
     <DndContext
@@ -1825,26 +1840,60 @@ export function EnhancedCalendar({
         </div>
       </div>
 
-      {/* Phase Labels - only show in calendar view for admin */}
-      {viewMode === 'calendar' && isAdmin && (
-        <div className="flex mb-4 text-sm">
-          <div className="flex-1 text-center py-2 bg-blue-500/20 border border-blue-500/50 rounded-l-lg text-blue-300">
-            📋 Prep Phase (2 weeks)
+      {/* Phase Labels + Calendar Navigation */}
+      {viewMode === 'calendar' && (
+        <div className="mb-3">
+          {/* Navigation row */}
+          <div className="flex items-center justify-between mb-2">
+            <button
+              onClick={() => setCalendarPage(p => Math.max(0, p - 1))}
+              disabled={calendarPage === 0}
+              className="flex items-center gap-1 px-3 py-1.5 text-xs text-gray-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed bg-gray-800/50 rounded border border-gray-700 hover:border-gray-500 transition-all"
+            >
+              ← Previous
+            </button>
+            <span className="text-xs text-gray-500">
+              Weeks {calendarPage * 4 + 1}–{Math.min(calendarPage * 4 + 4, allWeeks.length)}
+            </span>
+            <button
+              onClick={() => setCalendarPage(p => Math.min(totalPages - 1, p + 1))}
+              disabled={calendarPage >= totalPages - 1}
+              className="flex items-center gap-1 px-3 py-1.5 text-xs text-gray-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed bg-gray-800/50 rounded border border-gray-700 hover:border-gray-500 transition-all"
+            >
+              Next →
+            </button>
           </div>
-          <div className="flex-1 text-center py-2 bg-yellow-500/20 border border-yellow-500/50 rounded-r-lg text-yellow-300">
-            🚀 Posting Phase (2 weeks)
-          </div>
+          {/* Phase label per week (admin only) */}
+          {isAdmin && (
+            <div className="flex gap-1">
+              {weeks.map((_, wi) => {
+                const { label, color } = computePhaseLabel(wi);
+                const colorMap: Record<string, string> = {
+                  blue: 'bg-blue-500/15 border-blue-500/40 text-blue-300',
+                  yellow: 'bg-yellow-500/15 border-yellow-500/40 text-yellow-300',
+                  red: 'bg-red-500/15 border-red-500/40 text-red-300',
+                };
+                return (
+                  <div key={wi} className={`flex-1 text-center py-1 text-[11px] border rounded ${colorMap[color]}`}>
+                    {label}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
       {/* Calendar Grid View */}
       {viewMode === 'calendar' && (
         <div className="space-y-2 max-h-[600px] overflow-y-auto pr-2">
-          {weeks.map((week, weekIndex) => (
+          {weeks.map((week, weekIndex) => {
+            const globalWeekIndex = calendarPage * 4 + weekIndex;
+            return (
             <div key={weekIndex} className="flex gap-1">
               {/* Week label */}
               <div className="w-16 flex items-start pt-2 justify-center text-xs text-gray-500 flex-shrink-0">
-                Week {weekIndex + 1}
+                Week {globalWeekIndex + 1}
               </div>
               
               {/* Days */}
@@ -1852,7 +1901,7 @@ export function EnhancedCalendar({
                 const dayTasks = day.tasks;
                 const dayGoogleEvents = day.googleEvents;
                 const hasContent = dayTasks.length > 0 || dayGoogleEvents.length > 0;
-                const dateStr = day.date.toISOString().split('T')[0];
+                const dateStr = `${day.date.getFullYear()}-${String(day.date.getMonth() + 1).padStart(2, '0')}-${String(day.date.getDate()).padStart(2, '0')}`;
                 
                 return (
                   <DroppableDay
@@ -1870,11 +1919,13 @@ export function EnhancedCalendar({
                     formatTime={formatTime}
                     getTaskColor={getTaskColor}
                     onPostCardClick={onPostCardClick}
+                    onTaskContextMenu={onTaskContextMenu}
                   />
                 );
               })}
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
