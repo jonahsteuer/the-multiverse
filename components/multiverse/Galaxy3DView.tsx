@@ -13,9 +13,20 @@ let OrbitControls: any;
 let Stars: any;
 let Text: any;
 
+interface DistantGalaxyInfo {
+  galaxy: Galaxy;
+  artistName: string;
+  index: number;
+  onSwitch: () => void;
+}
+
 interface Galaxy3DViewProps {
   galaxy: Galaxy;
   onWorldClick?: (world: World) => void;
+  distantGalaxies?: DistantGalaxyInfo[];
+  onPrevGalaxy?: () => void;
+  onNextGalaxy?: () => void;
+  showGalaxyNav?: boolean;
 }
 
 // Sun in center
@@ -132,8 +143,153 @@ function WorldSphere({
   );
 }
 
+// Distant galaxy cluster — renders as a faint mini star system far from the main galaxy
+function DistantGalaxyCluster({
+  info,
+  position,
+}: {
+  info: DistantGalaxyInfo;
+  position: [number, number, number];
+}) {
+  const groupRef = useRef<any>(null);
+  const [hovered, setHovered] = useState(false);
+
+  if (!useFrame || !THREE) return null;
+
+  useFrame((state: any) => {
+    if (groupRef.current) {
+      const t = state.clock.getElapsedTime();
+      // Gentle slow rotation of the whole cluster
+      groupRef.current.rotation.y = t * 0.05;
+    }
+  });
+
+  // Pick a subtle cluster color based on the first world color, or default to a cool blue-white
+  const clusterColor = info.galaxy.worlds[0]?.color || '#8888ff';
+
+  // Evenly space 2-4 tiny worlds around the mini-sun
+  const miniWorldCount = Math.min(Math.max(info.galaxy.worlds.length, 1), 4);
+  const miniWorlds = Array.from({ length: miniWorldCount }, (_, i) => ({
+    angle: (i / miniWorldCount) * Math.PI * 2,
+    distance: 1.8 + i * 0.5,
+    color: info.galaxy.worlds[i]?.color || clusterColor,
+  }));
+
+  return (
+    <group
+      ref={groupRef}
+      position={position}
+      onClick={() => info.onSwitch()}
+      onPointerOver={() => setHovered(true)}
+      onPointerOut={() => setHovered(false)}
+    >
+      {/* Mini sun */}
+      <mesh>
+        <sphereGeometry args={[0.5, 16, 16]} />
+        <meshStandardMaterial
+          color={hovered ? '#ffffaa' : '#ffee88'}
+          emissive={hovered ? '#ffee88' : '#ffcc44'}
+          emissiveIntensity={hovered ? 1.2 : 0.6}
+          transparent
+          opacity={hovered ? 0.95 : 0.75}
+        />
+        <pointLight intensity={hovered ? 1.2 : 0.5} distance={6} decay={2} />
+      </mesh>
+
+      {/* Tiny orbiting worlds */}
+      {miniWorlds.map((mw, i) => (
+        <TinyOrbitingWorld key={i} angle={mw.angle} distance={mw.distance} color={mw.color} hovered={hovered} />
+      ))}
+
+      {/* Faint orbit ring */}
+      <mesh rotation={[Math.PI / 2, 0, 0]}>
+        <ringGeometry args={[1.7, 1.85, 32]} />
+        <meshStandardMaterial
+          color="#aabbff"
+          emissive="#aabbff"
+          emissiveIntensity={0.08}
+          transparent
+          opacity={hovered ? 0.35 : 0.12}
+          side={THREE?.DoubleSide || 2}
+        />
+      </mesh>
+
+      {/* Label */}
+      {Text && (
+        <Text
+          position={[0, 2.6, 0]}
+          fontSize={0.55}
+          color={hovered ? '#FFD700' : '#aaccff'}
+          anchorX="center"
+          anchorY="middle"
+          outlineWidth={0.03}
+          outlineColor="#000000"
+          fillOpacity={hovered ? 1 : 0.7}
+        >
+          {info.artistName || info.galaxy.name}
+        </Text>
+      )}
+      {/* Tap-to-visit hint on hover */}
+      {hovered && Text && (
+        <Text
+          position={[0, -1.5, 0]}
+          fontSize={0.38}
+          color="#FFD700"
+          anchorX="center"
+          anchorY="middle"
+          outlineWidth={0.02}
+          outlineColor="#000000"
+        >
+          tap to visit
+        </Text>
+      )}
+    </group>
+  );
+}
+
+// Tiny orbiting world for the distant cluster
+function TinyOrbitingWorld({
+  angle,
+  distance,
+  color,
+  hovered,
+}: {
+  angle: number;
+  distance: number;
+  color: string;
+  hovered: boolean;
+}) {
+  const orbitRef = useRef<any>(null);
+
+  if (!useFrame || !THREE) return null;
+
+  useFrame((state: any) => {
+    if (orbitRef.current) {
+      const t = state.clock.getElapsedTime();
+      const speed = 0.25 / distance;
+      orbitRef.current.position.x = Math.cos(angle + t * speed) * distance;
+      orbitRef.current.position.z = Math.sin(angle + t * speed) * distance;
+    }
+  });
+
+  return (
+    <group ref={orbitRef}>
+      <mesh>
+        <sphereGeometry args={[0.18, 8, 8]} />
+        <meshStandardMaterial
+          color={color}
+          emissive={color}
+          emissiveIntensity={hovered ? 0.9 : 0.4}
+          transparent
+          opacity={hovered ? 0.9 : 0.6}
+        />
+      </mesh>
+    </group>
+  );
+}
+
 // Main 3D Scene
-function Scene({ galaxy, onWorldClick }: Galaxy3DViewProps) {
+function Scene({ galaxy, onWorldClick, distantGalaxies }: Galaxy3DViewProps) {
   // Don't render if Three.js isn't loaded
   if (!THREE || !OrbitControls || !Stars || !useFrame) {
     return null;
@@ -192,19 +348,32 @@ function Scene({ galaxy, onWorldClick }: Galaxy3DViewProps) {
         </mesh>
       ))}
 
+      {/* Distant galaxies — faint clusters in the background */}
+      {distantGalaxies && distantGalaxies.map((info, i) => {
+        // Distribute distant galaxies evenly around the scene at ~65 units away
+        const angle = (i / Math.max(distantGalaxies.length, 1)) * Math.PI * 2 + Math.PI / 4;
+        const dist = 60 + i * 8;
+        const pos: [number, number, number] = [
+          Math.cos(angle) * dist,
+          (i % 3) * 4 - 4, // slight vertical variation
+          Math.sin(angle) * dist,
+        ];
+        return <DistantGalaxyCluster key={info.galaxy.id} info={info} position={pos} />;
+      })}
+
       <OrbitControls
         enablePan={true}
         enableZoom={true}
         enableRotate={true}
         minDistance={5}
-        maxDistance={40}
+        maxDistance={80}
         autoRotate={false}
       />
     </>
   );
 }
 
-export function Galaxy3DView({ galaxy, onWorldClick }: Galaxy3DViewProps) {
+export function Galaxy3DView({ galaxy, onWorldClick, distantGalaxies, onPrevGalaxy, onNextGalaxy, showGalaxyNav }: Galaxy3DViewProps) {
   const [isReady, setIsReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -326,16 +495,39 @@ export function Galaxy3DView({ galaxy, onWorldClick }: Galaxy3DViewProps) {
     <div className="w-full h-screen bg-black relative">
       {/* Galaxy Title Overlay */}
       <div className="absolute top-8 left-1/2 transform -translate-x-1/2 z-10 text-center">
-        <h1 className="text-4xl font-star-wars text-yellow-400 mb-2">
-          {galaxy.name}
-        </h1>
+        {/* Navigation arrows — only shown when user is part of multiple galaxies */}
+        {showGalaxyNav ? (
+          <div className="flex items-center justify-center gap-3 mb-1">
+            <button
+              onClick={onPrevGalaxy}
+              className="p-1.5 rounded-full bg-black/60 border border-yellow-500/40 text-yellow-400 hover:bg-yellow-500/20 transition-colors text-lg leading-none"
+              title="Previous galaxy"
+            >
+              ◀
+            </button>
+            <h1 className="text-4xl font-star-wars text-yellow-400">
+              {galaxy.name}
+            </h1>
+            <button
+              onClick={onNextGalaxy}
+              className="p-1.5 rounded-full bg-black/60 border border-yellow-500/40 text-yellow-400 hover:bg-yellow-500/20 transition-colors text-lg leading-none"
+              title="Next galaxy"
+            >
+              ▶
+            </button>
+          </div>
+        ) : (
+          <h1 className="text-4xl font-star-wars text-yellow-400 mb-2">
+            {galaxy.name}
+          </h1>
+        )}
         {galaxy.releaseDate && new Date(galaxy.releaseDate) > new Date() && (
           <div className="text-yellow-400 font-star-wars text-lg">
             Releasing in {Math.ceil((new Date(galaxy.releaseDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24))} days
           </div>
         )}
         {galaxy.worlds.length > 0 && (
-          <div className="text-gray-400 font-star-wars text-sm mt-2">
+          <div className="text-gray-400 font-star-wars text-sm mt-1">
             {galaxy.worlds.length} {galaxy.worlds.length === 1 ? 'world' : 'worlds'}
           </div>
         )}
@@ -346,7 +538,7 @@ export function Galaxy3DView({ galaxy, onWorldClick }: Galaxy3DViewProps) {
         gl={{ antialias: true }}
       >
         <Suspense fallback={null}>
-          <Scene galaxy={galaxy} onWorldClick={onWorldClick} />
+          <Scene galaxy={galaxy} onWorldClick={onWorldClick} distantGalaxies={distantGalaxies} />
         </Suspense>
       </Canvas>
     </div>

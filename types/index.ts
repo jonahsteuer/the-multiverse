@@ -159,6 +159,14 @@ export interface Universe {
   galaxies: Galaxy[];
 }
 
+// GalaxyEntry — used for multi-galaxy navigation (user's own + team galaxies)
+export interface GalaxyEntry {
+  galaxy: Galaxy;
+  universe: Universe;
+  isAdmin: boolean;
+  artistName: string; // e.g. "Kiss Bang" or "Leon Tax"
+}
+
 // Galaxy (Release block/project)
 export interface Galaxy {
   id: string;

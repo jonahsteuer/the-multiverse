@@ -77,9 +77,13 @@ interface GalaxyViewProps {
   onDeleteWorld?: (worldId: string) => void;
   onSignOut?: () => void;
   onDeleteAccount?: () => void;
+  // Multi-galaxy navigation
+  allGalaxies?: import('@/types').GalaxyEntry[];
+  activeGalaxyIndex?: number;
+  onSwitchGalaxy?: (index: number) => void;
 }
 
-export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onDeleteGalaxy, onDeleteWorld, onSignOut, onDeleteAccount }: GalaxyViewProps) {
+export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onDeleteGalaxy, onDeleteWorld, onSignOut, onDeleteAccount, allGalaxies, activeGalaxyIndex, onSwitchGalaxy }: GalaxyViewProps) {
   const [selectedWorld, setSelectedWorld] = useState<World | null>(null);
   const [showWorldForm, setShowWorldForm] = useState(false);
   const [showWorldDetail, setShowWorldDetail] = useState(false);
@@ -589,15 +593,25 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
     const h = now.getHours();
     const m = now.getMinutes();
     const editedClipCount = (artistProfile as any)?.editedClipCount ?? 0;
+    const rawFootageDesc: string = (artistProfile as any)?.rawFootageDescription || '';
+    const hasRawFootage = rawFootageDesc.length > 0;
     const isContentReady = editedClipCount >= 10;
+    const hasRawButNoEdited = !isContentReady && hasRawFootage;
 
-    // Upload task: specific if we know clip count, generic otherwise
-    const uploadTitle = isContentReady
-      ? `Upload 10 post edits (est. 30 min)`
-      : 'Upload Posts';
-    const uploadDescription = isContentReady
-      ? `You have ${editedClipCount} edited clips ready. Start by linking the first 10 to their scheduled post slots.`
-      : 'Link your videos to each scheduled post slot. Mark will review and give feedback.';
+    // Parse rough clip count from description
+    const roughCountMatch = rawFootageDesc.match(/\b(\d+)\b/);
+    const roughClipCount = roughCountMatch ? parseInt(roughCountMatch[1]) : 10;
+
+    // Find editor/videographer name for personalised task descriptions
+    const editorMember = teamMembers.find(m =>
+      m.role?.toLowerCase().includes('edit') || m.role?.toLowerCase().includes('videograph')
+    );
+    const editorName = editorMember?.displayName;
+
+    const makeTime = (offsetMinutes: number) => {
+      const total = h * 60 + m + offsetMinutes;
+      return `${pad(Math.floor(total / 60) % 24)}:${pad(total % 60)}`;
+    };
 
     const defaultTasks: TeamTask[] = [
       {
@@ -605,28 +619,12 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
         teamId: '',
         galaxyId: galaxy.id,
         title: 'Invite team members',
-        description: 'Add your collaborators so they can help with content creation.',
+        description: 'Add your collaborators so they can see the calendar and pick up tasks.',
         type: 'invite_team' as const,
         taskCategory: 'task' as const,
         date: todayStr,
-        startTime: `${pad(h)}:${pad(m)}`,
-        endTime: `${pad(h)}:${pad(Math.min(m + 15, 59))}`,
-        status: 'pending' as const,
-        assignedBy: '',
-        createdAt: now.toISOString(),
-        updatedAt: now.toISOString(),
-      },
-      {
-        id: 'default-upload',
-        teamId: '',
-        galaxyId: galaxy.id,
-        title: uploadTitle,
-        description: uploadDescription,
-        type: 'prep' as const,
-        taskCategory: 'task' as const,
-        date: todayStr,
-        startTime: `${pad(h)}:${pad(Math.min(m + 15, 59))}`,
-        endTime: `${pad(h + (m + 45 >= 60 ? 1 : 0))}:${pad((m + 45) % 60)}`,
+        startTime: makeTime(0),
+        endTime: makeTime(15),
         status: 'pending' as const,
         assignedBy: '',
         createdAt: now.toISOString(),
@@ -634,20 +632,131 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
       },
     ];
 
-    // Only show Brainstorm Content if artist doesn't have clips ready
-    if (!isContentReady) {
+    if (isContentReady) {
+      // Content-ready flow: upload → send notes → finalize
+      defaultTasks.push({
+        id: 'default-upload',
+        teamId: '',
+        galaxyId: galaxy.id,
+        title: `Upload post edits 1–10 (est. 30 min)`,
+        description: `You have ${editedClipCount} edited clips ready. Link the first 10 to their scheduled post slots in the calendar.`,
+        type: 'prep' as const,
+        taskCategory: 'task' as const,
+        date: todayStr,
+        startTime: makeTime(20),
+        endTime: makeTime(50),
+        status: 'pending' as const,
+        assignedBy: '',
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+      });
+      if (editorName) {
+        defaultTasks.push({
+          id: 'default-send-notes',
+          teamId: '',
+          galaxyId: galaxy.id,
+          title: `Send edit notes to ${editorName} (est. 20 min)`,
+          description: `Review each uploaded clip. Write revision notes on any that need work. Hit "No more notes" when done — the rest will be queued for finalizing.`,
+          type: 'prep' as const,
+          taskCategory: 'task' as const,
+          date: todayStr,
+          startTime: makeTime(55),
+          endTime: makeTime(75),
+          status: 'pending' as const,
+          assignedBy: '',
+          createdAt: now.toISOString(),
+          updatedAt: now.toISOString(),
+        });
+      }
+      defaultTasks.push({
+        id: 'default-finalize',
+        teamId: '',
+        galaxyId: galaxy.id,
+        title: `Finalize posts (est. 25 min)`,
+        description: editorName
+          ? `Posts you didn't send back to ${editorName} are ready. Write captions and confirm scheduling.`
+          : `Do a final pass on your uploaded posts. Write captions, add hashtags, and confirm scheduling.`,
+        type: 'prep' as const,
+        taskCategory: 'task' as const,
+        date: todayStr,
+        startTime: makeTime(80),
+        endTime: makeTime(105),
+        status: 'pending' as const,
+        assignedBy: '',
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+      });
+    } else if (hasRawButNoEdited) {
+      // Has raw footage — no shoot needed, focus on reviewing + sending to editor
+      const batchOne = Math.min(10, roughClipCount);
+      defaultTasks.push({
+        id: 'default-review-footage',
+        teamId: '',
+        galaxyId: galaxy.id,
+        title: `Review & organize existing footage (est. 45 min)`,
+        description: `Go through your ${roughClipCount} rough clips. Pick the ${batchOne} strongest and flag any that need specific edit notes.`,
+        type: 'prep' as const,
+        taskCategory: 'task' as const,
+        date: todayStr,
+        startTime: makeTime(20),
+        endTime: makeTime(65),
+        status: 'pending' as const,
+        assignedBy: '',
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+      });
+      defaultTasks.push({
+        id: 'default-send-footage',
+        teamId: '',
+        galaxyId: galaxy.id,
+        title: editorName
+          ? `Send first batch to ${editorName} for editing (est. 20 min)`
+          : `Edit first batch of posts (est. 90 min)`,
+        description: editorName
+          ? `Forward your top ${batchOne} clips to ${editorName} with any notes on cuts, color, or vibe. Include the target post dates.`
+          : `Cut your top ${batchOne} rough clips into 15–30 second post-ready videos.`,
+        type: 'prep' as const,
+        taskCategory: 'task' as const,
+        date: todayStr,
+        startTime: makeTime(70),
+        endTime: makeTime(90),
+        status: 'pending' as const,
+        assignedBy: '',
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+      });
+    } else {
+      // Content-light flow: brainstorm → plan shoot
       defaultTasks.push({
         id: 'default-brainstorm',
         teamId: '',
         galaxyId: galaxy.id,
-        title: 'Brainstorm Content',
-        description: 'Choose content formats for your scheduled posts.',
+        title: 'Brainstorm content ideas (est. 45 min)',
+        description: 'Come up with 6–10 post concepts for your release. Think hooks, settings, and what fits your sound.',
         type: 'brainstorm' as const,
         taskCategory: 'task' as const,
         date: todayStr,
-        startTime: `${pad(h + (m + 45 >= 60 ? 1 : 0))}:${pad((m + 45) % 60)}`,
-        endTime: `${pad(h + (m + 60 >= 60 ? 1 : 0))}:${pad(m % 60)}`,
+        startTime: makeTime(20),
+        endTime: makeTime(65),
         status: brainstormResult ? 'completed' as const : 'pending' as const,
+        assignedBy: '',
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+      });
+      defaultTasks.push({
+        id: 'default-plan-shoot',
+        teamId: '',
+        galaxyId: galaxy.id,
+        title: editorName ? `Plan shoot day with ${editorName} (est. 30 min)` : 'Plan shoot day (est. 30 min)',
+        description: editorName
+          ? `Set a shoot date with ${editorName}. Agree on locations, outfits, and shot list based on your brainstorm.`
+          : 'Map out your shoot day: locations, outfits, shot list. Block off the time on your calendar.',
+        type: 'prep' as const,
+        taskCategory: 'task' as const,
+        date: todayStr,
+        startTime: makeTime(70),
+        endTime: makeTime(100),
+        status: 'pending' as const,
         assignedBy: '',
         createdAt: now.toISOString(),
         updatedAt: now.toISOString(),
@@ -664,6 +773,29 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
         key={`galaxy-${galaxy.id}-${galaxy.worlds.length}`}
         galaxy={galaxy}
         onWorldClick={handleWorldClick}
+        showGalaxyNav={(allGalaxies?.length ?? 0) > 1}
+        onPrevGalaxy={() => {
+          if (!allGalaxies || !onSwitchGalaxy) return;
+          const prev = ((activeGalaxyIndex ?? 0) - 1 + allGalaxies.length) % allGalaxies.length;
+          onSwitchGalaxy(prev);
+        }}
+        onNextGalaxy={() => {
+          if (!allGalaxies || !onSwitchGalaxy) return;
+          const next = ((activeGalaxyIndex ?? 0) + 1) % allGalaxies.length;
+          onSwitchGalaxy(next);
+        }}
+        distantGalaxies={
+          allGalaxies && allGalaxies.length > 1
+            ? allGalaxies
+                .filter((_, i) => i !== (activeGalaxyIndex ?? 0))
+                .map((entry, i) => ({
+                  galaxy: entry.galaxy,
+                  artistName: entry.artistName,
+                  index: allGalaxies.findIndex(e => e.galaxy.id === entry.galaxy.id),
+                  onSwitch: () => onSwitchGalaxy?.(allGalaxies.findIndex(e => e.galaxy.id === entry.galaxy.id)),
+                }))
+            : undefined
+        }
       />
 
       {/* Info Panel (top-left) — compact action buttons only */}

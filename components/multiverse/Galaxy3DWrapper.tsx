@@ -17,16 +17,26 @@ const Galaxy3DView = dynamic(
   }
 );
 
+interface DistantGalaxyInfo {
+  galaxy: Galaxy;
+  artistName: string;
+  index: number;
+  onSwitch: () => void;
+}
+
 interface Galaxy3DWrapperProps {
   galaxy: Galaxy;
   onWorldClick?: (world: World) => void;
+  distantGalaxies?: DistantGalaxyInfo[];
+  onPrevGalaxy?: () => void;
+  onNextGalaxy?: () => void;
+  showGalaxyNav?: boolean;
 }
 
-export function Galaxy3DWrapper({ galaxy, onWorldClick }: Galaxy3DWrapperProps) {
+export function Galaxy3DWrapper({ galaxy, onWorldClick, distantGalaxies, onPrevGalaxy, onNextGalaxy, showGalaxyNav }: Galaxy3DWrapperProps) {
   const [isMounted, setIsMounted] = useState(false);
 
   useEffect(() => {
-    // Ensure we're fully client-side before rendering Three.js
     setIsMounted(true);
   }, []);
 
@@ -38,6 +48,16 @@ export function Galaxy3DWrapper({ galaxy, onWorldClick }: Galaxy3DWrapperProps) 
     );
   }
 
-  return <Galaxy3DView key={`galaxy-3d-${galaxy.id}-${galaxy.worlds.length}`} galaxy={galaxy} onWorldClick={onWorldClick} />;
+  return (
+    <Galaxy3DView
+      key={`galaxy-3d-${galaxy.id}-${galaxy.worlds.length}`}
+      galaxy={galaxy}
+      onWorldClick={onWorldClick}
+      distantGalaxies={distantGalaxies}
+      onPrevGalaxy={onPrevGalaxy}
+      onNextGalaxy={onNextGalaxy}
+      showGalaxyNav={showGalaxyNav}
+    />
+  );
 }
 

@@ -83,74 +83,234 @@ interface EnhancedCalendarProps {
   onPostCardClick?: (taskId: string) => void;
 }
 
-// Task templates - duration in minutes
-// These are the CONTENT-LIGHT defaults (artist has little/no footage ready)
-const PREP_TASKS_WEEK1_LIGHT = [
-  { title: 'Plan content ideas', description: 'Brainstorm 5-7 post concepts for your content', duration: 90 },
-  { title: 'Scout locations', description: 'Find good spots to film your content', duration: 60 },
-  { title: 'Film Session 1', description: 'Capture your first batch of content', duration: 150 },
-  { title: 'Review & organize', description: 'Review footage and organize files', duration: 60 },
-  { title: 'Film Session 2', description: 'Capture additional shots', duration: 60 },
-];
-const PREP_TASKS_WEEK2_LIGHT = [
-  { title: 'Film Session 3', description: 'Final filming session for this batch', duration: 120 },
-  { title: 'Edit batch 1 (Posts 1-3)', description: 'Edit your first 3 posts', duration: 120 },
-  { title: 'Edit batch 2 (Posts 4-6)', description: 'Edit your next 3 posts', duration: 90 },
-  { title: 'Finalize & caption', description: 'Final touches and write captions', duration: 60 },
-  { title: 'Schedule posts', description: 'Schedule all posts for the next 2 weeks', duration: 30 },
-];
-
-// CONTENT-READY prep tasks (artist has 10+ edited clips ready)
-// Focus is on uploading, assigning to post slots, writing captions, and reviewing
-function buildContentReadyPrepTasks(editedClipCount: number, hasRawFootage: boolean): {
+// ============================================================
+// HAS RAW FOOTAGE task templates (artist has unedited clips, no finalized posts)
+// Flow: Review footage → Send to editor → Review edits → Upload → Finalize → Brainstorm → Shoot plan
+// ============================================================
+function buildRawFootagePrepTasks(
+  roughClipCount: number,
+  editorName?: string,
+): {
   week1: { title: string; description: string; duration: number }[];
   week2: { title: string; description: string; duration: number }[];
 } {
-  const batchSize = 10; // Upload ~10 clips per session (~30 min)
-  const totalBatches = Math.ceil(editedClipCount / batchSize);
+  const batchOne = Math.min(10, roughClipCount);
+  const batchTwo = Math.max(0, roughClipCount - 10);
+  const editorNote = editorName ? ` to ${editorName}` : '';
+
+  const week1: { title: string; description: string; duration: number }[] = [
+    {
+      title: `Review & organize existing footage`,
+      description: `Go through your ${roughClipCount} rough clips. Pick the ${batchOne} strongest and flag any that need specific edits before they're post-ready.`,
+      duration: 45,
+    },
+  ];
+
+  if (editorName) {
+    week1.push({
+      title: `Send first batch to ${editorName} for editing (posts 1–${batchOne})`,
+      description: `Forward your top ${batchOne} clips${editorNote} with any notes on cuts, color, or vibe. Include the post dates you're targeting.`,
+      duration: 20,
+    });
+  } else {
+    week1.push({
+      title: `Edit first batch (posts 1–${batchOne})`,
+      description: `Cut your top ${batchOne} rough clips into post-ready videos. Aim for 15–30 seconds each.`,
+      duration: Math.min(batchOne * 15, 120),
+    });
+  }
+
+  week1.push({
+    title: `Finalize any posts ready to go live`,
+    description: editorName
+      ? `Any clips you already know look good — write captions and schedule them now. Don't wait for the full batch.`
+      : `Do a final pass on the clips you just edited. Write captions and confirm scheduling.`,
+    duration: 25,
+  });
+
+  const week2: { title: string; description: string; duration: number }[] = [];
+
+  if (editorName) {
+    week2.push({
+      title: `Review ${editorName}'s edits (posts 1–${batchOne})`,
+      description: `${editorName} has finished the first batch. Review, leave any final notes, and approve what's ready.`,
+      duration: 30,
+    });
+  }
+
+  week2.push({
+    title: `Upload & finalize posts 1–${batchOne}`,
+    description: `Link the approved clips to their scheduled post slots and write captions. These should be ready to go live.`,
+    duration: 30,
+  });
+
+  if (batchTwo > 0) {
+    if (editorName) {
+      week2.push({
+        title: `Send second batch to ${editorName} for editing (posts ${batchOne + 1}–${roughClipCount})`,
+        description: `Forward your remaining ${batchTwo} clips${editorNote} with edit notes for the next wave of posts.`,
+        duration: 20,
+      });
+    } else {
+      week2.push({
+        title: `Edit second batch (posts ${batchOne + 1}–${roughClipCount})`,
+        description: `Edit your remaining ${batchTwo} clips into post-ready videos.`,
+        duration: Math.min(batchTwo * 15, 90),
+      });
+    }
+  }
+
+  week2.push({
+    title: `Brainstorm next content batch`,
+    description: `Your existing footage has a runway of ${roughClipCount} posts. Start thinking about what to shoot next to keep the momentum going.`,
+    duration: 45,
+  });
+
+  if (editorName) {
+    week2.push({
+      title: `Plan shoot day (assign to ${editorName})`,
+      description: `Coordinate with ${editorName} on a shoot date. Share location ideas and a shot list based on your brainstorm.`,
+      duration: 30,
+    });
+  }
+
+  return { week1, week2 };
+}
+
+// ============================================================
+// CONTENT-LIGHT task templates (artist has < 10 edited clips)
+// Flow: Brainstorm → Plan shoot → Shoot → Edit → Upload → Finalize
+// ============================================================
+function buildContentLightPrepTasks(editorName?: string): {
+  week1: { title: string; description: string; duration: number }[];
+  week2: { title: string; description: string; duration: number }[];
+} {
+  const editLabel = editorName ? ` — assign to ${editorName}` : '';
+  return {
+    week1: [
+      {
+        title: 'Brainstorm content ideas',
+        description: 'Come up with 6–10 post concepts for your upcoming release. Think about hooks, settings, and what fits your sound.',
+        duration: 45,
+      },
+      {
+        title: 'Plan shoot day',
+        description: 'Map out your shoot day: locations, outfits, shot list. Coordinate with your team if needed.',
+        duration: 30,
+      },
+      {
+        title: 'Shoot day',
+        description: 'Film everything on your shot list. Capture plenty of B-roll — stories alone eat through content fast.',
+        duration: 150,
+      },
+    ],
+    week2: [
+      {
+        title: `Edit batch 1 (Posts 1-3)${editLabel}`,
+        description: editorName
+          ? `Send footage to ${editorName} for first 3 posts. Include any specific notes about cuts or vibe.`
+          : 'Cut your first 3 posts from the shoot footage. Aim for 15–30 seconds each.',
+        duration: 75,
+      },
+      {
+        title: `Edit batch 2 (Posts 4-6)${editLabel}`,
+        description: editorName
+          ? `${editorName} continues editing posts 4–6.`
+          : 'Edit your next 3 posts. Vary the energy between clips.',
+        duration: 75,
+      },
+      {
+        title: 'Upload post edits',
+        description: 'Link each edited video to its scheduled post slot in the calendar.',
+        duration: 30,
+      },
+      {
+        title: 'Review & finalize posts',
+        description: 'Final pass on all posts. Write captions, add hashtags, and confirm everything looks right before the first post goes live.',
+        duration: 45,
+      },
+    ],
+  };
+}
+
+// ============================================================
+// CONTENT-READY task templates (artist has 10+ edited clips)
+// Flow: Upload → Send edit notes → Finalize → Review edits → Brainstorm → Plan shoot
+// ============================================================
+function buildContentReadyPrepTasks(
+  editedClipCount: number,
+  hasRawFootage: boolean,
+  editorName?: string,
+): {
+  week1: { title: string; description: string; duration: number }[];
+  week2: { title: string; description: string; duration: number }[];
+} {
+  const batchSize = 10;
+  const totalBatches = Math.ceil(Math.min(editedClipCount, 30) / batchSize); // cap at 30 clips shown
   const week1: { title: string; description: string; duration: number }[] = [];
   const week2: { title: string; description: string; duration: number }[] = [];
 
-  // Spread upload batches across week 1 and 2
+  // Batch uploads → each batch immediately followed by "send notes" then "finalize ready posts"
   for (let i = 0; i < totalBatches; i++) {
     const start = i * batchSize + 1;
     const end = Math.min((i + 1) * batchSize, editedClipCount);
-    const task = {
-      title: `Upload post edits ${start}-${end}`,
-      description: `Link ${end - start + 1} edited clips to their scheduled post slots`,
+    const targetWeek = i < 2 ? week1 : week2;
+
+    targetWeek.push({
+      title: `Upload post edits ${start}–${end}`,
+      description: `Link ${end - start + 1} edited clips to their scheduled post slots. Paste each video link into the post card.`,
       duration: 30,
-    };
-    if (i < 2) week1.push(task);
-    else week2.push(task);
+    });
+
+    if (editorName) {
+      targetWeek.push({
+        title: `Send edit notes to ${editorName} (posts ${start}–${end})`,
+        description: `Review each clip. Write any notes per post — feel free to skip the ones that look ready. Hit "No more notes" when done to mark the rest as finalized.`,
+        duration: 20,
+      });
+    }
+
+    targetWeek.push({
+      title: `Finalize posts ${start}–${end}`,
+      description: editorName
+        ? `Posts without revision notes are ready to go. Write captions and confirm scheduling for each.`
+        : `Do a final pass on posts ${start}–${end}. Write captions, add hashtags, confirm everything looks right.`,
+      duration: 25,
+    });
   }
 
-  // Always add caption writing
-  week1.push({
-    title: 'Write captions (batch 1)',
-    description: 'Write captions and hashtags for your first wave of posts',
-    duration: 45,
-  });
-  week2.push({
-    title: 'Write captions (batch 2)',
-    description: 'Write captions for remaining posts',
-    duration: 45,
-  });
+  // If editor: add a review task for their revised edits (week 2)
+  if (editorName) {
+    week2.push({
+      title: `Review ${editorName}'s revised edits`,
+      description: `${editorName} has addressed your notes. Review the updated clips and finalize any remaining posts.`,
+      duration: 30,
+    });
+  }
 
-  // If they have raw footage (e.g. music video), add an editing task
+  // Raw footage / music video editing task
   if (hasRawFootage) {
     week2.push({
-      title: 'Edit MV clips into posts',
-      description: 'Cut music video footage down into shareable post-sized clips',
+      title: 'Edit MV footage into post clips',
+      description: 'Cut music video footage into 15–30 second post-ready clips. Aim for 3–5 strong cuts.',
       duration: 90,
     });
   }
 
-  // Final review before going live
+  // Brainstorm for next content batch once existing clips are uploaded
   week2.push({
-    title: 'Review & finalize posts',
-    description: 'Do a final pass on all uploaded posts before posting begins',
-    duration: 30,
+    title: 'Brainstorm next content batch',
+    description: 'You\'ve uploaded your existing clips — now think ahead. What ideas do you want to shoot next? List 5–8 concepts.',
+    duration: 45,
   });
+
+  if (editorName) {
+    week2.push({
+      title: `Plan shoot day (assign to ${editorName})`,
+      description: `Set a shoot date with ${editorName}. Share the location ideas and shot list from your brainstorm.`,
+      duration: 30,
+    });
+  }
 
   return { week1, week2 };
 }
@@ -168,10 +328,6 @@ const POSTING_TASKS_READY = [
   { title: '✂️ Quick edit', description: 'Edit and prep any remaining clips', duration: 60, type: 'prep' },
 ];
 
-// Keep old names as aliases for backward compat
-const PREP_TASKS_WEEK1 = PREP_TASKS_WEEK1_LIGHT;
-const PREP_TASKS_WEEK2 = PREP_TASKS_WEEK2_LIGHT;
-const POSTING_TASKS = POSTING_TASKS_LIGHT;
 
 const POST_TYPES = {
   'audience-builder': { emoji: '🌱', color: 'green', description: 'Build connection with your audience' },
@@ -704,7 +860,7 @@ export function EnhancedCalendar({
   const [isFetchingEvents, setIsFetchingEvents] = useState(false);
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
   const [scheduledTasks, setScheduledTasks] = useState<ScheduledTask[]>([]);
-  const [viewMode, setViewMode] = useState<'calendar' | 'list'>('calendar'); // Toggle between views
+  const [viewMode, setViewMode] = useState<'calendar' | 'posts' | 'list'>('calendar');
   
   // Drag & Drop state
   const [activeTask, setActiveTask] = useState<ScheduledTask | null>(null);
@@ -1121,84 +1277,98 @@ export function EnhancedCalendar({
 
     // PREP PHASE (Weeks 1-2): Admin-only (members return early above)
     {
-      // Determine content tier from profile
+      // Determine content tier and find editor/videographer team member
       const editedClipCount = (artistProfile as any)?.editedClipCount ?? 0;
-      const hasRawFootage = !!((artistProfile as any)?.rawFootageDescription);
+      const rawFootageDesc: string = (artistProfile as any)?.rawFootageDescription || '';
+      const hasRawFootage = rawFootageDesc.length > 0;
       const isContentReady = editedClipCount >= 10;
+      // Has footage but not yet edited (e.g. "about 20 rough clips")
+      const hasRawButNoEdited = !isContentReady && hasRawFootage;
+
+      // Parse rough clip count from description (e.g. "about 20 pieces" → 20)
+      const roughCountMatch = rawFootageDesc.match(/\b(\d+)\b/);
+      const roughClipCount = roughCountMatch ? parseInt(roughCountMatch[1]) : 10;
+
+      // Find editor/videographer name from team members for personalized task names
+      const editorMember = teamMembers?.find(m =>
+        m.role?.toLowerCase().includes('edit') || m.role?.toLowerCase().includes('videograph')
+      );
+      const editorName = editorMember?.displayName;
 
       let week1Tasks: { title: string; description: string; duration: number }[];
       let week2Tasks: { title: string; description: string; duration: number }[];
 
       if (isContentReady) {
-        const tasks = buildContentReadyPrepTasks(editedClipCount, hasRawFootage);
-        week1Tasks = tasks.week1;
-        week2Tasks = tasks.week2;
+        const prepTasks = buildContentReadyPrepTasks(editedClipCount, hasRawFootage, editorName);
+        week1Tasks = prepTasks.week1;
+        week2Tasks = prepTasks.week2;
+      } else if (hasRawButNoEdited) {
+        // Artist has unedited footage — skip shoot day, focus on editing existing clips
+        const prepTasks = buildRawFootagePrepTasks(roughClipCount, editorName);
+        week1Tasks = prepTasks.week1;
+        week2Tasks = prepTasks.week2;
       } else {
-        week1Tasks = [...PREP_TASKS_WEEK1_LIGHT];
-        week2Tasks = [...PREP_TASKS_WEEK2_LIGHT];
+        // Truly content-light — needs to shoot from scratch
+        const prepTasks = buildContentLightPrepTasks(editorName);
+        week1Tasks = prepTasks.week1;
+        week2Tasks = prepTasks.week2;
       }
-      
+
+      // Helper: schedule a list of tasks into available days, packing multiple tasks per day
+      // Respects both daily cap (~3-4 hrs) and weekly budget
+      const scheduleTasksIntoDays = (
+        taskList: { title: string; description: string; duration: number }[],
+        dayPool: typeof allDays,
+        weekIdx: number,
+        idPrefix: string,
+      ) => {
+        const maxMinutesPerDay = Math.min(weeklyBudgetMinutes * 0.55, 240);
+        const timeUsedByDay: Record<string, number> = {};
+
+        for (let ti = 0; ti < taskList.length; ti++) {
+          const task = taskList[ti];
+          // Find the first day in the pool that has capacity
+          for (const day of dayPool) {
+            if (timeSpentPerWeek[weekIdx] >= weeklyBudgetMinutes) break;
+            const dayUsed = timeUsedByDay[day.dateStr] ?? 0;
+            if (dayUsed + task.duration > maxMinutesPerDay) continue;
+
+            const timeSlot = findFreeTimeSlot(day.date, task.duration, tasks);
+            if (!timeSlot) continue;
+
+            // Determine task type from title for color coding
+            let taskType: ScheduledTask['type'] = 'prep';
+            const titleLower = task.title.toLowerCase();
+            if (titleLower.includes('edit') && !titleLower.includes('edit notes')) taskType = 'edit';
+            else if (titleLower.includes('shoot')) taskType = 'shoot';
+
+            tasks.push({
+              id: `${idPrefix}-${ti}`,
+              title: task.title,
+              description: task.description,
+              type: taskType,
+              date: day.dateStr,
+              startTime: timeSlot.start,
+              endTime: timeSlot.end,
+              completed: false,
+            });
+
+            timeUsedByDay[day.dateStr] = dayUsed + task.duration;
+            timeSpentPerWeek[weekIdx] += task.duration;
+            break; // task placed — move to next task
+          }
+        }
+      };
+
       const week1Days = allDays.filter(d => d.weekNum === 0);
       const week2Days = allDays.filter(d => d.weekNum === 1);
-      
-      const sortedWeek1 = sortByPreference(week1Days);
-      const sortedWeek2 = sortByPreference(week2Days);
-      
-      // Schedule Week 1 prep tasks
-      let taskIndex = 0;
-      for (const day of sortedWeek1) {
-        if (taskIndex >= week1Tasks.length) break;
-        if (timeSpentPerWeek[0] >= weeklyBudgetMinutes) break;
-        
-        const task = week1Tasks[taskIndex];
-        const remainingBudget = weeklyBudgetMinutes - timeSpentPerWeek[0];
-        
-        if (task.duration <= remainingBudget || timeSpentPerWeek[0] === 0) {
-          const timeSlot = findFreeTimeSlot(day.date, task.duration, tasks);
-          if (timeSlot) {
-            tasks.push({
-              id: `prep-w1-${taskIndex}`,
-              title: task.title,
-              description: task.description,
-              type: 'prep',
-              date: day.dateStr,
-              startTime: timeSlot.start,
-              endTime: timeSlot.end,
-              completed: false,
-            });
-            timeSpentPerWeek[0] += task.duration;
-            taskIndex++;
-          }
-        }
-      }
-      
-      // Schedule Week 2 prep tasks
-      taskIndex = 0;
-      for (const day of sortedWeek2) {
-        if (taskIndex >= week2Tasks.length) break;
-        if (timeSpentPerWeek[1] >= weeklyBudgetMinutes) break;
-        
-        const task = week2Tasks[taskIndex];
-        const remainingBudget = weeklyBudgetMinutes - timeSpentPerWeek[1];
-        
-        if (task.duration <= remainingBudget || timeSpentPerWeek[1] === 0) {
-          const timeSlot = findFreeTimeSlot(day.date, task.duration, tasks);
-          if (timeSlot) {
-            tasks.push({
-              id: `prep-w2-${taskIndex}`,
-              title: task.title,
-              description: task.description,
-              type: 'prep',
-              date: day.dateStr,
-              startTime: timeSlot.start,
-              endTime: timeSlot.end,
-              completed: false,
-            });
-            timeSpentPerWeek[1] += task.duration;
-            taskIndex++;
-          }
-        }
-      }
+
+      // Sort by natural weekday order (Mon-Sun), not by preference
+      const sortedWeek1 = [...week1Days].sort((a, b) => a.dayOfWeek - b.dayOfWeek);
+      const sortedWeek2 = [...week2Days].sort((a, b) => a.dayOfWeek - b.dayOfWeek);
+
+      scheduleTasksIntoDays(week1Tasks, sortedWeek1, 0, 'prep-w1');
+      scheduleTasksIntoDays(week2Tasks, sortedWeek2, 1, 'prep-w2');
     } // end prep phase
     
     // POSTING PHASE (Weeks 3-4): Schedule posts (shared events) + prep tasks (admin only)
@@ -1536,7 +1706,8 @@ export function EnhancedCalendar({
         onSharedEventsGenerated(sharedEvents);
       }
     }
-  }, [googleEvents, releaseDate, timeBudget, preferredDays, brainstormResult, userPermissions, currentUserId, teamTasks]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [googleEvents, releaseDate, timeBudget, brainstormResult, userPermissions, currentUserId, teamTasks, teamMembers?.length]);
 
   const formatTime = (time: string) => {
     const [hours, minutes] = time.split(':').map(Number);
@@ -1633,22 +1804,22 @@ export function EnhancedCalendar({
             <button
               onClick={() => setViewMode('calendar')}
               className={`px-3 py-1 text-xs font-medium transition-colors ${
-                viewMode === 'calendar' 
-                  ? 'bg-blue-500 text-white' 
+                viewMode === 'calendar'
+                  ? 'bg-blue-500 text-white'
                   : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
               }`}
             >
               📅 Calendar
             </button>
             <button
-              onClick={() => setViewMode('list')}
+              onClick={() => setViewMode('posts')}
               className={`px-3 py-1 text-xs font-medium transition-colors ${
-                viewMode === 'list' 
-                  ? 'bg-blue-500 text-white' 
+                viewMode === 'posts'
+                  ? 'bg-purple-500 text-white'
                   : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
               }`}
             >
-              📋 List
+              🎬 All Posts
             </button>
           </div>
         </div>
@@ -1707,38 +1878,111 @@ export function EnhancedCalendar({
         </div>
       )}
 
-      {/* Chronological List View */}
-      {viewMode === 'list' && (
-        <div className="space-y-2 max-h-[600px] overflow-y-auto pr-2">
-          <div className="mb-2 text-sm text-gray-400">
-            📅 All tasks sorted by date and time (drag to reorder)
+      {/* All Posts View — shows all post events with their status */}
+      {viewMode === 'posts' && (() => {
+        // Combine locally-generated post tasks with DB-backed ones
+        const allPostTasks = scheduledTasks.filter(t =>
+          t.type === 'audience-builder' || t.type === 'teaser' || t.type === 'promo' || t.type === 'release'
+        ).sort((a, b) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime));
+
+        // Map post status from DB-backed teamTasks
+        const statusMap = new Map<string, string>();
+        const videoMap = new Map<string, string>();
+        const captionMap = new Map<string, string>();
+        if (teamTasks) {
+          for (const tt of teamTasks) {
+            if (tt.taskCategory === 'event') {
+              statusMap.set(tt.id, (tt as any).post_status || 'pending');
+              if ((tt as any).video_url) videoMap.set(tt.id, (tt as any).video_url);
+              if ((tt as any).caption) captionMap.set(tt.id, (tt as any).caption);
+            }
+          }
+        }
+
+        const statusConfig: Record<string, { label: string; color: string; dot: string }> = {
+          brainstorming:   { label: 'Brainstorming',   color: 'bg-gray-700 border-gray-500 text-gray-300',    dot: 'bg-gray-400' },
+          awaiting_shoot:  { label: 'Awaiting Shoot',  color: 'bg-yellow-900/40 border-yellow-600 text-yellow-300', dot: 'bg-yellow-400' },
+          editing:         { label: 'Editing',         color: 'bg-cyan-900/40 border-cyan-600 text-cyan-300',  dot: 'bg-cyan-400' },
+          finalized:       { label: 'Finalized',       color: 'bg-green-900/40 border-green-600 text-green-300', dot: 'bg-green-400' },
+          pending:         { label: 'Pending',         color: 'bg-gray-800 border-gray-600 text-gray-400',     dot: 'bg-gray-500' },
+        };
+
+        const postTypeIcon: Record<string, string> = {
+          'teaser': '👀',
+          'promo': '🎵',
+          'audience-builder': '🌱',
+          'release': '🎵',
+        };
+
+        return (
+          <div className="max-h-[600px] overflow-y-auto pr-2">
+            <div className="mb-3 text-sm text-gray-400 flex items-center gap-2">
+              <span>🎬</span>
+              <span>All {allPostTasks.length} scheduled posts — click any to view or upload video</span>
+            </div>
+            {allPostTasks.length === 0 ? (
+              <div className="text-center py-12 text-gray-500">
+                <div className="text-3xl mb-3">📅</div>
+                <div>No posts scheduled yet.</div>
+                <div className="text-xs mt-1">Posts appear here once your calendar is generated.</div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+                {allPostTasks.map(task => {
+                  const status = statusMap.get(task.id) || 'pending';
+                  const hasVideo = videoMap.has(task.id);
+                  const hasCaption = captionMap.has(task.id);
+                  const sc = statusConfig[status] || statusConfig['pending'];
+                  const postDate = new Date(task.date + 'T00:00:00');
+                  const dateLabel = postDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+
+                  return (
+                    <div
+                      key={task.id}
+                      onClick={() => onPostCardClick?.(task.id)}
+                      className={`relative rounded-lg border p-2.5 cursor-pointer transition-all hover:ring-1 hover:ring-white/30 ${sc.color}`}
+                    >
+                      {/* Status dot */}
+                      <div className="flex items-center justify-between mb-1.5">
+                        <div className="flex items-center gap-1">
+                          <div className={`w-1.5 h-1.5 rounded-full ${sc.dot}`} />
+                          <span className="text-[9px] font-medium opacity-80">{sc.label}</span>
+                        </div>
+                        <span className="text-[9px] opacity-50">{postTypeIcon[task.type] || '📝'}</span>
+                      </div>
+
+                      {/* Post title */}
+                      <div className="text-[10px] font-semibold leading-tight mb-1.5 line-clamp-2">
+                        {task.title}
+                      </div>
+
+                      {/* Date */}
+                      <div className="text-[9px] opacity-60 mb-1.5">{dateLabel}</div>
+
+                      {/* Indicators */}
+                      <div className="flex items-center gap-1.5">
+                        {hasVideo && (
+                          <span className="text-[8px] px-1 py-0.5 rounded bg-black/30 text-green-300" title="Video uploaded">
+                            🎬 Video
+                          </span>
+                        )}
+                        {hasCaption && (
+                          <span className="text-[8px] px-1 py-0.5 rounded bg-black/30 text-blue-300" title="Caption written">
+                            ✍️ Caption
+                          </span>
+                        )}
+                        {!hasVideo && !hasCaption && (
+                          <span className="text-[8px] opacity-40">tap to add content</span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
-          <SortableContext
-            items={scheduledTasks.map(t => t.id)}
-            strategy={verticalListSortingStrategy}
-          >
-            {scheduledTasks
-              .sort((a, b) => {
-                // Sort by date, then by start time
-                const dateCompare = a.date.localeCompare(b.date);
-                if (dateCompare !== 0) return dateCompare;
-                return a.startTime.localeCompare(b.startTime);
-              })
-              .map(task => (
-                <SortableTask
-                  key={task.id}
-                  task={task}
-                  isExpanded={expandedTaskId === task.id}
-                  onToggle={() => setExpandedTaskId(expandedTaskId === task.id ? null : task.id)}
-                  onComplete={onTaskComplete}
-                  onTimeChange={handleTimeChange}
-                  formatTime={formatTime}
-                  getTaskColor={getTaskColor}
-                />
-              ))}
-          </SortableContext>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Legend */}
       <div className="flex flex-wrap justify-center gap-4 mt-4 text-xs">
@@ -1762,18 +2006,14 @@ export function EnhancedCalendar({
           <div className="w-3 h-3 rounded bg-red-500/30 border border-red-500"></div>
           <span className="text-gray-400">🎵 Release Day</span>
         </div>
-        {brainstormResult && (
-          <>
-            <div className="flex items-center gap-1">
-              <div className="w-3 h-3 rounded bg-cyan-500/30 border border-cyan-500"></div>
-              <span className="text-gray-400">✂️ Edit Day</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <div className="w-3 h-3 rounded bg-orange-500/30 border border-orange-500"></div>
-              <span className="text-gray-400">📸 Shoot Day</span>
-            </div>
-          </>
-        )}
+        <div className="flex items-center gap-1">
+          <div className="w-3 h-3 rounded bg-cyan-500/30 border border-cyan-500"></div>
+          <span className="text-gray-400">✂️ Edit Day</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <div className="w-3 h-3 rounded bg-orange-500/30 border border-orange-500"></div>
+          <span className="text-gray-400">📸 Shoot Day</span>
+        </div>
         <div className="flex items-center gap-1">
           <div className="w-3 h-3 rounded bg-gray-700/50 border border-gray-600"></div>
           <span className="text-gray-400">📅 Your Calendar</span>

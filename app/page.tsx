@@ -8,7 +8,7 @@ import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { loadAccount, loadUniverse, loadGalaxy, saveUniverse, saveGalaxy, saveWorld, loadCurrentGalaxyId, saveCurrentGalaxyId, deleteGalaxy, deleteWorld, clearAllData, saveAccount } from '@/lib/storage';
 import { isTestUser, getTestUserProfile } from '@/lib/test-data';
 import { getMyTeams } from '@/lib/team';
-import type { CreatorAccountData, Universe, Galaxy, World, ArtistProfile } from '@/types';
+import type { CreatorAccountData, Universe, Galaxy, World, ArtistProfile, GalaxyEntry } from '@/types';
 
 // Dynamically import heavy components to improve compilation time
 const ConversationalOnboarding = dynamic(
@@ -90,6 +90,87 @@ const DEV_TEST_DATA = {
   ]
 };
 // ============================================================================
+
+/** Load all galaxies from teams the user belongs to (excluding their own universe) */
+async function loadAllTeamGalaxyEntries(): Promise<GalaxyEntry[]> {
+  const entries: GalaxyEntry[] = [];
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return entries;
+
+    // Get all teams this user is a member of
+    const { data: memberRows } = await supabase
+      .from('team_members')
+      .select('team_id')
+      .eq('user_id', user.id);
+
+    if (!memberRows || memberRows.length === 0) return entries;
+
+    const teamIds = memberRows.map(r => r.team_id);
+
+    // For each team, get the universe_id and team name
+    const { data: teamRows } = await supabase
+      .from('teams')
+      .select('id, name, universe_id')
+      .in('id', teamIds);
+
+    if (!teamRows) return entries;
+
+    // Load universe + galaxies for each unique universe_id
+    const seenUniverseIds = new Set<string>();
+    for (const team of teamRows) {
+      if (!team.universe_id || seenUniverseIds.has(team.universe_id)) continue;
+      seenUniverseIds.add(team.universe_id);
+
+      try {
+        const { data: universeData } = await supabase
+          .from('universes')
+          .select('id, name, creator_id, created_at')
+          .eq('id', team.universe_id)
+          .single();
+
+        if (!universeData) continue;
+
+        const { data: galaxiesData } = await supabase
+          .from('galaxies')
+          .select('id, name, universe_id, release_date, visual_landscape, created_at')
+          .eq('universe_id', team.universe_id)
+          .order('created_at', { ascending: true });
+
+        if (!galaxiesData) continue;
+
+        const galaxies: Galaxy[] = [];
+        for (const gd of galaxiesData) {
+          const galaxy = await loadGalaxy(gd.id);
+          if (galaxy) galaxies.push(galaxy);
+        }
+
+        const universe: Universe = {
+          id: universeData.id,
+          name: universeData.name,
+          creatorId: universeData.creator_id,
+          createdAt: universeData.created_at,
+          galaxies,
+        };
+
+        // Determine artist name from the universe name (e.g., "The Kiss Bangverse" → "Kiss Bang")
+        const artistName = universeData.name.replace(/^The\s+/i, '').replace(/verse$/i, '').trim() || team.name;
+
+        // Check if this is the user's own universe (admin vs member)
+        const isOwnUniverse = universeData.creator_id === user.id;
+
+        for (const galaxy of galaxies) {
+          entries.push({ galaxy, universe, isAdmin: isOwnUniverse, artistName });
+        }
+      } catch (e) {
+        console.warn('[loadAllTeamGalaxyEntries] Error loading universe:', e);
+      }
+    }
+  } catch (e) {
+    console.warn('[loadAllTeamGalaxyEntries] Error:', e);
+  }
+  return entries;
+}
 
 /** Load the universe for an invited team member (they don't own a universe, they're part of a team) */
 async function loadTeamUniverse(): Promise<Universe | null> {
@@ -213,7 +294,58 @@ export default function Home() {
   const [isInitializing, setIsInitializing] = useState(true);
   const [showEnhancedOnboarding, setShowEnhancedOnboarding] = useState(false);
   const [showPostOnboarding, setShowPostOnboarding] = useState(false);
-  const [skipToCalendar, setSkipToCalendar] = useState(false); // Skip to calendar after OAuth
+  const [skipToCalendar, setSkipToCalendar] = useState(false);
+  // Multi-galaxy navigation
+  const [allGalaxyEntries, setAllGalaxyEntries] = useState<GalaxyEntry[]>([]);
+  const [activeGalaxyIdx, setActiveGalaxyIdx] = useState(0);
+
+  // Build allGalaxyEntries whenever universe or currentGalaxy changes
+  useEffect(() => {
+    if (!isSupabaseConfigured()) return;
+
+    const buildEntries = async () => {
+      try {
+        // Start with own universe galaxies (admin)
+        const adminEntries: GalaxyEntry[] = [];
+        if (universe) {
+          const artistName = universe.name.replace(/^The\s+/i, '').replace(/verse$/i, '').trim() || account?.creatorName || 'My Galaxy';
+          for (const g of universe.galaxies) {
+            adminEntries.push({ galaxy: g, universe, isAdmin: true, artistName });
+          }
+        }
+
+        // Load team galaxies (non-admin), excluding own universe
+        const teamEntries = await loadAllTeamGalaxyEntries();
+        // Deduplicate: skip any galaxy that is already in the admin entries
+        const ownGalaxyIds = new Set(adminEntries.map(e => e.galaxy.id));
+        const filteredTeamEntries = teamEntries.filter(e => !ownGalaxyIds.has(e.galaxy.id));
+
+        const combined = [...adminEntries, ...filteredTeamEntries];
+        if (combined.length === 0) return;
+
+        // Determine best active index:
+        // 1. Admin galaxies come first so if user has own galaxy, default to index 0
+        // 2. If user has no admin galaxy, use last_active_galaxy_id
+        const lastActiveId = typeof window !== 'undefined' ? localStorage.getItem('last_active_galaxy_id') : null;
+        let bestIdx = 0;
+        if (currentGalaxy) {
+          const found = combined.findIndex(e => e.galaxy.id === currentGalaxy.id);
+          if (found >= 0) bestIdx = found;
+        } else if (lastActiveId) {
+          const found = combined.findIndex(e => e.galaxy.id === lastActiveId);
+          if (found >= 0) bestIdx = found;
+        }
+
+        setAllGalaxyEntries(combined);
+        setActiveGalaxyIdx(bestIdx);
+      } catch (e) {
+        console.warn('[buildEntries] Error building galaxy entries:', e);
+      }
+    };
+
+    buildEntries();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [universe?.id, currentGalaxy?.id]);
 
   // Load data on mount
   useEffect(() => {
@@ -1418,6 +1550,20 @@ export default function Home() {
     }
   };
 
+  // Switch active galaxy (for multi-galaxy navigation)
+  const handleSwitchGalaxy = (index: number) => {
+    if (index < 0 || index >= allGalaxyEntries.length) return;
+    const entry = allGalaxyEntries[index];
+    setActiveGalaxyIdx(index);
+    setCurrentGalaxy(entry.galaxy);
+    setUniverse(entry.universe);
+    saveCurrentGalaxyId(entry.galaxy.id);
+    // Persist last-viewed galaxy for this session
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('last_active_galaxy_id', entry.galaxy.id);
+    }
+  };
+
   // Sign out function - clears session and state
   const handleSignOut = async () => {
     console.log('[handleSignOut] Signing out...');
@@ -1629,6 +1775,9 @@ export default function Home() {
         onDeleteWorld={handleDeleteWorld}
         onSignOut={handleSignOut}
         onDeleteAccount={handleDeleteAccount}
+        allGalaxies={allGalaxyEntries.length > 1 ? allGalaxyEntries : undefined}
+        activeGalaxyIndex={activeGalaxyIdx}
+        onSwitchGalaxy={handleSwitchGalaxy}
       />
     );
   }

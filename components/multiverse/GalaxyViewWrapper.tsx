@@ -1,9 +1,8 @@
 'use client';
 
 import dynamic from 'next/dynamic';
-import type { Galaxy, Universe, World, ArtistProfile } from '@/types';
+import type { Galaxy, Universe, World, ArtistProfile, GalaxyEntry } from '@/types';
 
-// Dynamically import GalaxyView to prevent Next.js from analyzing Three.js during compilation
 const GalaxyView = dynamic(
   () => import('./GalaxyView').then(mod => ({ default: mod.GalaxyView })),
   { 
@@ -27,6 +26,9 @@ interface GalaxyViewWrapperProps {
   onDeleteWorld?: (worldId: string) => void;
   onSignOut?: () => void;
   onDeleteAccount?: () => void;
+  allGalaxies?: GalaxyEntry[];
+  activeGalaxyIndex?: number;
+  onSwitchGalaxy?: (index: number) => void;
 }
 
 export function GalaxyViewWrapper(props: GalaxyViewWrapperProps) {
