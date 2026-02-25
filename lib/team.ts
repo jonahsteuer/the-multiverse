@@ -498,6 +498,22 @@ export async function updateTask(
   return mapTaskFromDb(data);
 }
 
+/** Delete a task (used to clean up stale calendar events before regeneration) */
+export async function deleteTask(taskId: string): Promise<boolean> {
+  if (!isSupabaseConfigured()) return false;
+
+  const { error } = await supabase
+    .from('team_tasks')
+    .delete()
+    .eq('id', taskId);
+
+  if (error) {
+    console.error('[Team] Error deleting task:', error);
+    return false;
+  }
+  return true;
+}
+
 /** Complete a task */
 export async function completeTask(taskId: string): Promise<boolean> {
   if (!isSupabaseConfigured()) return false;

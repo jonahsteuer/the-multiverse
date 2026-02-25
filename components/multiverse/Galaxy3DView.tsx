@@ -365,11 +365,13 @@ function Scene({ galaxy, onWorldClick, distantGalaxies }: Galaxy3DViewProps) {
       })}
 
       <OrbitControls
-        enablePan={true}
+        enablePan={false}
         enableZoom={true}
         enableRotate={true}
         minDistance={5}
-        maxDistance={80}
+        maxDistance={distantGalaxies && distantGalaxies.length > 0 ? 80 : 30}
+        maxPolarAngle={Math.PI * 0.75}
+        minPolarAngle={Math.PI * 0.1}
         autoRotate={false}
       />
     </>

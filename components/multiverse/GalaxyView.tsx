@@ -31,6 +31,7 @@ import {
   createTasksFromBrainstorm,
   createNotification,
   getTeamMembers,
+  deleteTask,
 } from '@/lib/team';
 import { supabase } from '@/lib/supabase';
 import { clearAllData } from '@/lib/storage';
@@ -548,21 +549,45 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
   const handleSharedEventsGenerated = useCallback(async (events: { title: string; description: string; type: string; date: string; startTime: string; endTime: string }[]) => {
     if (!team || !effectiveIsAdmin || sharedEventsSavedRef.current) return;
 
-    // If ANY shared events already exist for this galaxy, never re-create them.
-    // This prevents duplicates when the calendar re-renders or the page reloads.
     const existingEvents = teamTasks.filter(t => t.taskCategory === 'event' && t.galaxyId === galaxy.id);
+
+    // Detect stale events: check if any stored post event has a different type than the generated one for the same date.
+    // This catches the case where a timezone bug previously saved "audience-builder" where "teaser" should be.
+    let hasStaleEvents = false;
     if (existingEvents.length > 0) {
+      const postTypeEvents = events.filter(e => ['audience-builder', 'teaser', 'promo'].includes(e.type));
+      for (const gen of postTypeEvents) {
+        const stored = existingEvents.find(e => e.date === gen.date);
+        if (stored) {
+          const storedType = stored.title.toLowerCase().includes('teaser') ? 'teaser'
+            : stored.title.toLowerCase().includes('promo') ? 'promo'
+            : 'audience-builder';
+          if (storedType !== gen.type) {
+            console.log('[GalaxyView] 🔄 Stale event detected on', gen.date, '— stored:', storedType, '→ should be:', gen.type);
+            hasStaleEvents = true;
+            break;
+          }
+        }
+      }
+    }
+
+    if (existingEvents.length > 0 && !hasStaleEvents) {
       console.log('[GalaxyView] Shared events already saved:', existingEvents.length, '— skipping re-creation');
-      sharedEventsSavedRef.current = true; // Prevent future attempts this session
+      sharedEventsSavedRef.current = true;
       return;
     }
 
     sharedEventsSavedRef.current = true;
-    console.log('[GalaxyView] 📤 Saving', events.length, 'shared events to Supabase for team members...');
 
     try {
+      // If stale events exist, delete them first so we can recreate with correct types
+      if (hasStaleEvents && existingEvents.length > 0) {
+        console.log('[GalaxyView] 🗑 Deleting', existingEvents.length, 'stale events...');
+        await Promise.all(existingEvents.map(ev => deleteTask(ev.id)));
+      }
+
+      console.log('[GalaxyView] 📤 Saving', events.length, 'shared events to Supabase for team members...');
       for (const event of events) {
-        // Map calendar type to team task type
         let taskType: string = 'post';
         if (event.type === 'release') taskType = 'release';
 
@@ -578,10 +603,10 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
         });
       }
       console.log('[GalaxyView] ✅ Shared events saved successfully');
-      loadTeamData(); // Reload to include the new events
+      loadTeamData();
     } catch (err) {
       console.error('[GalaxyView] Error saving shared events:', err);
-      sharedEventsSavedRef.current = false; // Allow retry on error
+      sharedEventsSavedRef.current = false;
     }
   }, [team, effectiveIsAdmin, teamTasks, galaxy.id]);
 

@@ -1395,17 +1395,28 @@ export function EnhancedCalendar({
         
         // Calculate max posts for this week (spread across 7 days)
         const maxPostsThisWeek = targetPostsPerWeek;
-        
-        // Schedule posts (not just on preferred days)
-        const shouldPost = tasksScheduledThisWeek % 2 === 0 && (tasks.filter(t => t.type !== 'prep' && t.date === day.dateStr).length === 0);
-        
-        // Count total posts scheduled in this week so far
+
+        // Count total posts in this week so far
+        const weekStart = allDays[weekNum * 7];
+        const weekEnd = allDays[Math.min(weekNum * 7 + 6, allDays.length - 1)];
         const postsThisWeek = tasks.filter(t => {
-          const taskWeek = Math.floor((new Date(t.date).getTime() - new Date(allDays[weekNum * 7].date).getTime()) / (1000 * 60 * 60 * 24 * 7));
-          return taskWeek === 0 && (t.type === 'audience-builder' || t.type === 'teaser' || t.type === 'promo');
+          if (!(t.type === 'audience-builder' || t.type === 'teaser' || t.type === 'promo')) return false;
+          const d = t.date;
+          return d >= weekStart.dateStr && d <= weekEnd.dateStr;
         }).length;
-        
-        if (shouldPost && postsThisWeek < maxPostsThisWeek && tasksScheduledThisWeek < 6) {
+
+        // Don't post if this day already has a post, or if we posted yesterday (ensures ~2-day spacing)
+        const prevDay = new Date(day.date.getTime() - 86400000);
+        const prevDayStr = `${prevDay.getFullYear()}-${String(prevDay.getMonth() + 1).padStart(2, '0')}-${String(prevDay.getDate()).padStart(2, '0')}`;
+        const postedYesterday = tasks.some(t =>
+          (t.type === 'audience-builder' || t.type === 'teaser' || t.type === 'promo') && t.date === prevDayStr
+        );
+        const postedToday = tasks.some(t =>
+          (t.type === 'audience-builder' || t.type === 'teaser' || t.type === 'promo') && t.date === day.dateStr
+        );
+        const shouldPost = !postedToday && !postedYesterday;
+
+        if (shouldPost && postsThisWeek < maxPostsThisWeek && tasksScheduledThisWeek < 8) {
           // CAMPAIGN WINDOW SYSTEM: Determine post type based on release timing
           let postType: 'audience-builder' | 'teaser' | 'promo' = 'audience-builder';
           let campaignReleaseName = songName || 'your release';
