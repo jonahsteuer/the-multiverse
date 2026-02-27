@@ -6,7 +6,12 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test:e2e": "playwright test --headed",
+    "test:e2e:ci": "playwright test",
+    "test:kb": "playwright test kiss-bang-day1 --headed",
+    "test:lt": "playwright test leon-tax-day1 --headed",
+    "test:report": "playwright show-report tests/e2e/reports"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.1",
@@ -36,6 +41,7 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",

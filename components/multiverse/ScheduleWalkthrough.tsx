@@ -11,6 +11,12 @@ interface ScheduleWalkthroughProps {
   releases?: Array<{ title: string; releaseDate: string; type: string }>;
   highlightPhase: 'none' | 'intro' | 'release_info' | 'posting_phase' | 'prep_phase' | 'complete';
   onComplete?: () => void;
+  /** Whether the artist already has raw footage (so we skip Film Day tasks) */
+  hasExistingAssets?: boolean;
+  rawFootageDescription?: string;
+  /** Whether the artist has team members to invite */
+  hasTeam?: boolean;
+  teamMembersStr?: string;
 }
 
 interface CalendarDay {
@@ -30,8 +36,16 @@ export function ScheduleWalkthrough({
   releaseStrategyDescription = '',
   releases = [],
   highlightPhase,
+  hasExistingAssets = false,
+  rawFootageDescription = '',
+  hasTeam = false,
+  teamMembersStr = '',
 }: ScheduleWalkthroughProps) {
   const [calendar, setCalendar] = useState<CalendarDay[]>([]);
+
+  // Computed at component level so JSX can reference it too
+  const hasFootage = hasExistingAssets || rawFootageDescription.length > 0;
+  const editorName = teamMembersStr?.split(/[,&]/)[0]?.trim() || '';
 
   // Generate calendar based on release date
   useEffect(() => {
@@ -67,21 +81,41 @@ export function ScheduleWalkthrough({
         isHighlighted: false,
       };
       
-      // Add prep tasks for prep phase (simplified - key days only)
+      // Add prep tasks for prep phase — adapt based on whether footage exists
       if (isPrep) {
-        if (i === 0) day.task = '📋 Plan content ideas';
-        if (i === 3) day.task = '🎬 Film Day 1';
-        if (i === 7) day.task = '🎬 Film Day 2';
-        if (i === 10) day.task = '✂️ Edit posts';
-        if (i === 13) day.task = '✅ Review & finalize';
+        if (hasFootage) {
+          // Artist already has footage: review/edit workflow instead of filming
+          if (i === 0) day.task = hasTeam ? `👥 Invite ${editorName || 'team member'}` : '📁 Review & organize footage';
+          if (i === 2) day.task = '📁 Review & organize footage';
+          if (i === 5) day.task = editorName ? `📤 Send clips to ${editorName}` : '✂️ Start editing clips';
+          if (i === 9) day.task = `✅ Review ${editorName ? `${editorName}'s` : ''} edits`;
+          if (i === 13) day.task = '📱 Finalize posts for launch';
+        } else {
+          // Artist needs to create content from scratch
+          if (i === 0) day.task = hasTeam ? `👥 Invite ${editorName || 'team member'}` : '📋 Plan content ideas';
+          if (i === 1) day.task = hasTeam ? '📋 Plan content ideas' : undefined;
+          if (i === 3) day.task = '🎬 Film Day 1';
+          if (i === 7) day.task = '🎬 Film Day 2';
+          if (i === 10) day.task = '✂️ Edit posts';
+          if (i === 13) day.task = '✅ Review & finalize';
+        }
       }
       
-      // Add posting schedule for posting phase
-      if (!isPrep && !isRelease) {
+      // Add posting schedule — also post during the final prep days if release is near
+      const daysToRelease = Math.floor((release.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
+      const isNearRelease = daysToRelease > 0 && daysToRelease <= 7;
+      const shouldPost = !isRelease && (!isPrep || isNearRelease);
+
+      if (shouldPost) {
         const dayOfWeek = date.getDay();
         
-        // Show posts on Wed (3) and Sat (6) - 2-3 posts per week
-        if (dayOfWeek === 3 || dayOfWeek === 6) {
+        // Post on Mon(1), Wed(3), Fri(5), Sat(6) to get enough teasers before release
+        // In regular posting phase use Wed+Sat; in the final teaser week use Mon/Wed/Fri/Sat
+        const isPostingDay = isNearRelease
+          ? (dayOfWeek === 1 || dayOfWeek === 3 || dayOfWeek === 5 || dayOfWeek === 6)
+          : (dayOfWeek === 3 || dayOfWeek === 6);
+
+        if (isPostingDay) {
           // Count posts this week so far
           const postsThisWeek = days.filter(d => {
             const dWeekNum = Math.floor((days.indexOf(d)) / 7);
@@ -147,14 +181,14 @@ export function ScheduleWalkthrough({
           }
           
           day.postType = postType;
-        }
-      }
+        } // end isPostingDay
+      } // end shouldPost
       
       days.push(day);
     }
     
     setCalendar(days);
-  }, [releaseDate, releaseStrategy]);
+  }, [releaseDate, releaseStrategy, hasFootage, hasTeam, editorName]);
 
   // Update highlights based on current phase
   useEffect(() => {
@@ -200,14 +234,14 @@ export function ScheduleWalkthrough({
             ? 'bg-blue-500/30 border-2 border-blue-500 text-blue-300' 
             : 'bg-gray-800/50 border border-gray-700 text-gray-400'
         }`}>
-          📋 2-Week Prep Phase
+          {hasFootage ? '📁 Pre-release Prep' : '📋 2-Week Prep Phase'}
         </div>
         <div className={`flex-1 text-center py-2 rounded-r-lg transition-all duration-500 ${
           highlightPhase === 'posting_phase' 
             ? 'bg-yellow-500/30 border-2 border-yellow-500 text-yellow-300' 
             : 'bg-gray-800/50 border border-gray-700 text-gray-400'
         }`}>
-          🚀 2-Week Posting Phase
+          🚀 Release & Promo
         </div>
       </div>
 

@@ -26,8 +26,10 @@ interface PostOnboardingConversationProps {
     bestPostDescription?: string;
     existingAssetsDescription?: string;
     hasExistingAssets?: boolean;
+    rawFootageDescription?: string;
+    editedClipCount?: number;
     hasTeam?: boolean;
-    teamMembers?: string;
+    teamMembers?: string | Array<{ name: string; role: string }>;
     equipment?: string;
   };
   onComplete: (selectedStrategy: PostOnboardingStrategy) => void;
@@ -542,9 +544,28 @@ export function PostOnboardingConversation({
     
     await new Promise(r => setTimeout(r, 500));
     
-    // Step 4: Prep phase explanation (highlight prep tasks)
+    // Step 4: Prep phase explanation (highlight prep tasks) — tailor to their situation
     setCalendarHighlight('prep_phase');
-    await speakAndWait(`Here are some things you can do to start preparing. We'll plan your content, film over a couple days, then edit everything so it's ready to go.`);
+    const hasFootageNow = onboardingProfile?.hasExistingAssets || (onboardingProfile?.rawFootageDescription || '').length > 0;
+    const hasTeamNow = onboardingProfile?.hasTeam;
+    const teamStr = typeof onboardingProfile?.teamMembers === 'string'
+      ? onboardingProfile.teamMembers
+      : Array.isArray(onboardingProfile?.teamMembers)
+        ? onboardingProfile.teamMembers.map((m) => typeof m === 'string' ? m : m.name).join(', ')
+        : '';
+    const editorFirstName = teamStr?.split(/[,&]/)[0]?.trim() || '';
+
+    let prepSpeech: string;
+    if (hasFootageNow && hasTeamNow && editorFirstName) {
+      prepSpeech = `Since you already have footage, let's skip filming. First thing: invite ${editorFirstName} to your team, then review your clips and start sending them over to ${editorFirstName} for editing.`;
+    } else if (hasFootageNow) {
+      prepSpeech = `Great news — since you already have footage, we can skip filming and jump straight to reviewing and editing your clips. That puts you way ahead of schedule.`;
+    } else if (hasTeamNow && editorFirstName) {
+      prepSpeech = `First things first — invite ${editorFirstName} to your team so they can start helping. Then we'll plan your content, film over a couple of days, and get everything edited and ready to go.`;
+    } else {
+      prepSpeech = `Here are some things you can do to start preparing. We'll plan your content, film over a couple days, then edit everything so it's ready to go.`;
+    }
+    await speakAndWait(prepSpeech);
     
     await new Promise(r => setTimeout(r, 500));
     
@@ -909,6 +930,14 @@ export function PostOnboardingConversation({
               releaseStrategyDescription={onboardingProfile?.releaseStrategyDescription}
               releases={(onboardingProfile?.releases || []).map(r => ({ title: r.name, releaseDate: r.releaseDate || '', type: r.type }))}
               highlightPhase={calendarHighlight}
+              hasExistingAssets={onboardingProfile?.hasExistingAssets}
+              rawFootageDescription={onboardingProfile?.rawFootageDescription || ''}
+              hasTeam={onboardingProfile?.hasTeam}
+              teamMembersStr={typeof onboardingProfile?.teamMembers === 'string'
+                ? onboardingProfile.teamMembers
+                : Array.isArray(onboardingProfile?.teamMembers)
+                  ? onboardingProfile.teamMembers.map((m) => typeof m === 'string' ? m : m.name).join(', ')
+                  : ''}
             />
             
             {/* Walkthrough text overlay - shown during walkthrough */}
