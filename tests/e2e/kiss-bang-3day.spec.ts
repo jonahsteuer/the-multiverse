@@ -68,9 +68,9 @@ async function chat(page: Page, text: string) {
 }
 
 async function signIn(page: Page) {
-  const alreadyAuthed = await page.locator('text=Todo List, text=Your Tasks').first()
-    .isVisible({ timeout: 3_000 }).catch(() => false);
-  if (alreadyAuthed) return;
+  const todoVisible = await page.locator('text=Todo List').isVisible({ timeout: 3_000 }).catch(() => false);
+  const callMarkVisible = await page.locator('button:has-text("CALL MARK")').isVisible({ timeout: 2_000 }).catch(() => false);
+  if (todoVisible || callMarkVisible) return;
 
   const loginLink = page.locator('button:has-text("log in"), button:has-text("Already have an account")').first();
   if (await loginLink.isVisible({ timeout: 3_000 }).catch(() => false)) {
@@ -117,7 +117,7 @@ test('P0 – Delete existing account and start fresh', async ({ page }) => {
   });
 
   if (token) {
-    const resp = await page.request.post(`${BASE_URL}/api/auth/delete-account`, {
+    const resp = await page.request.delete(`${BASE_URL}/api/auth/delete-account`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     console.log('Delete account response:', resp.status());
@@ -187,11 +187,13 @@ test('P2 – Complete onboarding conversation', async ({ page }) => {
   await page.goto(BASE_URL, { timeout: 30_000 });
   await page.waitForLoadState('networkidle');
   await signIn(page);
+  // Give the page a moment to settle after login/redirect
+  await page.waitForTimeout(3_000);
 
   // Already on galaxy view = onboarding done — skip P2
-  const callMarkVisible = await page.locator('button:has-text("CALL MARK")').isVisible({ timeout: 3_000 }).catch(() => false);
-  const todoListVisible = await page.locator('text=Todo List').isVisible({ timeout: 2_000 }).catch(() => false);
-  const alreadyInGalaxy = callMarkVisible || todoListVisible;
+  const callMarkVisible2 = await page.locator('button:has-text("CALL MARK")').isVisible({ timeout: 5_000 }).catch(() => false);
+  const todoListVisible2 = await page.locator('text=Todo List').isVisible({ timeout: 3_000 }).catch(() => false);
+  const alreadyInGalaxy = callMarkVisible2 || todoListVisible2;
   if (alreadyInGalaxy) {
     console.log('✅ Already on galaxy view — onboarding was completed in a previous session, skipping P2');
     return;
