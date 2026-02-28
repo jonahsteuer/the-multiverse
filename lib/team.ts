@@ -467,6 +467,8 @@ export async function updateTask(
     endTime: string;
     status: TeamTaskStatus;
     assignedTo: string;
+    description: string;
+    title: string;
   }>
 ): Promise<TeamTask | null> {
   if (!isSupabaseConfigured()) return null;
@@ -482,6 +484,8 @@ export async function updateTask(
     }
   }
   if (updates.assignedTo) dbUpdates.assigned_to = updates.assignedTo;
+  if (updates.description !== undefined) dbUpdates.description = updates.description;
+  if (updates.title !== undefined) dbUpdates.title = updates.title;
 
   const { data, error } = await supabase
     .from('team_tasks')

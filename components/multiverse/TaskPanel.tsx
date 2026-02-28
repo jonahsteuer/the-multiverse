@@ -193,9 +193,10 @@ export function TaskPanel({ task: initialTask, teamMembers, markContext, onClose
   useEffect(() => {
     if (isBrainstorm) {
       const releaseName = (markContext.currentRelease?.name) || 'your upcoming release';
-      const artistGenre = Array.isArray(markContext.artistProfile?.genre)
-        ? markContext.artistProfile!.genre.join(', ')
-        : (markContext.artistProfile?.genre as string) || '';
+      const genreRaw = markContext.artistProfile?.genre;
+      const artistGenre = Array.isArray(genreRaw)
+        ? genreRaw.join(', ')
+        : (typeof genreRaw === 'string' ? genreRaw : '');
       const prompt = `Let's brainstorm content ideas for ${releaseName}${artistGenre ? ` (${artistGenre})` : ''}. I need TikTok/Instagram Reel ideas that stop the scroll. Give me 5 specific concepts with a first-frame visual description and why it works for my sound.`;
       setMarkPrompt(prompt);
       setShowMark(true);

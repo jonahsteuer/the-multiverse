@@ -34,8 +34,10 @@ Information to gather (in roughly this order):
 7. Current vs desired posting frequency
 8. Existing assets + content inventory - Combine into one efficient exchange:
    - First ask: "Do you have any footage or videos already shot for this release - music videos, BTS clips, photos?"
-   - If yes: follow up with "How many of those are already edited and ready to post?" 
-   - If they mention unedited raw footage, note that separately as rawFootageDescription
+   - If yes: follow up with "How many of those have been edited — even rough cuts or work-in-progress edits?"
+   - IMPORTANT: ANY clip that has been touched by an editor (even rough edits, rough cuts, or work-in-progress) counts as editedClipCount. Only truly raw/untouched footage that has never been edited goes into rawFootageDescription.
+   - Example: "20 rough edited clips" → editedClipCount: 20, rawFootageDescription: "" (they're edited, just not finalized)
+   - Example: "raw BTS footage" → editedClipCount: 0, rawFootageDescription: "BTS footage from music video shoot"
 9. Hours per week for content - ADD CONTEXT: "I'll make sure suggestions fit your real schedule."
 10. Team members who can help - IMPORTANT: Get their actual names and roles (e.g. "Ruby - editor/videographer"). These will be pre-populated as invite suggestions in the app. Structure each person as {name, role}.
 
@@ -84,8 +86,8 @@ At the end of EVERY response, include extracted data:
   "desiredPostingFrequency": "2-3x_week/etc",
   "hasExistingAssets": true/false,
   "existingAssetsDescription": "what they have (music video, BTS footage, photos, etc)",
-  "editedClipCount": null,
-  "rawFootageDescription": "description of any unedited footage they have",
+  "editedClipCount": 0,
+  "rawFootageDescription": "description of any TRULY RAW/UNEDITED footage (0 if all footage has been edited in any way)",
   "timeBudgetHoursPerWeek": 6,
   "hasTeam": true/false,
   "teamMembers": [

@@ -188,6 +188,15 @@ test('P2 – Complete onboarding conversation', async ({ page }) => {
   await page.waitForLoadState('networkidle');
   await signIn(page);
 
+  // Already on galaxy view = onboarding done — skip P2
+  const callMarkVisible = await page.locator('button:has-text("CALL MARK")').isVisible({ timeout: 3_000 }).catch(() => false);
+  const todoListVisible = await page.locator('text=Todo List').isVisible({ timeout: 2_000 }).catch(() => false);
+  const alreadyInGalaxy = callMarkVisible || todoListVisible;
+  if (alreadyInGalaxy) {
+    console.log('✅ Already on galaxy view — onboarding was completed in a previous session, skipping P2');
+    return;
+  }
+
   // Handle post-onboarding "Continue" screen if already done
   const continueBtn = page.locator('button:has-text("Continue →"), button:has-text("Continue")').first();
   if (await continueBtn.isVisible({ timeout: 3_000 }).catch(() => false)) {

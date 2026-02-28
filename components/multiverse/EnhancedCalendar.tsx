@@ -261,15 +261,15 @@ function buildContentReadyPrepTasks(
     const targetWeek = i < 2 ? week1 : week2;
 
     targetWeek.push({
-      title: `Upload post edits ${start}–${end}`,
-      description: `Link ${end - start + 1} edited clips to their scheduled post slots. Paste each video link into the post card.`,
+      title: `Upload edits ${start}–${end}`,
+      description: `Upload ${end - start + 1} edited clips. These are your rough edits — once uploaded you can review them and send any that need revision back to your editor.`,
       duration: 30,
     });
 
     if (editorName) {
       targetWeek.push({
-        title: `Send edit notes to ${editorName} (posts ${start}–${end})`,
-        description: `Review each clip. Write any notes per post — feel free to skip the ones that look ready. Hit "No more notes" when done to mark the rest as finalized.`,
+        title: `Send edits back to ${editorName} with notes`,
+        description: `Review the uploaded clips. Write revision notes on any that need work, then send them back to ${editorName}. Skip the ones that look ready — those go straight to finalizing.`,
         duration: 20,
       });
     }
