@@ -17,6 +17,7 @@ import { BrainstormReview } from './BrainstormReview';
 import { MarkChatPanel } from './MarkChatPanel';
 import { UploadPostsModal } from './UploadPostsModal';
 import { PostDetailModal } from './PostDetailModal';
+import { TaskPanel } from './TaskPanel';
 import { MarkContext } from '@/lib/mark-knowledge';
 import {
   createTeam as createTeamDirect,
@@ -113,6 +114,7 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
   const [isInstagramConnected, setIsInstagramConnected] = useState(false);
   const [isCheckingInstagram, setIsCheckingInstagram] = useState(false);
   const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
+  const [selectedTaskForPanel, setSelectedTaskForPanel] = useState<TeamTask | null>(null);
 
   // Check Google Calendar connection status when calendar modal opens
   useEffect(() => {
@@ -368,39 +370,17 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
   };
 
   const handleTaskClick = async (task: TeamTask) => {
-    // Handle specific task types
-    switch (task.type) {
-      case 'invite_team':
-        await handleOpenInviteModal();
-        // Auto-complete invite task when modal opens
-        if (team && task.id && !task.id.startsWith('default-')) {
-          await completeTask(task.id);
-          loadTeamData();
-        }
-        break;
-      case 'brainstorm':
-        setShowBrainstorm(true);
-        break;
-      case 'prep':
-        // "Upload Posts" task
-        if (task.id === 'default-upload' || task.title === 'Upload Posts') {
-          await ensureTeam();
-          setShowUploadPosts(true);
-        } else {
-          if (task.status === 'pending' && task.id && !task.id.startsWith('default-')) {
-            await updateTask(task.id, { status: 'in_progress' });
-            loadTeamData();
-          }
-        }
-        break;
-      default:
-        // For other tasks, just mark them as in_progress
-        if (task.status === 'pending' && task.id && !task.id.startsWith('default-')) {
-          await updateTask(task.id, { status: 'in_progress' });
-          loadTeamData();
-        }
-        break;
+    // Invite tasks: open invite modal directly
+    if (task.type === 'invite_team') {
+      await handleOpenInviteModal();
+      if (team && task.id && !task.id.startsWith('default-')) {
+        await completeTask(task.id);
+        loadTeamData();
+      }
+      return;
     }
+    // All other tasks open the TaskPanel (brainstorm, prep, edit, review, etc.)
+    setSelectedTaskForPanel(task);
   };
 
   const handleAssignTask = (taskId: string) => {
@@ -892,7 +872,6 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
                     key={task.id}
                     onClick={() => {
                       if (isInvite) handleOpenInviteModal();
-                      else if (isBrainstorm) setShowBrainstorm(true);
                       else handleTaskClick(task);
                     }}
                     onContextMenu={(e) => {
@@ -1336,15 +1315,16 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
                     loadTeamData();
                   }}
                   onPostCardClick={(taskId) => {
-                    // DB-backed task (has real UUID) → open single-post detail modal
                     const dbTask = teamTasks.find(t => t.id === taskId);
                     if (dbTask) {
                       setSelectedPostId(taskId);
                     } else {
-                      // Locally-generated placeholder (no DB record yet) → open Upload Posts modal
-                      // The user needs to save events first; Upload Posts does this automatically
                       setShowUploadPosts(true);
                     }
+                  }}
+                  onNonPostTaskClick={(taskId) => {
+                    const dbTask = teamTasks.find(t => t.id === taskId);
+                    if (dbTask) setSelectedTaskForPanel(dbTask);
                   }}
                   onTaskContextMenu={effectiveIsAdmin && teamMembers.length > 0 ? (taskId, x, y) => {
                     setTaskContextMenu({ taskId, x, y });
@@ -1448,6 +1428,41 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
           />
         );
       })()}
+
+      {/* Task Panel — opened by clicking any non-invite task */}
+      {selectedTaskForPanel && (
+        <TaskPanel
+          task={selectedTaskForPanel}
+          teamMembers={teamMembers}
+          markContext={{
+            userId: currentUserId || '',
+            userName: teamMembers.find(m => m.userId === currentUserId)?.displayName
+              || (artistProfile as any)?.creatorName
+              || 'User',
+            artistProfile: artistProfile || undefined,
+            currentRelease: galaxy.worlds.length > 0 ? {
+              name: galaxy.worlds[0].name,
+              releaseDate: galaxy.worlds[0].releaseDate || 'TBD',
+              type: (galaxy.worlds[0] as any).type || 'single',
+            } : undefined,
+            teamMembers: teamMembers.map(m => ({
+              displayName: m.displayName,
+              role: m.role,
+              permissions: m.permissions,
+            })),
+            upcomingTasks: displayTasks.slice(0, 5).map(t => ({
+              title: t.title,
+              date: t.date,
+              assignedTo: t.assignedTo ? teamMembers.find(m => m.userId === t.assignedTo)?.displayName : undefined,
+            })),
+            budget: (artistProfile as any)?.budget,
+          }}
+          onClose={() => setSelectedTaskForPanel(null)}
+          onTaskUpdated={(updated) => {
+            setTeamTasks(prev => prev.map(t => t.id === updated.id ? updated : t));
+          }}
+        />
+      )}
 
       {/* Mark Chat Panel */}
       <MarkChatPanel

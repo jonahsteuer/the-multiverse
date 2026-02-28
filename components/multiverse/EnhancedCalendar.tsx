@@ -81,6 +81,8 @@ interface EnhancedCalendarProps {
   onSharedEventsGenerated?: (events: SharedCalendarEvent[]) => void;
   // Callback: fires when a post event card is clicked (open PostDetailModal)
   onPostCardClick?: (taskId: string) => void;
+  // Callback: fires when a non-post task is clicked (open TaskPanel)
+  onNonPostTaskClick?: (taskId: string) => void;
   // Callback: fires when user right-clicks a calendar task to assign it
   onTaskContextMenu?: (taskId: string, x: number, y: number) => void;
 }
@@ -346,6 +348,7 @@ function DraggableTask({
   formatTime, 
   getTaskColor,
   onPostClick,
+  onNonPostClick,
   onContextMenuAssign,
 }: {
   task: ScheduledTask;
@@ -356,6 +359,7 @@ function DraggableTask({
   formatTime: (time: string) => string;
   getTaskColor: (type: string) => string;
   onPostClick?: () => void;
+  onNonPostClick?: () => void;
   onContextMenuAssign?: (taskId: string, x: number, y: number) => void;
 }) {
   const [isEditingTime, setIsEditingTime] = useState(false);
@@ -442,6 +446,8 @@ function DraggableTask({
           e.stopPropagation();
           if (task.isPostEvent && onPostClick) {
             onPostClick();
+          } else if (!task.isPostEvent && onNonPostClick) {
+            onNonPostClick();
           } else {
             onToggle();
           }
@@ -717,6 +723,7 @@ function DroppableDay({
   formatTime,
   getTaskColor,
   onPostCardClick,
+  onNonPostTaskClick,
   onTaskContextMenu,
 }: {
   dateStr: string;
@@ -732,6 +739,7 @@ function DroppableDay({
   formatTime: (time: string) => string;
   getTaskColor: (type: string) => string;
   onPostCardClick?: (taskId: string) => void;
+  onNonPostTaskClick?: (taskId: string) => void;
   onTaskContextMenu?: (taskId: string, x: number, y: number) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({
@@ -802,6 +810,7 @@ function DroppableDay({
                 formatTime={formatTime}
                 getTaskColor={getTaskColor}
                 onPostClick={item.task.isPostEvent ? () => onPostCardClick?.(item.task.id) : undefined}
+                onNonPostClick={!item.task.isPostEvent ? () => onNonPostTaskClick?.(item.task.id) : undefined}
                 onContextMenuAssign={onTaskContextMenu ?? undefined}
               />
             );
@@ -829,6 +838,7 @@ export function EnhancedCalendar({
   onAssignTask,
   onSharedEventsGenerated,
   onPostCardClick,
+  onNonPostTaskClick,
   onTaskContextMenu,
 }: EnhancedCalendarProps) {
   const isAdmin = userPermissions === 'full';
@@ -953,8 +963,8 @@ export function EnhancedCalendar({
     // Sort by start time
     busyTimes.sort((a, b) => a.start - b.start);
     
-    // Find first free slot between 8am and 10pm
-    const workdayStart = 8; // 8am
+    // Find first free slot between 10am and 10pm
+    const workdayStart = 10; // 10am
     const workdayEnd = 22;  // 10pm
     const durationHours = durationMinutes / 60;
     
@@ -1180,8 +1190,8 @@ export function EnhancedCalendar({
             description: tt.description || '',
             type: calType,
             date: tt.date,
-            startTime: tt.startTime || '09:00',
-            endTime: tt.endTime || '10:00',
+            startTime: tt.startTime || '10:00',
+            endTime: tt.endTime || '11:00',
             completed: tt.status === 'completed',
             isPostEvent: tt.taskCategory === 'event',
           });
@@ -1651,8 +1661,8 @@ export function EnhancedCalendar({
             description: tt.description || '',
             type: calType,
             date: tt.date,
-            startTime: tt.startTime || '09:00',
-            endTime: tt.endTime || '10:00',
+            startTime: tt.startTime || '10:00',
+            endTime: tt.endTime || '11:00',
             completed: tt.status === 'completed',
             isPostEvent: true,
           });
@@ -1937,6 +1947,7 @@ export function EnhancedCalendar({
                     formatTime={formatTime}
                     getTaskColor={getTaskColor}
                     onPostCardClick={onPostCardClick}
+                    onNonPostTaskClick={onNonPostTaskClick}
                     onTaskContextMenu={onTaskContextMenu}
                   />
                 );
