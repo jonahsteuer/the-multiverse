@@ -627,8 +627,9 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
     );
     const editorName = editorMember?.displayName;
 
+    // Default scheduling starts at 10am
     const makeTime = (offsetMinutes: number) => {
-      const total = h * 60 + m + offsetMinutes;
+      const total = 10 * 60 + offsetMinutes; // anchor at 10:00am
       return `${pad(Math.floor(total / 60) % 24)}:${pad(total % 60)}`;
     };
 

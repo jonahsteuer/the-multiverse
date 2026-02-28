@@ -1,0 +1,46 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e1]:
+  - alert [ref=e2]
+  - generic [ref=e3]:
+    - generic [ref=e5]:
+      - heading "Now You Got It" [level=1] [ref=e6]
+      - generic [ref=e7]: Releasing in 15 days
+      - generic [ref=e8]: 1 world
+    - generic [ref=e12]:
+      - paragraph [ref=e13]: Click on a world to view timeline, shoot days, and calendar sync
+      - generic [ref=e15]:
+        - button "View Calendar" [ref=e16] [cursor=pointer]
+        - button "🗑️" [ref=e17] [cursor=pointer]
+    - generic [ref=e19]:
+      - generic [ref=e20]:
+        - generic [ref=e21]: 📋
+        - heading "Todo List" [level=3] [ref=e22]
+        - generic [ref=e23]: 3 remaining
+      - generic [ref=e24]:
+        - button "👥 Invite team members est. 15m" [ref=e25] [cursor=pointer]:
+          - generic [ref=e27]:
+            - generic [ref=e28]: 👥
+            - generic [ref=e29]: Invite team members
+          - generic [ref=e30]: est. 15m
+        - button "✨ Review & organize existing footage (est. 45 min) est. 45m" [active] [ref=e31] [cursor=pointer]:
+          - generic [ref=e33]:
+            - generic [ref=e34]: ✨
+            - generic [ref=e35]: Review & organize existing footage (est. 45 min)
+          - generic [ref=e36]: est. 45m
+        - button "✨ Edit first batch of posts (est. 90 min) est. 20m" [ref=e37] [cursor=pointer]:
+          - generic [ref=e39]:
+            - generic [ref=e40]: ✨
+            - generic [ref=e41]: Edit first batch of posts (est. 90 min)
+          - generic [ref=e42]: est. 20m
+    - generic [ref=e43]:
+      - button "💬 CALL MARK" [ref=e45] [cursor=pointer]:
+        - generic [ref=e46]: 💬
+        - generic [ref=e47]: CALL MARK
+      - button [ref=e50] [cursor=pointer]:
+        - img [ref=e51]
+      - button "?" [ref=e54] [cursor=pointer]:
+        - generic [ref=e55]: "?"
+    - button "+ Create World" [ref=e57] [cursor=pointer]
+```

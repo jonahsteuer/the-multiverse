@@ -1,0 +1,340 @@
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - alert [ref=e2]
+  - generic [ref=e3]:
+    - generic [ref=e5]:
+      - heading "Now You Got It" [level=1] [ref=e6]
+      - generic [ref=e7]: Releasing in 15 days
+      - generic [ref=e8]: 1 world
+    - generic [ref=e12]:
+      - paragraph [ref=e13]: Click on a world to view timeline, shoot days, and calendar sync
+      - generic [ref=e15]:
+        - button "View Calendar" [ref=e16] [cursor=pointer]
+        - button "🗑️" [ref=e17] [cursor=pointer]
+    - generic [ref=e19]:
+      - generic [ref=e20]:
+        - generic [ref=e21]: 📋
+        - heading "Todo List" [level=3] [ref=e22]
+        - generic [ref=e23]: 3 remaining
+      - generic [ref=e24]:
+        - button "👥 Invite team members est. 15m" [ref=e25] [cursor=pointer]:
+          - generic [ref=e27]:
+            - generic [ref=e28]: 👥
+            - generic [ref=e29]: Invite team members
+          - generic [ref=e30]: est. 15m
+        - button "✨ Review & organize existing footage (est. 45 min) est. 45m" [ref=e31] [cursor=pointer]:
+          - generic [ref=e33]:
+            - generic [ref=e34]: ✨
+            - generic [ref=e35]: Review & organize existing footage (est. 45 min)
+          - generic [ref=e36]: est. 45m
+        - button "✨ Edit first batch of posts (est. 90 min) est. 20m" [ref=e37] [cursor=pointer]:
+          - generic [ref=e39]:
+            - generic [ref=e40]: ✨
+            - generic [ref=e41]: Edit first batch of posts (est. 90 min)
+          - generic [ref=e42]: est. 20m
+    - generic [ref=e43]:
+      - button "💬 CALL MARK" [ref=e45] [cursor=pointer]:
+        - generic [ref=e46]: 💬
+        - generic [ref=e47]: CALL MARK
+      - button [ref=e50] [cursor=pointer]:
+        - img [ref=e51]
+      - button "?" [ref=e54] [cursor=pointer]:
+        - generic [ref=e55]: "?"
+    - button "+ Create World" [ref=e57] [cursor=pointer]
+    - generic [ref=e59]:
+      - generic [ref=e60]:
+        - generic [ref=e62]:
+          - generic [ref=e63]: Snapshot Calendar
+          - generic [ref=e64]: Now You Got It - All Worlds
+        - generic [ref=e65]:
+          - button "📅 Sync Google Calendar" [ref=e66] [cursor=pointer]
+          - button "Close" [ref=e67] [cursor=pointer]
+      - generic [ref=e68]:
+        - generic [ref=e69]:
+          - generic [ref=e70]:
+            - generic [ref=e72]:
+              - text: Weekly Time Budget
+              - paragraph [ref=e73]: 8 hours/week
+            - generic [ref=e74]:
+              - generic [ref=e75]:
+                - text: Team
+                - paragraph [ref=e76]: 1 member(s)
+              - generic [ref=e77]:
+                - button "📅 Calendar" [ref=e78] [cursor=pointer]
+                - button "🎬 All Posts" [ref=e79] [cursor=pointer]
+          - generic [ref=e80]:
+            - generic [ref=e81]:
+              - button "← Previous" [ref=e82] [cursor=pointer]
+              - generic [ref=e83]: Weeks 5–8
+              - button "Next →" [disabled] [ref=e84]
+            - generic [ref=e85]:
+              - generic [ref=e86]: 🚀 Post-release
+              - generic [ref=e87]: 🚀 Post-release
+              - generic [ref=e88]: 🚀 Post-release
+              - generic [ref=e89]: 🚀 Post-release
+          - generic [ref=e90]:
+            - generic [ref=e91]:
+              - generic [ref=e92]: Week 5
+              - generic [ref=e93]:
+                - generic [ref=e94]:
+                  - text: Sat
+                  - generic [ref=e95]: 3/28
+                - button "🎵 Promo Post ▶ 8:00 AM - 8:30 AM" [ref=e96] [cursor=pointer]:
+                  - generic [ref=e97]:
+                    - generic [ref=e98]: 🎵 Promo Post
+                    - generic [ref=e99]: ▶
+                  - generic "Click to edit time" [ref=e100]: 8:00 AM - 8:30 AM
+                - button "🎬 Film new content ▶ 8:30 AM - 10:30 AM" [ref=e101]:
+                  - generic [ref=e102]:
+                    - generic [ref=e103]: 🎬 Film new content
+                    - generic [ref=e104]: ▶
+                  - generic "Click to edit time" [ref=e105] [cursor=pointer]: 8:30 AM - 10:30 AM
+              - generic [ref=e106]:
+                - generic [ref=e107]:
+                  - text: Sun
+                  - generic [ref=e108]: 3/29
+                - button "✂️ Quick edit ▶ 8:00 AM - 9:30 AM" [ref=e109]:
+                  - generic [ref=e110]:
+                    - generic [ref=e111]: ✂️ Quick edit
+                    - generic [ref=e112]: ▶
+                  - generic "Click to edit time" [ref=e113] [cursor=pointer]: 8:00 AM - 9:30 AM
+              - generic [ref=e114]:
+                - generic [ref=e115]:
+                  - text: Mon
+                  - generic [ref=e116]: 3/30
+                - button "🎵 Promo Post ▶ 8:00 AM - 8:30 AM" [ref=e117] [cursor=pointer]:
+                  - generic [ref=e118]:
+                    - generic [ref=e119]: 🎵 Promo Post
+                    - generic [ref=e120]: ▶
+                  - generic "Click to edit time" [ref=e121]: 8:00 AM - 8:30 AM
+                - button "💡 Brainstorm ideas ▶ 8:30 AM - 9:30 AM" [ref=e122]:
+                  - generic [ref=e123]:
+                    - generic [ref=e124]: 💡 Brainstorm ideas
+                    - generic [ref=e125]: ▶
+                  - generic "Click to edit time" [ref=e126] [cursor=pointer]: 8:30 AM - 9:30 AM
+              - generic [ref=e127]:
+                - generic [ref=e128]:
+                  - text: Tue
+                  - generic [ref=e129]: 3/31
+                - button "📱 Engage with audience ▶ 8:00 AM - 8:45 AM" [ref=e130]:
+                  - generic [ref=e131]:
+                    - generic [ref=e132]: 📱 Engage with audience
+                    - generic [ref=e133]: ▶
+                  - generic "Click to edit time" [ref=e134] [cursor=pointer]: 8:00 AM - 8:45 AM
+              - generic [ref=e135]:
+                - generic [ref=e136]:
+                  - text: Wed
+                  - generic [ref=e137]: 4/1
+                - button "🎵 Promo Post ▶ 8:00 AM - 8:30 AM" [ref=e138] [cursor=pointer]:
+                  - generic [ref=e139]:
+                    - generic [ref=e140]: 🎵 Promo Post
+                    - generic [ref=e141]: ▶
+                  - generic "Click to edit time" [ref=e142]: 8:00 AM - 8:30 AM
+              - generic [ref=e144]:
+                - text: Thu
+                - generic [ref=e145]: 4/2
+              - generic [ref=e147]:
+                - text: Fri
+                - generic [ref=e148]: 4/3
+            - generic [ref=e149]:
+              - generic [ref=e150]: Week 6
+              - generic [ref=e151]:
+                - generic [ref=e152]:
+                  - text: Sat
+                  - generic [ref=e153]: 4/4
+                - button "🎵 Promo Post ▶ 8:00 AM - 8:30 AM" [ref=e154] [cursor=pointer]:
+                  - generic [ref=e155]:
+                    - generic [ref=e156]: 🎵 Promo Post
+                    - generic [ref=e157]: ▶
+                  - generic "Click to edit time" [ref=e158]: 8:00 AM - 8:30 AM
+                - button "🎬 Film new content ▶ 8:30 AM - 10:30 AM" [ref=e159]:
+                  - generic [ref=e160]:
+                    - generic [ref=e161]: 🎬 Film new content
+                    - generic [ref=e162]: ▶
+                  - generic "Click to edit time" [ref=e163] [cursor=pointer]: 8:30 AM - 10:30 AM
+              - generic [ref=e164]:
+                - generic [ref=e165]:
+                  - text: Sun
+                  - generic [ref=e166]: 4/5
+                - button "✂️ Quick edit ▶ 8:00 AM - 9:30 AM" [ref=e167]:
+                  - generic [ref=e168]:
+                    - generic [ref=e169]: ✂️ Quick edit
+                    - generic [ref=e170]: ▶
+                  - generic "Click to edit time" [ref=e171] [cursor=pointer]: 8:00 AM - 9:30 AM
+              - generic [ref=e172]:
+                - generic [ref=e173]:
+                  - text: Mon
+                  - generic [ref=e174]: 4/6
+                - button "🎵 Promo Post ▶ 8:00 AM - 8:30 AM" [ref=e175] [cursor=pointer]:
+                  - generic [ref=e176]:
+                    - generic [ref=e177]: 🎵 Promo Post
+                    - generic [ref=e178]: ▶
+                  - generic "Click to edit time" [ref=e179]: 8:00 AM - 8:30 AM
+                - button "💡 Brainstorm ideas ▶ 8:30 AM - 9:30 AM" [ref=e180]:
+                  - generic [ref=e181]:
+                    - generic [ref=e182]: 💡 Brainstorm ideas
+                    - generic [ref=e183]: ▶
+                  - generic "Click to edit time" [ref=e184] [cursor=pointer]: 8:30 AM - 9:30 AM
+              - generic [ref=e185]:
+                - generic [ref=e186]:
+                  - text: Tue
+                  - generic [ref=e187]: 4/7
+                - button "📱 Engage with audience ▶ 8:00 AM - 8:45 AM" [ref=e188]:
+                  - generic [ref=e189]:
+                    - generic [ref=e190]: 📱 Engage with audience
+                    - generic [ref=e191]: ▶
+                  - generic "Click to edit time" [ref=e192] [cursor=pointer]: 8:00 AM - 8:45 AM
+              - generic [ref=e193]:
+                - generic [ref=e194]:
+                  - text: Wed
+                  - generic [ref=e195]: 4/8
+                - button "🎵 Promo Post ▶ 8:00 AM - 8:30 AM" [ref=e196] [cursor=pointer]:
+                  - generic [ref=e197]:
+                    - generic [ref=e198]: 🎵 Promo Post
+                    - generic [ref=e199]: ▶
+                  - generic "Click to edit time" [ref=e200]: 8:00 AM - 8:30 AM
+              - generic [ref=e202]:
+                - text: Thu
+                - generic [ref=e203]: 4/9
+              - generic [ref=e205]:
+                - text: Fri
+                - generic [ref=e206]: 4/10
+            - generic [ref=e207]:
+              - generic [ref=e208]: Week 7
+              - generic [ref=e209]:
+                - generic [ref=e210]:
+                  - text: Sat
+                  - generic [ref=e211]: 4/11
+                - button "🎵 Promo Post ▶ 8:00 AM - 8:30 AM" [ref=e212] [cursor=pointer]:
+                  - generic [ref=e213]:
+                    - generic [ref=e214]: 🎵 Promo Post
+                    - generic [ref=e215]: ▶
+                  - generic "Click to edit time" [ref=e216]: 8:00 AM - 8:30 AM
+                - button "🎬 Film new content ▶ 8:30 AM - 10:30 AM" [ref=e217]:
+                  - generic [ref=e218]:
+                    - generic [ref=e219]: 🎬 Film new content
+                    - generic [ref=e220]: ▶
+                  - generic "Click to edit time" [ref=e221] [cursor=pointer]: 8:30 AM - 10:30 AM
+              - generic [ref=e222]:
+                - generic [ref=e223]:
+                  - text: Sun
+                  - generic [ref=e224]: 4/12
+                - button "✂️ Quick edit ▶ 8:00 AM - 9:30 AM" [ref=e225]:
+                  - generic [ref=e226]:
+                    - generic [ref=e227]: ✂️ Quick edit
+                    - generic [ref=e228]: ▶
+                  - generic "Click to edit time" [ref=e229] [cursor=pointer]: 8:00 AM - 9:30 AM
+              - generic [ref=e230]:
+                - generic [ref=e231]:
+                  - text: Mon
+                  - generic [ref=e232]: 4/13
+                - button "🎵 Promo Post ▶ 8:00 AM - 8:30 AM" [ref=e233] [cursor=pointer]:
+                  - generic [ref=e234]:
+                    - generic [ref=e235]: 🎵 Promo Post
+                    - generic [ref=e236]: ▶
+                  - generic "Click to edit time" [ref=e237]: 8:00 AM - 8:30 AM
+                - button "💡 Brainstorm ideas ▶ 8:30 AM - 9:30 AM" [ref=e238]:
+                  - generic [ref=e239]:
+                    - generic [ref=e240]: 💡 Brainstorm ideas
+                    - generic [ref=e241]: ▶
+                  - generic "Click to edit time" [ref=e242] [cursor=pointer]: 8:30 AM - 9:30 AM
+              - generic [ref=e243]:
+                - generic [ref=e244]:
+                  - text: Tue
+                  - generic [ref=e245]: 4/14
+                - button "📱 Engage with audience ▶ 8:00 AM - 8:45 AM" [ref=e246]:
+                  - generic [ref=e247]:
+                    - generic [ref=e248]: 📱 Engage with audience
+                    - generic [ref=e249]: ▶
+                  - generic "Click to edit time" [ref=e250] [cursor=pointer]: 8:00 AM - 8:45 AM
+              - generic [ref=e251]:
+                - generic [ref=e252]:
+                  - text: Wed
+                  - generic [ref=e253]: 4/15
+                - button "🌱 Audience builder Post ▶ 8:00 AM - 8:30 AM" [ref=e254] [cursor=pointer]:
+                  - generic [ref=e255]:
+                    - generic [ref=e256]: 🌱 Audience builder Post
+                    - generic [ref=e257]: ▶
+                  - generic "Click to edit time" [ref=e258]: 8:00 AM - 8:30 AM
+              - generic [ref=e260]:
+                - text: Thu
+                - generic [ref=e261]: 4/16
+              - generic [ref=e263]:
+                - text: Fri
+                - generic [ref=e264]: 4/17
+            - generic [ref=e265]:
+              - generic [ref=e266]: Week 8
+              - generic [ref=e267]:
+                - generic [ref=e268]:
+                  - text: Sat
+                  - generic [ref=e269]: 4/18
+                - button "🌱 Audience builder Post ▶ 8:00 AM - 8:30 AM" [ref=e270] [cursor=pointer]:
+                  - generic [ref=e271]:
+                    - generic [ref=e272]: 🌱 Audience builder Post
+                    - generic [ref=e273]: ▶
+                  - generic "Click to edit time" [ref=e274]: 8:00 AM - 8:30 AM
+                - button "🎬 Film new content ▶ 8:30 AM - 10:30 AM" [ref=e275]:
+                  - generic [ref=e276]:
+                    - generic [ref=e277]: 🎬 Film new content
+                    - generic [ref=e278]: ▶
+                  - generic "Click to edit time" [ref=e279] [cursor=pointer]: 8:30 AM - 10:30 AM
+              - generic [ref=e280]:
+                - generic [ref=e281]:
+                  - text: Sun
+                  - generic [ref=e282]: 4/19
+                - button "✂️ Quick edit ▶ 8:00 AM - 9:30 AM" [ref=e283]:
+                  - generic [ref=e284]:
+                    - generic [ref=e285]: ✂️ Quick edit
+                    - generic [ref=e286]: ▶
+                  - generic "Click to edit time" [ref=e287] [cursor=pointer]: 8:00 AM - 9:30 AM
+              - generic [ref=e288]:
+                - generic [ref=e289]:
+                  - text: Mon
+                  - generic [ref=e290]: 4/20
+                - button "🌱 Audience builder Post ▶ 8:00 AM - 8:30 AM" [ref=e291] [cursor=pointer]:
+                  - generic [ref=e292]:
+                    - generic [ref=e293]: 🌱 Audience builder Post
+                    - generic [ref=e294]: ▶
+                  - generic "Click to edit time" [ref=e295]: 8:00 AM - 8:30 AM
+                - button "💡 Brainstorm ideas ▶ 8:30 AM - 9:30 AM" [ref=e296]:
+                  - generic [ref=e297]:
+                    - generic [ref=e298]: 💡 Brainstorm ideas
+                    - generic [ref=e299]: ▶
+                  - generic "Click to edit time" [ref=e300] [cursor=pointer]: 8:30 AM - 9:30 AM
+              - generic [ref=e301]:
+                - generic [ref=e302]:
+                  - text: Tue
+                  - generic [ref=e303]: 4/21
+                - button "📱 Engage with audience ▶ 8:00 AM - 8:45 AM" [ref=e304]:
+                  - generic [ref=e305]:
+                    - generic [ref=e306]: 📱 Engage with audience
+                    - generic [ref=e307]: ▶
+                  - generic "Click to edit time" [ref=e308] [cursor=pointer]: 8:00 AM - 8:45 AM
+              - generic [ref=e309]:
+                - generic [ref=e310]:
+                  - text: Wed
+                  - generic [ref=e311]: 4/22
+                - button "🌱 Audience builder Post ▶ 8:00 AM - 8:30 AM" [ref=e312] [cursor=pointer]:
+                  - generic [ref=e313]:
+                    - generic [ref=e314]: 🌱 Audience builder Post
+                    - generic [ref=e315]: ▶
+                  - generic "Click to edit time" [ref=e316]: 8:00 AM - 8:30 AM
+              - generic [ref=e318]:
+                - text: Thu
+                - generic [ref=e319]: 4/23
+              - generic [ref=e321]:
+                - text: Fri
+                - generic [ref=e322]: 4/24
+          - generic [ref=e323]:
+            - generic [ref=e326]: 📋 Prep Task
+            - generic [ref=e329]: 🌱 Audience Builder
+            - generic [ref=e332]: 👀 Teaser
+            - generic [ref=e335]: 🎵 Promo
+            - generic [ref=e338]: 🎵 Release Day
+            - generic [ref=e341]: ✂️ Edit Day
+            - generic [ref=e344]: 📸 Shoot Day
+            - generic [ref=e347]: 📅 Your Calendar
+        - status [ref=e348]
+```
