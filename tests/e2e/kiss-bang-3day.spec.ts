@@ -243,12 +243,13 @@ test('P2 – Complete onboarding conversation', async ({ page }) => {
     await snap(page, `p2-step-${i+1}`);
   }
 
-  // Wait for onboarding to complete
+  // Wait for Mark's final message + completion
   await page.waitForTimeout(5_000);
   const continueBtn2 = page.locator('button:has-text("Continue →"), button:has-text("Continue")').first();
   if (await continueBtn2.isVisible({ timeout: 15_000 }).catch(() => false)) {
     await continueBtn2.click();
-    await page.waitForTimeout(2_000);
+    // Wait for universe/galaxy creation to complete (multiple Supabase API calls)
+    await page.waitForTimeout(15_000);
   }
   await snap(page, 'p2-complete');
   console.log('✅ P2: Onboarding complete');
@@ -261,14 +262,19 @@ test('P3 – Day 1: Todo list shows correct tasks at 10am', async ({ page }) => 
   await page.waitForLoadState('networkidle');
   await signIn(page);
 
-  // Click Continue if post-onboarding screen, wait for galaxy to initialize
-  const cont = page.locator('button:has-text("Continue →"), button:has-text("Continue"), button:has-text("Let\'s go"), button:has-text("View my universe")').first();
-  if (await cont.isVisible({ timeout: 5_000 }).catch(() => false)) await cont.click();
+  // Click through any post-onboarding screens (Continue, Let's go, etc.)
+  for (let i = 0; i < 3; i++) {
+    const cont = page.locator('button:has-text("Continue"), button:has-text("Let\'s go"), button:has-text("View my universe"), button:has-text("Skip")').first();
+    if (await cont.isVisible({ timeout: 3_000 }).catch(() => false)) {
+      await cont.click();
+      await page.waitForTimeout(2_000);
+    }
+  }
 
-  // For fresh accounts, the universe creation takes up to 15s after onboarding
-  const onGalaxy = await page.locator('text=Todo List').isVisible({ timeout: 20_000 }).catch(() => false);
+  // For fresh accounts the universe creation + loading can take 30-45s
+  const onGalaxy = await page.locator('text=Todo List').isVisible({ timeout: 45_000 }).catch(() => false);
   if (!onGalaxy) {
-    console.log('📝 P3 SKIP: Galaxy view not ready after 20s — onboarding may not have completed fully');
+    console.log('📝 P3 SKIP: Galaxy view not ready after 45s — check account state manually');
     test.skip();
     return;
   }
@@ -314,13 +320,18 @@ test('P4 – Day 1: Click task opens TaskPanel with description + Mark button', 
   await page.waitForLoadState('networkidle');
   await signIn(page);
 
-  // Click Continue if post-onboarding screen, wait for galaxy
-  const cont = page.locator('button:has-text("Continue →"), button:has-text("Continue"), button:has-text("Let\'s go"), button:has-text("View my universe")').first();
-  if (await cont.isVisible({ timeout: 5_000 }).catch(() => false)) await cont.click();
+  // Click through any post-onboarding screens
+  for (let i = 0; i < 3; i++) {
+    const cont = page.locator('button:has-text("Continue"), button:has-text("Let\'s go"), button:has-text("View my universe"), button:has-text("Skip")').first();
+    if (await cont.isVisible({ timeout: 3_000 }).catch(() => false)) {
+      await cont.click();
+      await page.waitForTimeout(2_000);
+    }
+  }
 
-  const onGalaxy = await page.locator('text=Todo List').isVisible({ timeout: 20_000 }).catch(() => false);
+  const onGalaxy = await page.locator('text=Todo List').isVisible({ timeout: 45_000 }).catch(() => false);
   if (!onGalaxy) {
-    console.log('📝 P4 SKIP: Galaxy view not ready — skipping');
+    console.log('📝 P4 SKIP: Galaxy view not ready after 45s — skipping');
     test.skip();
     return;
   }

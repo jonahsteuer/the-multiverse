@@ -981,7 +981,15 @@ export default function Home() {
                   const galaxy = loadedUniverse.galaxies.find(g => g.id === savedGalaxyId);
                   if (galaxy) {
                     setCurrentGalaxy(galaxy);
+                  } else if (loadedUniverse.galaxies.length > 0) {
+                    // savedGalaxyId doesn't match any galaxy — fall back to first
+                    setCurrentGalaxy(loadedUniverse.galaxies[0]);
+                    saveCurrentGalaxyId(loadedUniverse.galaxies[0].id);
                   }
+                } else if (loadedUniverse.galaxies.length > 0) {
+                  // No saved galaxy id (fresh browser / cleared localStorage) — show first galaxy
+                  setCurrentGalaxy(loadedUniverse.galaxies[0]);
+                  saveCurrentGalaxyId(loadedUniverse.galaxies[0].id);
                 }
               }
             }
