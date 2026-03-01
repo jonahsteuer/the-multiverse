@@ -688,24 +688,9 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
           updatedAt: now.toISOString(),
         });
       }
-      defaultTasks.push({
-        id: 'default-finalize',
-        teamId: '',
-        galaxyId: galaxy.id,
-        title: `Finalize posts (est. 25 min)`,
-        description: editorName
-          ? `Posts you didn't send back to ${editorName} are ready. Write captions and confirm scheduling.`
-          : `Do a final pass on your uploaded posts. Write captions, add hashtags, and confirm scheduling.`,
-        type: 'prep' as const,
-        taskCategory: 'task' as const,
-        date: todayStr,
-        startTime: makeTime(80),
-        endTime: makeTime(105),
-        status: 'pending' as const,
-        assignedBy: '',
-        createdAt: now.toISOString(),
-        updatedAt: now.toISOString(),
-      });
+      // "Finalize posts" task is NOT shown until uploads are complete —
+      // it appears in the calendar (week 2) and auto-surfaces in the todo list
+      // once the upload task is marked done.
     } else if (hasRawButNoEdited) {
       // Has raw footage — no shoot needed, focus on reviewing + sending to editor
       const batchOne = Math.min(10, roughClipCount);

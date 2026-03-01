@@ -254,27 +254,33 @@ function buildContentReadyPrepTasks(
   const week1: { title: string; description: string; duration: number }[] = [];
   const week2: { title: string; description: string; duration: number }[] = [];
 
-  // Batch uploads → each batch immediately followed by "send notes" then "finalize ready posts"
+  // Week 1: Upload + send to editor (editor turn-around takes time)
+  // Week 2: Finalize (once edits are back / approved)
   for (let i = 0; i < totalBatches; i++) {
     const start = i * batchSize + 1;
     const end = Math.min((i + 1) * batchSize, editedClipCount);
-    const targetWeek = i < 2 ? week1 : week2;
 
-    targetWeek.push({
+    week1.push({
       title: `Upload edits ${start}–${end}`,
-      description: `Upload ${end - start + 1} edited clips. These are your rough edits — once uploaded you can review them and send any that need revision back to your editor.`,
+      description: `Upload ${end - start + 1} edited clips. Once uploaded you can review them and send any that need revision back to your editor.`,
       duration: 30,
     });
 
     if (editorName) {
-      targetWeek.push({
+      week1.push({
         title: `Send edits back to ${editorName} with notes`,
         description: `Review the uploaded clips. Write revision notes on any that need work, then send them back to ${editorName}. Skip the ones that look ready — those go straight to finalizing.`,
         duration: 20,
       });
     }
+  }
 
-    targetWeek.push({
+  // Week 2: Finalize (after editor revisions come back OR for approved clips)
+  for (let i = 0; i < totalBatches; i++) {
+    const start = i * batchSize + 1;
+    const end = Math.min((i + 1) * batchSize, editedClipCount);
+
+    week2.push({
       title: `Finalize posts ${start}–${end}`,
       description: editorName
         ? `Posts without revision notes are ready to go. Write captions and confirm scheduling for each.`
@@ -1327,7 +1333,7 @@ export function EnhancedCalendar({
         weekIdx: number,
         idPrefix: string,
       ) => {
-        const maxMinutesPerDay = Math.min(weeklyBudgetMinutes * 0.55, 240);
+        const maxMinutesPerDay = Math.min(weeklyBudgetMinutes * 0.25, 90); // 1–2 tasks per day max
         const timeUsedByDay: Record<string, number> = {};
 
         for (let ti = 0; ti < taskList.length; ti++) {
