@@ -217,8 +217,10 @@ test('P1 – Signup as Kiss Bang', async ({ page }) => {
   await submitBtn.click();
 
   // Wait for either ConversationalOnboarding ("Start Conversation") or galaxy view
-  const successLocator = page.locator('text=Start Conversation, text=Todo List, button:has-text("CALL MARK")');
-  const signedUp = await successLocator.isVisible({ timeout: 20_000 }).catch(() => false);
+  const startConvVisible = await page.locator('button:has-text("Start Conversation")').isVisible({ timeout: 20_000 }).catch(() => false);
+  const todoVisible2 = await page.locator('text=Todo List').isVisible({ timeout: 2_000 }).catch(() => false);
+  const callMarkVisible2 = await page.locator('button:has-text("CALL MARK")').isVisible({ timeout: 2_000 }).catch(() => false);
+  const signedUp = startConvVisible || todoVisible2 || callMarkVisible2;
 
   if (!signedUp) {
     // Account may already exist — sign in instead
