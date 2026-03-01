@@ -67,6 +67,57 @@ async function chat(page: Page, text: string) {
   await ta.press('Enter');
 }
 
+/**
+ * After signing in, navigate through any intermediate screens (loading, post-onboarding,
+ * strategy calendar, etc.) until the galaxy view (Todo List) is visible.
+ * Returns true if the galaxy view was reached, false otherwise.
+ */
+async function navigateToGalaxy(page: Page): Promise<boolean> {
+  const deadline = Date.now() + 90_000; // 90s overall budget
+
+  while (Date.now() < deadline) {
+    // Already on galaxy view?
+    const onGalaxy = await page.locator('text=Todo List').isVisible({ timeout: 2_000 }).catch(() => false);
+    if (onGalaxy) return true;
+
+    // Loading screen? — just wait
+    const isLoading = await page.locator('text=BUILDING OUT YOUR GALAXY, text=Loading The Multiverse').isVisible({ timeout: 1_000 }).catch(() => false);
+    if (isLoading) { await page.waitForTimeout(3_000); continue; }
+
+    // "Onboarding Complete!" / Continue → (PostOnboarding intro screen)
+    const contBtn = page.locator('button:has-text("Continue →"), button:has-text("Continue")').first();
+    if (await contBtn.isVisible({ timeout: 1_500 }).catch(() => false)) {
+      await contBtn.click();
+      await page.waitForTimeout(3_000);
+      continue;
+    }
+
+    // PostOnboarding strategy is showing (Mark asking about the plan)
+    const strategyShowing = await page.locator('text=YOUR CONTENT STRATEGY, text=Sounds great').isVisible({ timeout: 1_500 }).catch(() => false);
+    if (strategyShowing) {
+      // Agree to the plan so handlePostOnboardingComplete fires
+      const textarea = page.locator('textarea').first();
+      if (await textarea.isVisible({ timeout: 2_000 }).catch(() => false)) {
+        await textarea.fill('Sounds great!');
+        await textarea.press('Enter');
+      }
+      await page.waitForTimeout(8_000);
+      continue;
+    }
+
+    // View Calendar / Let's go / View my universe
+    const navBtn = page.locator('button:has-text("View Calendar"), button:has-text("View my universe"), button:has-text("Let\'s go")').first();
+    if (await navBtn.isVisible({ timeout: 1_500 }).catch(() => false)) {
+      await navBtn.click();
+      await page.waitForTimeout(3_000);
+      continue;
+    }
+
+    await page.waitForTimeout(2_000);
+  }
+  return false;
+}
+
 async function signIn(page: Page) {
   const todoVisible = await page.locator('text=Todo List').isVisible({ timeout: 3_000 }).catch(() => false);
   const callMarkVisible = await page.locator('button:has-text("CALL MARK")').isVisible({ timeout: 2_000 }).catch(() => false);
@@ -281,19 +332,10 @@ test('P3 – Day 1: Todo list shows correct tasks at 10am', async ({ page }) => 
   await page.waitForLoadState('networkidle');
   await signIn(page);
 
-  // Click through any post-onboarding screens (Continue, Let's go, etc.)
-  for (let i = 0; i < 3; i++) {
-    const cont = page.locator('button:has-text("Continue"), button:has-text("Let\'s go"), button:has-text("View my universe"), button:has-text("Skip")').first();
-    if (await cont.isVisible({ timeout: 3_000 }).catch(() => false)) {
-      await cont.click();
-      await page.waitForTimeout(2_000);
-    }
-  }
-
-  // For fresh accounts the universe creation + loading can take 30-45s
-  const onGalaxy = await page.locator('text=Todo List').isVisible({ timeout: 45_000 }).catch(() => false);
+  // Navigate to galaxy: handle any intermediate screens (loading, post-onboarding, etc.)
+  const onGalaxy = await navigateToGalaxy(page);
   if (!onGalaxy) {
-    console.log('📝 P3 SKIP: Galaxy view not ready after 45s — check account state manually');
+    console.log('📝 P3 SKIP: Galaxy view not ready — check account state manually');
     test.skip();
     return;
   }
@@ -339,18 +381,9 @@ test('P4 – Day 1: Click task opens TaskPanel with description + Mark button', 
   await page.waitForLoadState('networkidle');
   await signIn(page);
 
-  // Click through any post-onboarding screens
-  for (let i = 0; i < 3; i++) {
-    const cont = page.locator('button:has-text("Continue"), button:has-text("Let\'s go"), button:has-text("View my universe"), button:has-text("Skip")').first();
-    if (await cont.isVisible({ timeout: 3_000 }).catch(() => false)) {
-      await cont.click();
-      await page.waitForTimeout(2_000);
-    }
-  }
-
-  const onGalaxy = await page.locator('text=Todo List').isVisible({ timeout: 45_000 }).catch(() => false);
+  const onGalaxy = await navigateToGalaxy(page);
   if (!onGalaxy) {
-    console.log('📝 P4 SKIP: Galaxy view not ready after 45s — skipping');
+    console.log('📝 P4 SKIP: Galaxy view not ready — skipping');
     test.skip();
     return;
   }

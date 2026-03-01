@@ -1086,7 +1086,14 @@ export default function Home() {
         // If no owned universe, check if user is part of a team (invited member)
         if (!existingUniverse || !existingUniverse.galaxies || existingUniverse.galaxies.length === 0) {
           console.log('[Account Created] No owned universe, checking team membership...');
-          const teamUniverse = await loadTeamUniverse();
+          const teamUniversePromise = loadTeamUniverse();
+          const teamTimeoutPromise = new Promise<null>((resolve) => {
+            setTimeout(() => {
+              console.warn('[Account Created] ⚠️ loadTeamUniverse timed out after 10s');
+              resolve(null);
+            }, 10000);
+          });
+          const teamUniverse = await Promise.race([teamUniversePromise, teamTimeoutPromise]);
           if (teamUniverse) {
             existingUniverse = teamUniverse;
           }
