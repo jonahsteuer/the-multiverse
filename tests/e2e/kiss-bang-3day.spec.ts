@@ -243,10 +243,29 @@ test('P2 – Complete onboarding conversation', async ({ page }) => {
     await snap(page, `p2-step-${i+1}`);
   }
 
-  // Wait for Mark's final message + completion
-  await page.waitForTimeout(5_000);
+  // After the script, keep responding to any trailing questions until "Continue →" appears
+  // (Claude sometimes asks 1-2 follow-up questions before finalising with [ONBOARDING_COMPLETE])
+  const WRAP_UP_REPLIES = [
+    "That's all I've got for now",
+    "Yes, that's correct",
+    "Nope, that's everything",
+    "I think that covers it",
+    "Yes exactly",
+  ];
+  let wrapIdx = 0;
   const continueBtn2 = page.locator('button:has-text("Continue →"), button:has-text("Continue")').first();
-  if (await continueBtn2.isVisible({ timeout: 15_000 }).catch(() => false)) {
+  const deadline = Date.now() + 90_000; // up to 90s for completion
+  while (Date.now() < deadline) {
+    const done = await continueBtn2.isVisible({ timeout: 3_000 }).catch(() => false);
+    if (done) break;
+    // Send a generic wrap-up reply to any pending question
+    const msg = WRAP_UP_REPLIES[wrapIdx % WRAP_UP_REPLIES.length];
+    wrapIdx++;
+    await chat(page, msg).catch(() => {});
+    await page.waitForTimeout(5_000);
+  }
+
+  if (await continueBtn2.isVisible({ timeout: 5_000 }).catch(() => false)) {
     await continueBtn2.click();
     // Wait for universe/galaxy creation to complete (multiple Supabase API calls)
     await page.waitForTimeout(15_000);

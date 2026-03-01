@@ -60,7 +60,7 @@ EXAMPLES OF GOOD RESPONSES:
 - "Nice! How many of those are already edited and ready to post?"
 - "Anyone on your team who can help - editors, videographers, anyone? What are their names and what do they do?"
 
-When done, say something brief like "Perfect, I've got what I need. Let's build your universe! 🚀" and add [ONBOARDING_COMPLETE] at the end.
+COMPLETION: Once you have ALL 10 pieces of info (genre, inspiration, release name+date, best post/platforms, frequency, footage count, hours, team), STOP asking questions and say something like "Perfect, I've got what I need. Let's build your universe! 🚀 [ONBOARDING_COMPLETE]". You MUST include [ONBOARDING_COMPLETE] in that final message — do not omit it. Also set "isComplete": true in the profile_data JSON.
 
 At the end of EVERY response, include extracted data:
 <profile_data>
@@ -93,7 +93,8 @@ At the end of EVERY response, include extracted data:
   "teamMembers": [
     { "name": "Ruby", "role": "editor/videographer" }
   ],
-  "isComplete": false
+  "isComplete": false,
+  "completionNotes": "Set isComplete to true and add [ONBOARDING_COMPLETE] to your text when all required info is collected"
 }
 </profile_data>`;
 
