@@ -215,16 +215,17 @@ test('P1 – Signup as Kiss Bang', async ({ page }) => {
 
   const submitBtn = page.locator('button[type="submit"]').first();
   await submitBtn.click();
-  await page.waitForTimeout(3_000);
 
-  const bodyText = await page.locator('body').innerText();
-  const signedUp = bodyText.toLowerCase().includes('start conversation') ||
-                   bodyText.toLowerCase().includes('onboarding') ||
-                   bodyText.toLowerCase().includes('what\'s your name');
+  // Wait for either ConversationalOnboarding ("Start Conversation") or galaxy view
+  const successLocator = page.locator('text=Start Conversation, text=Todo List, button:has-text("CALL MARK")');
+  const signedUp = await successLocator.isVisible({ timeout: 20_000 }).catch(() => false);
 
   if (!signedUp) {
-    // May already exist - try sign in
-    await signIn(page);
+    // Account may already exist — sign in instead
+    console.log('📝 Signup may have failed (account exists?) — trying sign in');
+    // Only call signIn if we're still on the sign-up form
+    const onSignupForm = await page.locator('button[type="submit"]').isVisible({ timeout: 2_000 }).catch(() => false);
+    if (onSignupForm) await signIn(page);
   }
   await snap(page, 'p1-after-signup');
   console.log('✅ P1: Signed up');
