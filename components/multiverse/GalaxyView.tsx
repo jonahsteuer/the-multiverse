@@ -18,7 +18,10 @@ import { MarkChatPanel } from './MarkChatPanel';
 import { UploadPostsModal } from './UploadPostsModal';
 import { PostDetailModal } from './PostDetailModal';
 import { TaskPanel } from './TaskPanel';
+import { FinalizePostsModal } from './FinalizePostsModal';
+import { LockedTaskModal } from './LockedTaskModal';
 import { MarkContext } from '@/lib/mark-knowledge';
+import { isTaskLocked } from '@/lib/task-locks';
 import {
   createTeam as createTeamDirect,
   getTeamForUniverse,
@@ -113,6 +116,8 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
   const [showUploadPosts, setShowUploadPosts] = useState(false);
   const [selectedUploadTask, setSelectedUploadTask] = useState<TeamTask | null>(null);
   const [markInitialMessage, setMarkInitialMessage] = useState<string | undefined>(undefined);
+  const [selectedFinalizeTask, setSelectedFinalizeTask] = useState<TeamTask | null>(null);
+  const [lockedTaskInfo, setLockedTaskInfo] = useState<{ title: string; reason: string; prerequisite: string } | null>(null);
   const [isInstagramConnected, setIsInstagramConnected] = useState(false);
   const [isCheckingInstagram, setIsCheckingInstagram] = useState(false);
   const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
@@ -372,7 +377,7 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
   };
 
   const handleTaskClick = async (task: TeamTask) => {
-    // Invite tasks: open invite modal directly
+    // Invite tasks: open invite modal directly (never locked)
     if (task.type === 'invite_team') {
       await handleOpenInviteModal();
       if (team && task.id && !task.id.startsWith('default-')) {
@@ -381,12 +386,27 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
       }
       return;
     }
+
+    // Check if this task is locked before opening it
+    const lockStatus = isTaskLocked(task, allTasksForLockCheck);
+    if (lockStatus) {
+      setLockedTaskInfo({ title: task.title, reason: lockStatus.reason, prerequisite: lockStatus.prerequisite });
+      return;
+    }
+
     // Upload edits/footage tasks: open the post-pairing upload modal
     if (/upload \d+ edits?/i.test(task.title) || /upload footage/i.test(task.title)) {
       setSelectedUploadTask(task);
       setShowUploadPosts(true);
       return;
     }
+
+    // Finalize posts tasks: open the per-post caption/hashtag finalize modal
+    if (/finalize \d+ posts?/i.test(task.title)) {
+      setSelectedFinalizeTask(task);
+      return;
+    }
+
     // All other tasks open the TaskPanel (brainstorm, prep, edit, review, etc.)
     setSelectedTaskForPanel(task);
   };
@@ -799,6 +819,18 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
     return defaultTasks.filter(t => t.date <= todayStr);
   })();
 
+  // For lock checking we need ALL tasks (including future-dated ones the todo list hides).
+  // Combine real DB tasks with default tasks shown today — good enough for most cases.
+  // When tasks are saved to DB after user interacts, teamTasks covers future dates too.
+  const allTasksForLockCheck: TeamTask[] = (() => {
+    const seen = new Set<string>();
+    const combined: TeamTask[] = [];
+    for (const t of [...teamTasks, ...displayTasks]) {
+      if (!seen.has(t.id)) { seen.add(t.id); combined.push(t); }
+    }
+    return combined;
+  })();
+
   return (
     <div className="relative w-full h-screen bg-black">
       {/* 3D Galaxy View */}
@@ -881,6 +913,8 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
                 const isInvite = task.type === 'invite_team';
                 const isBrainstorm = task.type === 'brainstorm';
                 const emoji = isInvite ? '👥' : isBrainstorm ? '🧠' : '✨';
+                const lockStatus = isInvite ? null : isTaskLocked(task, allTasksForLockCheck);
+                const isLocked = !!lockStatus;
                 return (
                   <button
                     key={task.id}
@@ -895,28 +929,46 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
                       }
                     }}
                     disabled={isCreatingTeam && isInvite}
-                    className="w-full flex items-center gap-3 p-2.5 rounded-lg hover:bg-white/5 transition-all group text-left"
+                    className={`w-full flex items-center gap-3 p-2.5 rounded-lg transition-all group text-left ${
+                      isLocked
+                        ? 'opacity-50 cursor-not-allowed hover:bg-white/3'
+                        : 'hover:bg-white/5 cursor-pointer'
+                    }`}
                   >
-                    {/* Checkbox circle */}
-                    <div className="flex-shrink-0 w-5 h-5 rounded border-2 border-gray-600 group-hover:border-yellow-400 transition-colors" />
+                    {/* Checkbox or lock icon */}
+                    <div className="flex-shrink-0 w-5 h-5 flex items-center justify-center">
+                      {isLocked
+                        ? <span className="text-xs text-gray-500">🔒</span>
+                        : <div className="w-5 h-5 rounded border-2 border-gray-600 group-hover:border-yellow-400 transition-colors" />
+                      }
+                    </div>
 
-                    {/* Emoji + Title */}
-                    <div className="flex-1 min-w-0 flex items-center gap-1.5">
-                      <span className="text-sm">{emoji}</span>
-                      <span className="text-sm text-white truncate">
-                        {isCreatingTeam && isInvite ? 'Setting up...' : task.title}
-                      </span>
+                    {/* Emoji + Title + lock reason */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-sm">{emoji}</span>
+                        <span className={`text-sm truncate ${isLocked ? 'text-gray-500' : 'text-white'}`}>
+                          {isCreatingTeam && isInvite ? 'Setting up...' : task.title}
+                        </span>
+                      </div>
+                      {isLocked && lockStatus && (
+                        <p className="text-[10px] text-gray-600 mt-0.5 truncate pl-5">
+                          {lockStatus.prerequisite}
+                        </p>
+                      )}
                     </div>
 
                     {/* Duration estimate */}
-                    <span className="flex-shrink-0 text-[11px] text-gray-500 font-mono">
-                      {task.startTime && task.endTime ? (() => {
-                        const [sh, sm] = task.startTime.split(':').map(Number);
-                        const [eh, em] = task.endTime.split(':').map(Number);
-                        const mins = (eh * 60 + em) - (sh * 60 + sm);
-                        return mins > 0 ? `est. ${mins}m` : '';
-                      })() : ''}
-                    </span>
+                    {!isLocked && (
+                      <span className="flex-shrink-0 text-[11px] text-gray-500 font-mono">
+                        {task.startTime && task.endTime ? (() => {
+                          const [sh, sm] = task.startTime.split(':').map(Number);
+                          const [eh, em] = task.endTime.split(':').map(Number);
+                          const mins = (eh * 60 + em) - (sh * 60 + sm);
+                          return mins > 0 ? `est. ${mins}m` : '';
+                        })() : ''}
+                      </span>
+                    )}
                   </button>
                 );
               })}
@@ -1514,6 +1566,31 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
           onTaskUpdated={(updated) => {
             setTeamTasks(prev => prev.map(t => t.id === updated.id ? updated : t));
           }}
+        />
+      )}
+
+      {/* Finalize Posts Modal */}
+      {selectedFinalizeTask && team && (
+        <FinalizePostsModal
+          teamId={team.id}
+          galaxyId={galaxy.id}
+          galaxyName={galaxy.name}
+          finalizeTask={selectedFinalizeTask}
+          onAskMark={(msg) => {
+            setMarkInitialMessage(msg);
+            setShowMarkChat(true);
+          }}
+          onClose={() => setSelectedFinalizeTask(null)}
+        />
+      )}
+
+      {/* Locked Task Modal */}
+      {lockedTaskInfo && (
+        <LockedTaskModal
+          taskTitle={lockedTaskInfo.title}
+          reason={lockedTaskInfo.reason}
+          prerequisite={lockedTaskInfo.prerequisite}
+          onClose={() => setLockedTaskInfo(null)}
         />
       )}
 
