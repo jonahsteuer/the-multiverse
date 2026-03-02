@@ -13,6 +13,13 @@ import type {
   BrainstormResult,
 } from '@/types';
 import type { ContentIdea } from '@/app/api/tiktok-insights/route';
+import { VoiceInput } from './VoiceInput';
+
+interface BrainstormIntakeData {
+  songStory: string;
+  artistVibe: string;
+  comfortLevel: string;
+}
 
 // ============================================================================
 // TYPES
@@ -35,6 +42,7 @@ interface BrainstormContentProps {
   artistProfile?: Partial<ArtistProfile>;
   preferredDays?: string[];
   releaseDate?: string;
+  prefilledIntake?: BrainstormIntakeData; // from Mark's chat — skip intake if provided
   onComplete: (result: BrainstormResult) => void;
   onClose: () => void;
 }
@@ -165,18 +173,22 @@ export function BrainstormContent({
   artistProfile,
   preferredDays = ['saturday', 'sunday'],
   releaseDate = '',
+  prefilledIntake,
   onComplete,
   onClose,
 }: BrainstormContentProps) {
-  const [step, setStep] = useState<BrainstormStep>('ask_song_story');
+  // If intake data came from Mark's chat, skip directly to loading ideas
+  const [step, setStep] = useState<BrainstormStep>(
+    prefilledIntake ? 'loading_ideas' : 'ask_song_story'
+  );
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [userInput, setUserInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
 
-  // Ideas phase state
-  const [songStory, setSongStory]       = useState('');
-  const [artistVibe, setArtistVibe]     = useState('');
-  const [comfortLevel, setComfortLevel] = useState('');
+  // Ideas phase state — pre-filled from Mark's chat if available
+  const [songStory, setSongStory]       = useState(prefilledIntake?.songStory || '');
+  const [artistVibe, setArtistVibe]     = useState(prefilledIntake?.artistVibe || '');
+  const [comfortLevel, setComfortLevel] = useState(prefilledIntake?.comfortLevel || '');
   const [contentIdeas, setContentIdeas] = useState<ContentIdea[]>([]);
   const [likedIdeas, setLikedIdeas]     = useState<Set<string>>(new Set());
   const [dislikedIdeas, setDislikedIdeas] = useState<Set<string>>(new Set());
@@ -245,52 +257,26 @@ export function BrainstormContent({
     ]);
   };
 
-  // ── Initialize: start the ideas phase ───────────────────────────────────────
+  // ── Initialize ────────────────────────────────────────────────────────────────
   useEffect(() => {
-    addBotMessage(
-      `Let's brainstorm content for **${galaxyName}**.\n\nFirst — what's the story behind this song? What were you going through when you wrote it? Even one sentence helps me give you way better ideas.`,
-      300
-    );
+    if (prefilledIntake) {
+      // Mark already collected the intake — jump straight to loading
+      addBotMessage(
+        `Great — I have your context from Mark. Pulling real TikTok data for your genre and generating ideas now...`,
+        300
+      );
+      fetchIdeas(prefilledIntake.songStory, prefilledIntake.artistVibe, prefilledIntake.comfortLevel);
+    } else {
+      addBotMessage(
+        `Let's brainstorm content for **${galaxyName}**.\n\nFirst — what's the story behind this song? What were you going through when you wrote it?`,
+        300
+      );
+    }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Ideas phase handlers ─────────────────────────────────────────────────────
-
-  const handleSongStorySubmit = () => {
-    if (!userInput.trim()) return;
-    const story = userInput.trim();
-    setSongStory(story);
-    addUserMessage(story);
-    setUserInput('');
-    setStep('ask_vibe');
-    addBotMessage(
-      `Got it. Now — how would you describe your visual aesthetic / vibe? (e.g. "dark glam", "raw and lo-fi", "cinematic", "bright and playful")`,
-      500
-    );
-  };
-
-  const handleVibeSubmit = () => {
-    if (!userInput.trim()) return;
-    const vibe = userInput.trim();
-    setArtistVibe(vibe);
-    addUserMessage(vibe);
-    setUserInput('');
-    setStep('ask_comfort');
-    addBotMessage(
-      `Perfect. Last one — how comfortable are you on camera?\n\n👇 Pick the closest:`,
-      500
-    );
-  };
-
-  const handleComfortSelect = async (level: string) => {
-    setComfortLevel(level);
-    addUserMessage(level);
-    setStep('loading_ideas');
+  // ── Shared fetch function ─────────────────────────────────────────────────────
+  const fetchIdeas = async (story: string, vibe: string, comfort: string) => {
     setLoadingIdeas(true);
-    addBotMessage(
-      `Pulling real TikTok data from similar artists and generating your ideas... give me a sec 🔍`,
-      400
-    );
-
     try {
       const genres: string[] = (artistProfile as any)?.genre || ['indie'];
       const res = await fetch('/api/tiktok-insights', {
@@ -299,32 +285,59 @@ export function BrainstormContent({
         body: JSON.stringify({
           genres,
           songName: galaxyName,
-          songStory,
-          artistVibe,
-          comfortLevel: level,
+          songStory: story,
+          artistVibe: vibe,
+          comfortLevel: comfort,
           releaseDate,
         }),
       });
-
       if (!res.ok) throw new Error('API error');
       const data = await res.json();
       setContentIdeas(data.ideas || []);
       const count = data.tiktokPostsAnalyzed || 0;
       setTiktokCount(count);
-      setLoadingIdeas(false);
       setStep('show_ideas');
       addBotMessage(
         count > 0
-          ? `Here are 5 ideas based on ${count} real TikTok posts from artists in your space. Thumbs up the ones you like — I'll use those to plan your posts.`
-          : `Here are 5 content ideas tailored to your song and vibe. Thumbs up the ones you like:`,
+          ? `Here are 5 ideas based on ${count} real TikTok posts from artists in your space. Tap 👍 on the ones you like:`
+          : `Here are 5 content ideas tailored to your song and vibe. Tap 👍 on the ones you like:`,
         800
       );
     } catch {
       setContentIdeas([]);
-      setLoadingIdeas(false);
       setStep('show_ideas');
-      addBotMessage(`Here are 5 content ideas for your song. Thumbs up the ones you like:`, 800);
+      addBotMessage(`Here are some content ideas for your song. Tap 👍 on the ones you like:`, 800);
+    } finally {
+      setLoadingIdeas(false);
     }
+  };
+
+  // ── Ideas phase handlers ─────────────────────────────────────────────────────
+
+  const handleSongStorySubmitWithText = (text: string) => {
+    if (!text.trim()) return;
+    addUserMessage(text.trim());
+    setStep('ask_vibe');
+    addBotMessage(`Got it. How would you describe your visual aesthetic — the vibe you want people to feel?`, 500);
+  };
+
+  const handleVibeSubmitWithText = (text: string) => {
+    if (!text.trim()) return;
+    addUserMessage(text.trim());
+    setStep('ask_comfort');
+    addBotMessage(`Perfect. Last one — how do you like to show up on camera? 👇`, 500);
+  };
+
+  // Keep these for backward compat if called without text arg
+  const handleSongStorySubmit = () => handleSongStorySubmitWithText(userInput);
+  const handleVibeSubmit = () => handleVibeSubmitWithText(userInput);
+
+  const handleComfortSelect = (level: string) => {
+    setComfortLevel(level);
+    addUserMessage(level);
+    setStep('loading_ideas');
+    addBotMessage(`Pulling real TikTok data from similar artists and generating your ideas... 🔍`, 400);
+    fetchIdeas(songStory, artistVibe, level);
   };
 
   const toggleLike = (id: string) => {
@@ -880,40 +893,24 @@ export function BrainstormContent({
         {/* Interactive Area */}
         <div className="border-t border-purple-500/20 bg-gray-900/80 px-6 py-4">
 
-          {/* ASK SONG STORY */}
+          {/* ASK SONG STORY — voice input */}
           {step === 'ask_song_story' && !isTyping && (
-            <div className="flex gap-2">
-              <input
-                ref={inputRef}
-                type="text"
-                value={userInput}
-                onChange={e => setUserInput(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && handleSongStorySubmit()}
-                placeholder="What were you going through when you wrote it..."
-                className="flex-1 px-4 py-2 bg-gray-800 border border-gray-700 rounded-xl text-white text-sm placeholder-gray-500 focus:outline-none focus:border-purple-500"
-              />
-              <Button onClick={handleSongStorySubmit} disabled={!userInput.trim()} className="bg-purple-600 hover:bg-purple-700 text-white rounded-xl">
-                →
-              </Button>
-            </div>
+            <VoiceInput
+              onTranscript={(text) => { setSongStory(text); handleSongStorySubmitWithText(text); }}
+              autoSubmit={true}
+              autoStartAfterDisabled={false}
+              placeholder="Tap the mic to answer..."
+            />
           )}
 
-          {/* ASK VIBE */}
+          {/* ASK VIBE — voice input */}
           {step === 'ask_vibe' && !isTyping && (
-            <div className="flex gap-2">
-              <input
-                ref={inputRef}
-                type="text"
-                value={userInput}
-                onChange={e => setUserInput(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && handleVibeSubmit()}
-                placeholder="Dark glam, raw lo-fi, cinematic..."
-                className="flex-1 px-4 py-2 bg-gray-800 border border-gray-700 rounded-xl text-white text-sm placeholder-gray-500 focus:outline-none focus:border-purple-500"
-              />
-              <Button onClick={handleVibeSubmit} disabled={!userInput.trim()} className="bg-purple-600 hover:bg-purple-700 text-white rounded-xl">
-                →
-              </Button>
-            </div>
+            <VoiceInput
+              onTranscript={(text) => { setArtistVibe(text); handleVibeSubmitWithText(text); }}
+              autoSubmit={true}
+              autoStartAfterDisabled={false}
+              placeholder="Tap the mic to answer..."
+            />
           )}
 
           {/* ASK COMFORT */}

@@ -21,6 +21,7 @@ import { TaskPanel } from './TaskPanel';
 import { FinalizePostsModal } from './FinalizePostsModal';
 import { LockedTaskModal } from './LockedTaskModal';
 import { MarkContext } from '@/lib/mark-knowledge';
+import type { BrainstormIntakeData } from './MarkChatPanel';
 import { isTaskLocked } from '@/lib/task-locks';
 import {
   createTeam as createTeamDirect,
@@ -94,6 +95,7 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
   const [showWorldDetail, setShowWorldDetail] = useState(false);
   const [showCalendar, setShowCalendar] = useState(false);
   const [showBrainstorm, setShowBrainstorm] = useState(false);
+  const [brainstormIntake, setBrainstormIntake] = useState<BrainstormIntakeData | undefined>(undefined);
   const [brainstormResult, setBrainstormResult] = useState<BrainstormResult | null>(null);
   const [isGoogleCalendarConnected, setIsGoogleCalendarConnected] = useState(false);
 
@@ -1443,8 +1445,9 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
           artistProfile={artistProfile}
           preferredDays={artistProfile?.preferredDays || ['saturday', 'sunday']}
           releaseDate={galaxy.worlds[0]?.releaseDate || ''}
+          prefilledIntake={brainstormIntake}
           onComplete={handleBrainstormComplete}
-          onClose={() => setShowBrainstorm(false)}
+          onClose={() => { setShowBrainstorm(false); setBrainstormIntake(undefined); }}
         />
       )}
 
@@ -1607,7 +1610,7 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
         isOpen={showMarkChat}
         onClose={() => { setShowMarkChat(false); setMarkInitialMessage(undefined); }}
         initialMessage={markInitialMessage}
-        onOpenBrainstorm={() => { setShowMarkChat(false); setShowBrainstorm(true); }}
+        onOpenBrainstorm={(data) => { setShowMarkChat(false); setBrainstormIntake(data); setShowBrainstorm(true); }}
         context={{
           userId: currentUserId || '',
           userName: teamMembers.find(m => m.userId === currentUserId)?.displayName 

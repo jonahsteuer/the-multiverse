@@ -8,12 +8,18 @@ interface Message {
   timestamp: Date;
 }
 
+export interface BrainstormIntakeData {
+  songStory: string;
+  artistVibe: string;
+  comfortLevel: string;
+}
+
 interface MarkChatPanelProps {
   isOpen: boolean;
   onClose: () => void;
   context: MarkContext;
   initialMessage?: string; // context-aware greeting spoken when panel opens
-  onOpenBrainstorm?: () => void; // called when Mark emits [OPEN_BRAINSTORM]
+  onOpenBrainstorm?: (data?: BrainstormIntakeData) => void; // called when Mark emits [OPEN_BRAINSTORM]
 }
 
 // Global audio instance for TTS
@@ -264,10 +270,20 @@ export function MarkChatPanel({ isOpen, onClose, context, initialMessage, onOpen
 
       const data = await response.json();
 
-      // Strip [OPEN_BRAINSTORM] tag before displaying, then trigger modal
+      // Parse [OPEN_BRAINSTORM]{...} tag — strip it before displaying, extract JSON data
       const rawMessage: string = data.message || '';
-      const hasBrainstormSignal = rawMessage.includes('[OPEN_BRAINSTORM]');
-      const cleanMessage = rawMessage.replace(/\[OPEN_BRAINSTORM\]/g, '').trim();
+      const brainstormMatch = rawMessage.match(/\[OPEN_BRAINSTORM\](\{[\s\S]*?\})?/);
+      const hasBrainstormSignal = !!brainstormMatch;
+      const cleanMessage = rawMessage.replace(/\[OPEN_BRAINSTORM\](\{[\s\S]*?\})?/g, '').trim();
+
+      let brainstormData: BrainstormIntakeData | undefined;
+      if (brainstormMatch?.[1]) {
+        try {
+          brainstormData = JSON.parse(brainstormMatch[1]);
+        } catch {
+          // Malformed JSON — still open brainstorm without pre-filled data
+        }
+      }
 
       const assistantMessage: Message = {
         role: 'assistant',
@@ -281,7 +297,7 @@ export function MarkChatPanel({ isOpen, onClose, context, initialMessage, onOpen
       if (hasBrainstormSignal && onOpenBrainstorm) {
         setTimeout(() => {
           onClose();
-          onOpenBrainstorm();
+          onOpenBrainstorm(brainstormData);
         }, 1_200); // small delay so user reads Mark's message first
       }
     } catch (error) {
