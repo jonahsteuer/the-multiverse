@@ -111,6 +111,7 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
   const [adminArtistProfile, setAdminArtistProfile] = useState<ArtistProfile | null>(null);
   const [taskContextMenu, setTaskContextMenu] = useState<{ taskId: string; x: number; y: number } | null>(null);
   const [showUploadPosts, setShowUploadPosts] = useState(false);
+  const [selectedUploadTask, setSelectedUploadTask] = useState<TeamTask | null>(null);
   const [isInstagramConnected, setIsInstagramConnected] = useState(false);
   const [isCheckingInstagram, setIsCheckingInstagram] = useState(false);
   const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
@@ -379,6 +380,12 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
       }
       return;
     }
+    // Upload edits/footage tasks: open the post-pairing upload modal
+    if (/upload \d+ edits?/i.test(task.title) || /upload footage/i.test(task.title)) {
+      setSelectedUploadTask(task);
+      setShowUploadPosts(true);
+      return;
+    }
     // All other tasks open the TaskPanel (brainstorm, prep, edit, review, etc.)
     setSelectedTaskForPanel(task);
   };
@@ -601,7 +608,11 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
     });
 
     if (realTasks.length > 0) {
-      return realTasks;
+      // Carryover: past-due incomplete tasks surface at the top
+      const today = new Date().toISOString().split('T')[0];
+      const overdue = realTasks.filter(t => t.date < today && t.status !== 'completed');
+      const current = realTasks.filter(t => t.date >= today || t.status === 'completed');
+      return [...overdue, ...current];
     }
     // If not admin (invited user) or still determining, show nothing
     if (!effectiveIsAdmin) return [];
@@ -653,23 +664,37 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
     ];
 
     if (isContentReady) {
-      // Content-ready flow: upload → send notes → finalize
-      defaultTasks.push({
-        id: 'default-upload',
-        teamId: '',
-        galaxyId: galaxy.id,
-        title: `Upload ${editedClipCount} edits`,
-        description: `Upload your ${editedClipCount} edited clips. Once uploaded, you can review them, send any that need work back to your editor, and finalize captions + hashtags for the rest.`,
-        type: 'prep' as const,
-        taskCategory: 'task' as const,
-        date: todayStr,
-        startTime: makeTime(20),
-        endTime: makeTime(50),
-        status: 'pending' as const,
-        assignedBy: '',
-        createdAt: now.toISOString(),
-        updatedAt: now.toISOString(),
-      });
+      // Content-ready flow: upload (batched 15/day) → send notes → finalize
+      const UPLOAD_CAP = 15; // 1 min/edit × 15-min daily session
+      const addDays = (base: string, days: number) => {
+        const d = new Date(base + 'T12:00:00');
+        d.setDate(d.getDate() + days);
+        return d.toISOString().split('T')[0];
+      };
+      let uploadRemaining = editedClipCount;
+      let uploadBatchIdx = 0;
+      while (uploadRemaining > 0 && uploadBatchIdx < 5) {
+        const count = Math.min(uploadRemaining, UPLOAD_CAP);
+        const batchDate = addDays(todayStr, uploadBatchIdx);
+        defaultTasks.push({
+          id: `default-upload-${uploadBatchIdx}`,
+          teamId: '',
+          galaxyId: galaxy.id,
+          title: `Upload ${count} edits`,
+          description: `Pair each of your ${count} edited clips to a scheduled post slot. Paste a Google Drive, YouTube, or Dropbox link next to each slot.`,
+          type: 'prep' as const,
+          taskCategory: 'task' as const,
+          date: batchDate,
+          startTime: makeTime(20),
+          endTime: makeTime(20 + count),
+          status: 'pending' as const,
+          assignedBy: '',
+          createdAt: now.toISOString(),
+          updatedAt: now.toISOString(),
+        });
+        uploadRemaining -= count;
+        uploadBatchIdx++;
+      }
       if (editorName) {
         defaultTasks.push({
           id: 'default-send-notes',
@@ -1394,7 +1419,15 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
           galaxyId={galaxy.id}
           galaxyName={galaxy.name}
           teamMembers={teamMembers}
-          onClose={() => setShowUploadPosts(false)}
+          uploadTask={selectedUploadTask ?? undefined}
+          onUploadTaskUpdated={(updated) => {
+            setTeamTasks(prev => prev.map(t => t.id === updated.id ? updated : t));
+            setSelectedUploadTask(updated);
+          }}
+          onClose={() => {
+            setShowUploadPosts(false);
+            setSelectedUploadTask(null);
+          }}
         />
       )}
 
@@ -1419,6 +1452,7 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
       {selectedTaskForPanel && (
         <TaskPanel
           task={selectedTaskForPanel}
+          allTasks={teamTasks}
           teamMembers={teamMembers}
           markContext={{
             userId: currentUserId || '',

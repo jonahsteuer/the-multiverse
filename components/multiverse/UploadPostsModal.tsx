@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { TeamTask, TeamMemberRecord } from '@/types';
-import { updatePostVideo, updatePostCaption, approvePost, sendPostForRevision, getPostEvents, VideoAnalysis } from '@/lib/team';
+import { updatePostVideo, updatePostCaption, approvePost, sendPostForRevision, getPostEvents, updateTask, VideoAnalysis } from '@/lib/team';
 
 // ============================================================================
 // Helpers
@@ -431,11 +431,26 @@ function PostCard({
 // Main Upload Posts Modal
 // ============================================================================
 
+// Parse expected count from upload task title e.g. "Upload 15 edits" → 15
+function parseExpectedCount(title: string): number | null {
+  const m = title.match(/upload\s+(\d+)\s+edits?/i);
+  return m ? parseInt(m[1]) : null;
+}
+
+// Get tomorrow's date string
+function tomorrowStr(): string {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  return d.toISOString().split('T')[0];
+}
+
 interface UploadPostsModalProps {
   teamId: string;
   galaxyId: string;
   galaxyName: string;
   teamMembers: TeamMemberRecord[];
+  uploadTask?: TeamTask; // optional: the "Upload X edits" task that opened this modal
+  onUploadTaskUpdated?: (updated: TeamTask) => void;
   onClose: () => void;
 }
 
@@ -444,20 +459,40 @@ export function UploadPostsModal({
   galaxyId,
   galaxyName,
   teamMembers,
+  uploadTask,
+  onUploadTaskUpdated,
   onClose,
 }: UploadPostsModalProps) {
   const [posts, setPosts] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [showMarkChat, setShowMarkChat] = useState(false);
+  const [markMessages, setMarkMessages] = useState<{ role: 'user' | 'assistant'; content: string }[]>([]);
+  const [markInput, setMarkInput] = useState('');
+  const [markLoading, setMarkLoading] = useState(false);
+  const markBottomRef = useRef<HTMLDivElement>(null);
+
+  // Track how many were linked when modal opened (for carryover calculation)
+  const baselineLinkedRef = useRef<number | null>(null);
+
+  const expectedCount = uploadTask ? parseExpectedCount(uploadTask.title) : null;
 
   useEffect(() => {
     loadPosts();
   }, [teamId, galaxyId]);
+
+  useEffect(() => {
+    markBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [markMessages]);
 
   const loadPosts = async () => {
     setIsLoading(true);
     try {
       const events = await getPostEvents(teamId, galaxyId);
       setPosts(events);
+      // Record baseline: how many were already linked when modal opened
+      if (baselineLinkedRef.current === null) {
+        baselineLinkedRef.current = events.filter((p: any) => p.postStatus && p.postStatus !== 'unlinked').length;
+      }
     } finally {
       setIsLoading(false);
     }
@@ -465,6 +500,56 @@ export function UploadPostsModal({
 
   const linkedCount = posts.filter(p => p.postStatus && p.postStatus !== 'unlinked').length;
   const approvedCount = posts.filter(p => p.postStatus === 'approved' || p.postStatus === 'posted').length;
+  const newlyLinked = baselineLinkedRef.current !== null ? linkedCount - baselineLinkedRef.current : 0;
+  const sessionGoalMet = expectedCount !== null && newlyLinked >= expectedCount;
+
+  const handleClose = async () => {
+    // Carryover: if upload task exists and goal not met, reschedule remaining to tomorrow
+    if (uploadTask && !uploadTask.id.startsWith('default-') && expectedCount !== null) {
+      const remaining = Math.max(0, expectedCount - newlyLinked);
+      if (remaining > 0 && newlyLinked > 0) {
+        // Partially done — reschedule remaining to tomorrow
+        const updated = await updateTask(uploadTask.id, {
+          date: tomorrowStr(),
+          title: `Upload ${remaining} edits`,
+        });
+        if (updated) onUploadTaskUpdated?.(updated);
+      } else if (sessionGoalMet) {
+        // All done for this session — mark complete
+        const updated = await updateTask(uploadTask.id, { status: 'completed' });
+        if (updated) onUploadTaskUpdated?.(updated);
+      }
+    }
+    onClose();
+  };
+
+  const sendMarkMessage = async (text: string) => {
+    const userMsg = { role: 'user' as const, content: text };
+    const updated = [...markMessages, userMsg];
+    setMarkMessages(updated);
+    setMarkInput('');
+    setMarkLoading(true);
+    try {
+      const res = await fetch('/api/mark', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: updated,
+          context: {
+            currentTask: uploadTask?.title ?? 'Upload edits',
+            taskContext: `The user is uploading edited clips and pairing them to scheduled post slots. They need to paste Google Drive, YouTube, or Dropbox links for each post. ${expectedCount ? `Today's goal: ${expectedCount} uploads.` : ''}`,
+          },
+        }),
+      });
+      const data = await res.json();
+      const reply = data.content?.[0]?.text || data.reply || "I'm here — what do you need?";
+      setMarkMessages(prev => [...prev, { role: 'assistant', content: reply }]);
+    } catch {
+      setMarkMessages(prev => [...prev, { role: 'assistant', content: "Having trouble connecting. Try again in a sec." }]);
+    } finally {
+      setMarkLoading(false);
+    }
+  };
 
   const handleVideoLinked = async (taskId: string, videoUrl: string) => {
     // Call analyze-video API
@@ -534,14 +619,24 @@ export function UploadPostsModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.85)' }}>
       <div className="bg-gray-950 border border-gray-700/50 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl">
-        
+
         {/* Header */}
         <div className="p-5 border-b border-gray-800 flex items-start justify-between">
           <div>
-            <h2 className="text-lg font-bold text-white">Upload Posts</h2>
-            <p className="text-sm text-gray-400 mt-0.5">{galaxyName} · {posts.length} scheduled slots</p>
+            <h2 className="text-lg font-bold text-white">
+              {uploadTask ? uploadTask.title : 'Upload Posts'}
+            </h2>
+            <p className="text-sm text-gray-400 mt-0.5">
+              {galaxyName}
+              {expectedCount && (
+                <span className={`ml-2 font-medium ${sessionGoalMet ? 'text-green-400' : 'text-purple-400'}`}>
+                  · Today&apos;s goal: {expectedCount} edits
+                  {newlyLinked > 0 && ` · ${newlyLinked} linked this session`}
+                </span>
+              )}
+            </p>
           </div>
-          <button onClick={onClose} className="text-gray-500 hover:text-white text-xl leading-none">✕</button>
+          <button onClick={handleClose} className="text-gray-500 hover:text-white text-xl leading-none">✕</button>
         </div>
 
         {/* Mark intro */}
@@ -550,68 +645,148 @@ export function UploadPostsModal({
             <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-blue-600 flex items-center justify-center text-xs font-bold text-white flex-shrink-0 mt-0.5">M</div>
             <p className="text-sm text-gray-300 leading-relaxed">
               {linkedCount === 0
-                ? `Let's get your content matched up. Paste a Google Drive, YouTube, or Dropbox link next to each post slot and I'll take a look at each one. Once I've reviewed them, you can approve or send them to your editor.`
+                ? `Let's get your content matched up. Paste a Google Drive, YouTube, or Dropbox link next to each post slot and I'll take a look at each one.`
+                : sessionGoalMet
+                ? `Nice work — you've hit today's goal of ${expectedCount} uploads. You can keep going or come back tomorrow for the rest.`
                 : linkedCount === posts.length
-                ? `Nice work — all ${posts.length} slots are linked. ${approvedCount} approved so far. Once you've approved everything, you're ready to post.`
-                : `Looking good — ${linkedCount} of ${posts.length} linked so far. ${approvedCount} approved. Keep going.`
+                ? `All ${posts.length} slots are linked. ${approvedCount} approved so far.`
+                : `Looking good — ${linkedCount} of ${posts.length} linked so far. Keep going.`
               }
             </p>
           </div>
         </div>
 
-        {/* Progress bar */}
+        {/* Progress */}
         {posts.length > 0 && (
-          <div className="px-5 py-2 border-b border-gray-800">
+          <div className="px-5 py-2.5 border-b border-gray-800">
             <div className="flex items-center justify-between text-xs text-gray-400 mb-1.5">
               <span>{linkedCount}/{posts.length} linked</span>
+              {expectedCount && (
+                <span className={sessionGoalMet ? 'text-green-400' : 'text-purple-400'}>
+                  {sessionGoalMet ? `✓ Goal met (${expectedCount} today)` : `Goal: ${newlyLinked}/${expectedCount} today`}
+                </span>
+              )}
               <span>{approvedCount}/{posts.length} approved</span>
             </div>
             <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden">
-              <div 
-                className="h-full bg-gradient-to-r from-purple-500 to-green-500 transition-all duration-500"
-                style={{ width: `${posts.length > 0 ? (approvedCount / posts.length) * 100 : 0}%` }}
+              <div
+                className={`h-full transition-all duration-500 ${sessionGoalMet ? 'bg-green-500' : 'bg-gradient-to-r from-purple-500 to-blue-500'}`}
+                style={{ width: `${posts.length > 0 ? (linkedCount / posts.length) * 100 : 0}%` }}
               />
             </div>
           </div>
         )}
 
-        {/* Post list */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-2">
-          {isLoading ? (
-            <div className="text-center py-12 text-gray-500">
-              <div className="text-2xl mb-2">⏳</div>
-              <p className="text-sm">Loading post slots...</p>
+        {/* Post list or Mark chat */}
+        {showMarkChat ? (
+          <div className="flex-1 flex flex-col p-4 min-h-0">
+            <button
+              onClick={() => setShowMarkChat(false)}
+              className="flex items-center gap-1 text-xs text-gray-400 hover:text-white mb-3 transition-colors self-start"
+            >← Back to uploads</button>
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-7 h-7 rounded-full bg-gradient-to-br from-purple-500 to-blue-600 flex items-center justify-center text-xs font-bold text-white">M</div>
+              <span className="text-sm font-semibold text-white">Mark</span>
+              <span className="text-xs px-2 py-0.5 bg-purple-500/20 text-purple-300 border border-purple-500/40 rounded-full">Upload helper</span>
             </div>
-          ) : posts.length === 0 ? (
-            <div className="text-center py-12 text-gray-500">
-              <div className="text-3xl mb-3">📭</div>
-              <p className="text-sm font-medium text-gray-400">No scheduled post slots yet</p>
-              <p className="text-xs mt-1">Post slots are created when the admin generates the calendar for this release.</p>
+            <div className="flex-1 overflow-y-auto space-y-3 min-h-0">
+              {markMessages.length === 0 && !markLoading && (
+                <div className="text-center text-gray-500 text-sm py-6">
+                  Ask Mark anything about uploading your edits
+                </div>
+              )}
+              {markMessages.map((msg, i) => (
+                <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  {msg.role === 'assistant' && <span className="text-xs mr-2 mt-1 flex-shrink-0">🎯</span>}
+                  <div className={`max-w-[85%] rounded-xl px-3 py-2 text-sm leading-relaxed whitespace-pre-line ${
+                    msg.role === 'user' ? 'bg-purple-600/40 text-white' : 'bg-gray-800 text-gray-100'
+                  }`}>{msg.content}</div>
+                </div>
+              ))}
+              {markLoading && (
+                <div className="flex justify-start">
+                  <span className="text-xs mr-2 mt-1">🎯</span>
+                  <div className="bg-gray-800 rounded-xl px-3 py-2 text-sm text-gray-400">
+                    <span className="animate-pulse">Thinking...</span>
+                  </div>
+                </div>
+              )}
+              <div ref={markBottomRef} />
             </div>
-          ) : (
-            posts.map(post => (
-              <PostCard
-                key={post.id}
-                task={post}
-                teamMembers={teamMembers}
-                onVideoLinked={handleVideoLinked}
-                onApprove={handleApprove}
-                onSendForRevision={handleSendForRevision}
-              />
-            ))
-          )}
-        </div>
+            <div className="border-t border-gray-700 pt-3 mt-2">
+              <div className="flex gap-2">
+                <textarea
+                  value={markInput}
+                  onChange={e => setMarkInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (markInput.trim()) sendMarkMessage(markInput.trim()); } }}
+                  placeholder="Ask Mark..."
+                  rows={2}
+                  className="flex-1 bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 resize-none focus:outline-none focus:border-purple-500"
+                />
+                <button
+                  onClick={() => { if (markInput.trim()) sendMarkMessage(markInput.trim()); }}
+                  disabled={markLoading || !markInput.trim()}
+                  className="px-3 py-2 bg-purple-600 hover:bg-purple-500 disabled:opacity-40 text-white rounded-lg text-sm self-end"
+                >Send</button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="flex-1 overflow-y-auto p-4 space-y-2">
+            {isLoading ? (
+              <div className="text-center py-12 text-gray-500">
+                <div className="text-2xl mb-2">⏳</div>
+                <p className="text-sm">Loading post slots...</p>
+              </div>
+            ) : posts.length === 0 ? (
+              <div className="text-center py-12 text-gray-500">
+                <div className="text-3xl mb-3">📭</div>
+                <p className="text-sm font-medium text-gray-400">No scheduled post slots yet</p>
+                <p className="text-xs mt-1">Post slots are created when your calendar is generated for this release.</p>
+              </div>
+            ) : (
+              posts.map(post => (
+                <PostCard
+                  key={post.id}
+                  task={post}
+                  teamMembers={teamMembers}
+                  onVideoLinked={handleVideoLinked}
+                  onApprove={handleApprove}
+                  onSendForRevision={handleSendForRevision}
+                />
+              ))
+            )}
+          </div>
+        )}
 
         {/* Footer */}
-        <div className="p-4 border-t border-gray-800 flex items-center justify-between">
-          <p className="text-xs text-gray-500">
-            Supported: Google Drive · YouTube · Dropbox · Direct .mp4
-          </p>
+        <div className="p-4 border-t border-gray-800 flex items-center gap-3">
           <button
-            onClick={onClose}
-            className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg text-sm text-gray-300 transition-colors"
+            onClick={() => setShowMarkChat(true)}
+            className="flex items-center gap-2 px-4 py-2.5 bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/40 rounded-xl text-purple-300 text-sm font-medium transition-all"
           >
-            Done
+            <span>🎯</span><span>Ask Mark for help</span>
+          </button>
+          <div className="flex-1" />
+          {sessionGoalMet && (
+            <button
+              onClick={async () => {
+                if (uploadTask && !uploadTask.id.startsWith('default-')) {
+                  const updated = await updateTask(uploadTask.id, { status: 'completed' });
+                  if (updated) onUploadTaskUpdated?.(updated);
+                }
+                onClose();
+              }}
+              className="px-4 py-2.5 bg-green-600 hover:bg-green-500 text-white rounded-xl text-sm font-semibold transition-colors"
+            >
+              ✓ Mark complete & close
+            </button>
+          )}
+          <button
+            onClick={handleClose}
+            className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-xl text-sm text-gray-300 transition-colors"
+          >
+            Done for now
           </button>
         </div>
       </div>

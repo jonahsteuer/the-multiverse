@@ -502,6 +502,25 @@ export async function updateTask(
   return mapTaskFromDb(data);
 }
 
+/** Save the mark_analysis JSONB field for a task (used for storing uploaded clip data) */
+export async function saveTaskMarkAnalysis(
+  taskId: string,
+  markAnalysis: Record<string, unknown>
+): Promise<boolean> {
+  if (!isSupabaseConfigured()) return false;
+
+  const { error } = await supabase
+    .from('team_tasks')
+    .update({ mark_analysis: markAnalysis, updated_at: new Date().toISOString() })
+    .eq('id', taskId);
+
+  if (error) {
+    console.error('[Team] Error saving mark_analysis:', error);
+    return false;
+  }
+  return true;
+}
+
 /** Delete a task (used to clean up stale calendar events before regeneration) */
 export async function deleteTask(taskId: string): Promise<boolean> {
   if (!isSupabaseConfigured()) return false;

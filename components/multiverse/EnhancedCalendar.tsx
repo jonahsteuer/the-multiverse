@@ -241,6 +241,9 @@ function buildContentLightPrepTasks(editorName?: string): {
 // CONTENT-READY task templates (artist has 10+ edited clips)
 // Flow: Upload → Send edit notes → Finalize → Review edits → Brainstorm → Plan shoot
 // ============================================================
+// 1 minute per edit, 15-minute daily cap → 15 edits per upload session
+const UPLOAD_DAILY_CAP = 15;
+
 function buildContentReadyPrepTasks(
   editedClipCount: number,
   hasRawFootage: boolean,
@@ -249,44 +252,45 @@ function buildContentReadyPrepTasks(
   week1: { title: string; description: string; duration: number }[];
   week2: { title: string; description: string; duration: number }[];
 } {
-  const batchSize = 10;
-  const totalBatches = Math.ceil(Math.min(editedClipCount, 30) / batchSize); // cap at 30 clips shown
   const week1: { title: string; description: string; duration: number }[] = [];
   const week2: { title: string; description: string; duration: number }[] = [];
 
-  // Week 1: Upload + send to editor (editor turn-around takes time)
-  // Week 2: Finalize (once edits are back / approved)
-  for (let i = 0; i < totalBatches; i++) {
-    const start = i * batchSize + 1;
-    const end = Math.min((i + 1) * batchSize, editedClipCount);
-
+  // Week 1: one upload task per day, capped at 15 edits per session (1 min/edit)
+  let remaining = Math.min(editedClipCount, 60); // safety cap
+  let batchIdx = 0;
+  while (remaining > 0 && batchIdx < 5) {
+    const count = Math.min(remaining, UPLOAD_DAILY_CAP);
     week1.push({
-      title: `Upload edits ${start}–${end}`,
-      description: `Upload ${end - start + 1} edited clips. Once uploaded you can review them and send any that need revision back to your editor.`,
-      duration: 30,
+      title: `Upload ${count} edits`,
+      description: `Pair each of your ${count} edited clips to a scheduled post slot. Paste a Google Drive, YouTube, or Dropbox link next to each slot.`,
+      duration: count, // 1 min per edit
     });
-
-    if (editorName) {
-      week1.push({
-        title: `Send edits back to ${editorName} with notes`,
-        description: `Review the uploaded clips. Write revision notes on any that need work, then send them back to ${editorName}. Skip the ones that look ready — those go straight to finalizing.`,
-        duration: 20,
-      });
-    }
+    remaining -= count;
+    batchIdx++;
   }
 
-  // Week 2: Finalize (after editor revisions come back OR for approved clips)
-  for (let i = 0; i < totalBatches; i++) {
-    const start = i * batchSize + 1;
-    const end = Math.min((i + 1) * batchSize, editedClipCount);
+  if (editorName) {
+    week1.push({
+      title: `Send edits back to ${editorName} with notes`,
+      description: `Review the uploaded clips. Write revision notes on any that need work, then send them back to ${editorName}. Skip the ones that look ready — those go straight to finalizing.`,
+      duration: 20,
+    });
+  }
 
+  // Week 2: Finalize in batches matching the upload batches
+  let finalizeRemaining = Math.min(editedClipCount, 60);
+  let finalizeIdx = 0;
+  while (finalizeRemaining > 0 && finalizeIdx < 5) {
+    const count = Math.min(finalizeRemaining, UPLOAD_DAILY_CAP);
     week2.push({
-      title: `Finalize posts ${start}–${end}`,
+      title: `Finalize ${count} posts`,
       description: editorName
         ? `Posts without revision notes are ready to go. Write captions and confirm scheduling for each.`
-        : `Do a final pass on posts ${start}–${end}. Write captions, add hashtags, confirm everything looks right.`,
-      duration: 25,
+        : `Do a final pass on these ${count} posts. Write captions, add hashtags, confirm everything looks right.`,
+      duration: Math.ceil(count * 1.5),
     });
+    finalizeRemaining -= count;
+    finalizeIdx++;
   }
 
   // If editor: add a review task for their revised edits (week 2)

@@ -216,18 +216,27 @@ test('P1 – Signup as Kiss Bang', async ({ page }) => {
   const submitBtn = page.locator('button[type="submit"]').first();
   await submitBtn.click();
 
-  // Wait for either ConversationalOnboarding ("Start Conversation") or galaxy view
-  const startConvVisible = await page.locator('button:has-text("Start Conversation")').isVisible({ timeout: 20_000 }).catch(() => false);
+  // Wait up to 60s for signup to process and ConversationalOnboarding / galaxy to appear
+  // (The form button stays disabled as "Signing in..." during Supabase auth; page transition
+  //  can take 30–50s on cold start, so 20s was too short and caused false-negative signedUp checks)
+  const startConvVisible = await page.locator('button:has-text("Start Conversation")').isVisible({ timeout: 60_000 }).catch(() => false);
   const todoVisible2 = await page.locator('text=Todo List').isVisible({ timeout: 2_000 }).catch(() => false);
   const callMarkVisible2 = await page.locator('button:has-text("CALL MARK")').isVisible({ timeout: 2_000 }).catch(() => false);
   const signedUp = startConvVisible || todoVisible2 || callMarkVisible2;
 
   if (!signedUp) {
-    // Account may already exist — sign in instead
-    console.log('📝 Signup may have failed (account exists?) — trying sign in');
-    // Only call signIn if we're still on the sign-up form
-    const onSignupForm = await page.locator('button[type="submit"]').isVisible({ timeout: 2_000 }).catch(() => false);
-    if (onSignupForm) await signIn(page);
+    // Only attempt sign-in if the submit button is present AND enabled (not "Signing in...")
+    const submitBtnLocator = page.locator('button[type="submit"]').first();
+    const submitVisible = await submitBtnLocator.isVisible({ timeout: 2_000 }).catch(() => false);
+    const submitEnabled = submitVisible && await submitBtnLocator.isEnabled().catch(() => false);
+    if (submitEnabled) {
+      console.log('📝 Signup may have failed (account exists?) — trying sign in');
+      await signIn(page);
+    } else {
+      // Form is still processing or we're already past the form — just wait a bit more
+      console.log('📝 Form still processing or page already transitioned — waiting 10s more');
+      await page.waitForTimeout(10_000);
+    }
   }
   await snap(page, 'p1-after-signup');
   console.log('✅ P1: Signed up');
