@@ -95,14 +95,14 @@ function buildRawFootagePrepTasks(
   roughClipCount: number,
   editorName?: string,
 ): {
-  week1: { title: string; description: string; duration: number }[];
-  week2: { title: string; description: string; duration: number }[];
+  week1: { title: string; description: string; duration: number; dayOffset?: number }[];
+  week2: { title: string; description: string; duration: number; dayOffset?: number }[];
 } {
   const batchOne = Math.min(10, roughClipCount);
   const batchTwo = Math.max(0, roughClipCount - 10);
   const editorNote = editorName ? ` to ${editorName}` : '';
 
-  const week1: { title: string; description: string; duration: number }[] = [
+  const week1: { title: string; description: string; duration: number; dayOffset?: number }[] = [
     {
       title: `Review & organize existing footage`,
       description: `Go through your ${roughClipCount} rough clips. Pick the ${batchOne} strongest and flag any that need specific edits before they're post-ready.`,
@@ -132,7 +132,7 @@ function buildRawFootagePrepTasks(
     duration: 25,
   });
 
-  const week2: { title: string; description: string; duration: number }[] = [];
+  const week2: { title: string; description: string; duration: number; dayOffset?: number }[] = [];
 
   if (editorName) {
     week2.push({
@@ -186,8 +186,8 @@ function buildRawFootagePrepTasks(
 // Flow: Brainstorm → Plan shoot → Shoot → Edit → Upload → Finalize
 // ============================================================
 function buildContentLightPrepTasks(editorName?: string): {
-  week1: { title: string; description: string; duration: number }[];
-  week2: { title: string; description: string; duration: number }[];
+  week1: { title: string; description: string; duration: number; dayOffset?: number }[];
+  week2: { title: string; description: string; duration: number; dayOffset?: number }[];
 } {
   const editLabel = editorName ? ` — assign to ${editorName}` : '';
   return {
@@ -249,11 +249,11 @@ function buildContentReadyPrepTasks(
   hasRawFootage: boolean,
   editorName?: string,
 ): {
-  week1: { title: string; description: string; duration: number }[];
-  week2: { title: string; description: string; duration: number }[];
+  week1: { title: string; description: string; duration: number; dayOffset?: number }[];
+  week2: { title: string; description: string; duration: number; dayOffset?: number }[];
 } {
-  const week1: { title: string; description: string; duration: number }[] = [];
-  const week2: { title: string; description: string; duration: number }[] = [];
+  const week1: { title: string; description: string; duration: number; dayOffset?: number }[] = [];
+  const week2: { title: string; description: string; duration: number; dayOffset?: number }[] = [];
 
   // Week 1: one upload task per day, capped at 15 edits per session (1 min/edit)
   // dayOffset ensures each batch is scheduled on a different day
@@ -1312,8 +1312,8 @@ export function EnhancedCalendar({
       );
       const editorName = editorMember?.displayName;
 
-      let week1Tasks: { title: string; description: string; duration: number }[];
-      let week2Tasks: { title: string; description: string; duration: number }[];
+      let week1Tasks: { title: string; description: string; duration: number; dayOffset?: number }[];
+      let week2Tasks: { title: string; description: string; duration: number; dayOffset?: number }[];
 
       if (isContentReady) {
         const prepTasks = buildContentReadyPrepTasks(editedClipCount, hasRawFootage, editorName);
