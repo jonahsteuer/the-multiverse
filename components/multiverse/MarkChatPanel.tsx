@@ -12,6 +12,7 @@ interface MarkChatPanelProps {
   isOpen: boolean;
   onClose: () => void;
   context: MarkContext;
+  initialMessage?: string; // context-aware greeting spoken when panel opens
 }
 
 // Global audio instance for TTS
@@ -128,11 +129,12 @@ const speakWithBrowser = (text: string, onEnd?: () => void) => {
   window.speechSynthesis.speak(utterance);
 };
 
-export function MarkChatPanel({ isOpen, onClose, context }: MarkChatPanelProps) {
+export function MarkChatPanel({ isOpen, onClose, context, initialMessage }: MarkChatPanelProps) {
+  const DEFAULT_GREETING = "Hey, it's Mark. What do you need help with?";
   const [messages, setMessages] = useState<Message[]>([
     {
       role: 'assistant',
-      content: "Hey, it's Mark. What do you need help with?",
+      content: initialMessage || DEFAULT_GREETING,
       timestamp: new Date(),
     },
   ]);
@@ -140,6 +142,7 @@ export function MarkChatPanel({ isOpen, onClose, context }: MarkChatPanelProps) 
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const hasOpenedRef = useRef(false);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -149,23 +152,26 @@ export function MarkChatPanel({ isOpen, onClose, context }: MarkChatPanelProps) 
     scrollToBottom();
   }, [messages]);
 
-  // Speak initial greeting when panel opens
+  // Reset conversation and speak contextual greeting whenever panel opens
   useEffect(() => {
-    if (isOpen && messages.length === 1 && voiceEnabled) {
-      const speak = () => {
-        if (process.env.NEXT_PUBLIC_ELEVENLABS_API_KEY) {
-          speakWithElevenLabs(
-            messages[0].content,
-            () => setIsSpeaking(true),
-            () => setIsSpeaking(false)
-          );
-        } else {
-          speakWithBrowser(messages[0].content, () => setIsSpeaking(false));
-        }
-      };
-      // Small delay to ensure panel is visible
-      setTimeout(speak, 300);
+    if (isOpen && !hasOpenedRef.current) {
+      hasOpenedRef.current = true;
+      const greeting = initialMessage || DEFAULT_GREETING;
+      const firstMessage = { role: 'assistant' as const, content: greeting, timestamp: new Date() };
+      setMessages([firstMessage]);
+      if (voiceEnabled) {
+        setTimeout(() => {
+          if (process.env.NEXT_PUBLIC_ELEVENLABS_API_KEY) {
+            speakWithElevenLabs(greeting, () => setIsSpeaking(true), () => setIsSpeaking(false));
+          } else {
+            speakWithBrowser(greeting, () => setIsSpeaking(false));
+          }
+        }, 300);
+      }
+    } else if (!isOpen) {
+      hasOpenedRef.current = false;
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
   // Clean up audio on unmount

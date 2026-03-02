@@ -82,7 +82,7 @@ interface EnhancedCalendarProps {
   // Callback: fires when a post event card is clicked (open PostDetailModal)
   onPostCardClick?: (taskId: string) => void;
   // Callback: fires when a non-post task is clicked (open TaskPanel)
-  onNonPostTaskClick?: (taskId: string) => void;
+  onNonPostTaskClick?: (taskId: string, title: string, description: string) => void;
   // Callback: fires when user right-clicks a calendar task to assign it
   onTaskContextMenu?: (taskId: string, x: number, y: number) => void;
 }
@@ -256,6 +256,7 @@ function buildContentReadyPrepTasks(
   const week2: { title: string; description: string; duration: number }[] = [];
 
   // Week 1: one upload task per day, capped at 15 edits per session (1 min/edit)
+  // dayOffset ensures each batch is scheduled on a different day
   let remaining = Math.min(editedClipCount, 60); // safety cap
   let batchIdx = 0;
   while (remaining > 0 && batchIdx < 5) {
@@ -264,6 +265,7 @@ function buildContentReadyPrepTasks(
       title: `Upload ${count} edits`,
       description: `Pair each of your ${count} edited clips to a scheduled post slot. Paste a Google Drive, YouTube, or Dropbox link next to each slot.`,
       duration: count, // 1 min per edit
+      dayOffset: batchIdx, // forces consecutive batches onto different days
     });
     remaining -= count;
     batchIdx++;
@@ -749,7 +751,7 @@ function DroppableDay({
   formatTime: (time: string) => string;
   getTaskColor: (type: string) => string;
   onPostCardClick?: (taskId: string) => void;
-  onNonPostTaskClick?: (taskId: string) => void;
+  onNonPostTaskClick?: (taskId: string, title: string, description: string) => void;
   onTaskContextMenu?: (taskId: string, x: number, y: number) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({
@@ -820,7 +822,7 @@ function DroppableDay({
                 formatTime={formatTime}
                 getTaskColor={getTaskColor}
                 onPostClick={item.task.isPostEvent ? () => onPostCardClick?.(item.task.id) : undefined}
-                onNonPostClick={!item.task.isPostEvent ? () => onNonPostTaskClick?.(item.task.id) : undefined}
+                onNonPostClick={!item.task.isPostEvent ? () => onNonPostTaskClick?.(item.task.id, item.task.title, item.task.description) : undefined}
                 onContextMenuAssign={onTaskContextMenu ?? undefined}
               />
             );
@@ -1332,7 +1334,7 @@ export function EnhancedCalendar({
       // Helper: schedule a list of tasks into available days, packing multiple tasks per day
       // Respects both daily cap (~3-4 hrs) and weekly budget
       const scheduleTasksIntoDays = (
-        taskList: { title: string; description: string; duration: number }[],
+        taskList: { title: string; description: string; duration: number; dayOffset?: number }[],
         dayPool: typeof allDays,
         weekIdx: number,
         idPrefix: string,
@@ -1342,8 +1344,10 @@ export function EnhancedCalendar({
 
         for (let ti = 0; ti < taskList.length; ti++) {
           const task = taskList[ti];
-          // Find the first day in the pool that has capacity
-          for (const day of dayPool) {
+          // dayOffset: skip to at least the nth day in the pool
+          const eligibleDays = task.dayOffset ? dayPool.slice(task.dayOffset) : dayPool;
+          // Find the first eligible day that has capacity
+          for (const day of eligibleDays) {
             if (timeSpentPerWeek[weekIdx] >= weeklyBudgetMinutes) break;
             const dayUsed = timeUsedByDay[day.dateStr] ?? 0;
             if (dayUsed + task.duration > maxMinutesPerDay) continue;

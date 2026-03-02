@@ -451,6 +451,7 @@ interface UploadPostsModalProps {
   teamMembers: TeamMemberRecord[];
   uploadTask?: TeamTask; // optional: the "Upload X edits" task that opened this modal
   onUploadTaskUpdated?: (updated: TeamTask) => void;
+  onAskMark?: (contextMessage: string) => void; // open MarkChatPanel with contextual greeting
   onClose: () => void;
 }
 
@@ -461,15 +462,11 @@ export function UploadPostsModal({
   teamMembers,
   uploadTask,
   onUploadTaskUpdated,
+  onAskMark,
   onClose,
 }: UploadPostsModalProps) {
   const [posts, setPosts] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [showMarkChat, setShowMarkChat] = useState(false);
-  const [markMessages, setMarkMessages] = useState<{ role: 'user' | 'assistant'; content: string }[]>([]);
-  const [markInput, setMarkInput] = useState('');
-  const [markLoading, setMarkLoading] = useState(false);
-  const markBottomRef = useRef<HTMLDivElement>(null);
 
   // Track how many were linked when modal opened (for carryover calculation)
   const baselineLinkedRef = useRef<number | null>(null);
@@ -479,10 +476,6 @@ export function UploadPostsModal({
   useEffect(() => {
     loadPosts();
   }, [teamId, galaxyId]);
-
-  useEffect(() => {
-    markBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [markMessages]);
 
   const loadPosts = async () => {
     setIsLoading(true);
@@ -523,32 +516,13 @@ export function UploadPostsModal({
     onClose();
   };
 
-  const sendMarkMessage = async (text: string) => {
-    const userMsg = { role: 'user' as const, content: text };
-    const updated = [...markMessages, userMsg];
-    setMarkMessages(updated);
-    setMarkInput('');
-    setMarkLoading(true);
-    try {
-      const res = await fetch('/api/mark', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: updated,
-          context: {
-            currentTask: uploadTask?.title ?? 'Upload edits',
-            taskContext: `The user is uploading edited clips and pairing them to scheduled post slots. They need to paste Google Drive, YouTube, or Dropbox links for each post. ${expectedCount ? `Today's goal: ${expectedCount} uploads.` : ''}`,
-          },
-        }),
-      });
-      const data = await res.json();
-      const reply = data.content?.[0]?.text || data.reply || "I'm here — what do you need?";
-      setMarkMessages(prev => [...prev, { role: 'assistant', content: reply }]);
-    } catch {
-      setMarkMessages(prev => [...prev, { role: 'assistant', content: "Having trouble connecting. Try again in a sec." }]);
-    } finally {
-      setMarkLoading(false);
-    }
+  const handleAskMark = () => {
+    const taskName = uploadTask?.title ?? 'Upload edits';
+    const remaining = expectedCount !== null ? Math.max(0, expectedCount - newlyLinked) : null;
+    const contextMessage = remaining !== null && remaining > 0
+      ? `Need help uploading your edits? You've got ${remaining} clips left to pair to post slots — I can walk you through it.`
+      : `Need help uploading your edits? Just paste a Google Drive, YouTube, or Dropbox link next to each post slot and I'll take a look.`;
+    onAskMark?.(contextMessage) ?? console.log('[UploadPostsModal] No onAskMark handler — task:', taskName);
   };
 
   const handleVideoLinked = async (taskId: string, videoUrl: string) => {
@@ -617,8 +591,15 @@ export function UploadPostsModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.85)' }}>
-      <div className="bg-gray-950 border border-gray-700/50 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ backgroundColor: 'rgba(0,0,0,0.85)' }}
+      onClick={handleClose}
+    >
+      <div
+        className="bg-gray-950 border border-gray-700/50 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl"
+        onClick={e => e.stopPropagation()}
+      >
 
         {/* Header */}
         <div className="p-5 border-b border-gray-800 flex items-start justify-between">
@@ -677,92 +658,37 @@ export function UploadPostsModal({
           </div>
         )}
 
-        {/* Post list or Mark chat */}
-        {showMarkChat ? (
-          <div className="flex-1 flex flex-col p-4 min-h-0">
-            <button
-              onClick={() => setShowMarkChat(false)}
-              className="flex items-center gap-1 text-xs text-gray-400 hover:text-white mb-3 transition-colors self-start"
-            >← Back to uploads</button>
-            <div className="flex items-center gap-2 mb-3">
-              <div className="w-7 h-7 rounded-full bg-gradient-to-br from-purple-500 to-blue-600 flex items-center justify-center text-xs font-bold text-white">M</div>
-              <span className="text-sm font-semibold text-white">Mark</span>
-              <span className="text-xs px-2 py-0.5 bg-purple-500/20 text-purple-300 border border-purple-500/40 rounded-full">Upload helper</span>
+        {/* Post list */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-2">
+          {isLoading ? (
+            <div className="text-center py-12 text-gray-500">
+              <div className="text-2xl mb-2">⏳</div>
+              <p className="text-sm">Loading post slots...</p>
             </div>
-            <div className="flex-1 overflow-y-auto space-y-3 min-h-0">
-              {markMessages.length === 0 && !markLoading && (
-                <div className="text-center text-gray-500 text-sm py-6">
-                  Ask Mark anything about uploading your edits
-                </div>
-              )}
-              {markMessages.map((msg, i) => (
-                <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                  {msg.role === 'assistant' && <span className="text-xs mr-2 mt-1 flex-shrink-0">🎯</span>}
-                  <div className={`max-w-[85%] rounded-xl px-3 py-2 text-sm leading-relaxed whitespace-pre-line ${
-                    msg.role === 'user' ? 'bg-purple-600/40 text-white' : 'bg-gray-800 text-gray-100'
-                  }`}>{msg.content}</div>
-                </div>
-              ))}
-              {markLoading && (
-                <div className="flex justify-start">
-                  <span className="text-xs mr-2 mt-1">🎯</span>
-                  <div className="bg-gray-800 rounded-xl px-3 py-2 text-sm text-gray-400">
-                    <span className="animate-pulse">Thinking...</span>
-                  </div>
-                </div>
-              )}
-              <div ref={markBottomRef} />
+          ) : posts.length === 0 ? (
+            <div className="text-center py-12 text-gray-500">
+              <div className="text-3xl mb-3">📭</div>
+              <p className="text-sm font-medium text-gray-400">No scheduled post slots yet</p>
+              <p className="text-xs mt-1">Post slots are created when your calendar is generated for this release.</p>
             </div>
-            <div className="border-t border-gray-700 pt-3 mt-2">
-              <div className="flex gap-2">
-                <textarea
-                  value={markInput}
-                  onChange={e => setMarkInput(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (markInput.trim()) sendMarkMessage(markInput.trim()); } }}
-                  placeholder="Ask Mark..."
-                  rows={2}
-                  className="flex-1 bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 resize-none focus:outline-none focus:border-purple-500"
-                />
-                <button
-                  onClick={() => { if (markInput.trim()) sendMarkMessage(markInput.trim()); }}
-                  disabled={markLoading || !markInput.trim()}
-                  className="px-3 py-2 bg-purple-600 hover:bg-purple-500 disabled:opacity-40 text-white rounded-lg text-sm self-end"
-                >Send</button>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="flex-1 overflow-y-auto p-4 space-y-2">
-            {isLoading ? (
-              <div className="text-center py-12 text-gray-500">
-                <div className="text-2xl mb-2">⏳</div>
-                <p className="text-sm">Loading post slots...</p>
-              </div>
-            ) : posts.length === 0 ? (
-              <div className="text-center py-12 text-gray-500">
-                <div className="text-3xl mb-3">📭</div>
-                <p className="text-sm font-medium text-gray-400">No scheduled post slots yet</p>
-                <p className="text-xs mt-1">Post slots are created when your calendar is generated for this release.</p>
-              </div>
-            ) : (
-              posts.map(post => (
-                <PostCard
-                  key={post.id}
-                  task={post}
-                  teamMembers={teamMembers}
-                  onVideoLinked={handleVideoLinked}
-                  onApprove={handleApprove}
-                  onSendForRevision={handleSendForRevision}
-                />
-              ))
-            )}
-          </div>
-        )}
+          ) : (
+            posts.map(post => (
+              <PostCard
+                key={post.id}
+                task={post}
+                teamMembers={teamMembers}
+                onVideoLinked={handleVideoLinked}
+                onApprove={handleApprove}
+                onSendForRevision={handleSendForRevision}
+              />
+            ))
+          )}
+        </div>
 
         {/* Footer */}
         <div className="p-4 border-t border-gray-800 flex items-center gap-3">
           <button
-            onClick={() => setShowMarkChat(true)}
+            onClick={handleAskMark}
             className="flex items-center gap-2 px-4 py-2.5 bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/40 rounded-xl text-purple-300 text-sm font-medium transition-all"
           >
             <span>🎯</span><span>Ask Mark for help</span>

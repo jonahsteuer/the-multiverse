@@ -112,6 +112,7 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
   const [taskContextMenu, setTaskContextMenu] = useState<{ taskId: string; x: number; y: number } | null>(null);
   const [showUploadPosts, setShowUploadPosts] = useState(false);
   const [selectedUploadTask, setSelectedUploadTask] = useState<TeamTask | null>(null);
+  const [markInitialMessage, setMarkInitialMessage] = useState<string | undefined>(undefined);
   const [isInstagramConnected, setIsInstagramConnected] = useState(false);
   const [isCheckingInstagram, setIsCheckingInstagram] = useState(false);
   const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
@@ -608,11 +609,12 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
     });
 
     if (realTasks.length > 0) {
-      // Carryover: past-due incomplete tasks surface at the top
+      // Only show today's tasks + overdue tasks (future tasks appear on their scheduled day)
       const today = new Date().toISOString().split('T')[0];
       const overdue = realTasks.filter(t => t.date < today && t.status !== 'completed');
-      const current = realTasks.filter(t => t.date >= today || t.status === 'completed');
-      return [...overdue, ...current];
+      const todayTasks = realTasks.filter(t => t.date === today && t.status !== 'completed');
+      const recentlyCompleted = realTasks.filter(t => t.status === 'completed');
+      return [...overdue, ...todayTasks, ...recentlyCompleted];
     }
     // If not admin (invited user) or still determining, show nothing
     if (!effectiveIsAdmin) return [];
@@ -793,7 +795,8 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
       });
     }
 
-    return defaultTasks;
+    // Only return tasks scheduled for today or earlier (future-dated defaults show on their day)
+    return defaultTasks.filter(t => t.date <= todayStr);
   })();
 
   return (
@@ -1333,9 +1336,35 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
                       setShowUploadPosts(true);
                     }
                   }}
-                  onNonPostTaskClick={(taskId) => {
-                    const dbTask = teamTasks.find(t => t.id === taskId);
-                    if (dbTask) setSelectedTaskForPanel(dbTask);
+                  onNonPostTaskClick={(taskId, title, description) => {
+                    // First try exact ID match (real DB tasks)
+                    let found: TeamTask | undefined = teamTasks.find(t => t.id === taskId);
+                    // Fallback: match by title in displayTasks (generated/default tasks have different IDs)
+                    if (!found && title) {
+                      found = displayTasks.find(t => t.title === title);
+                    }
+                    if (found) {
+                      handleTaskClick(found);
+                    } else if (title) {
+                      // Synthesize a task from calendar data so the panel can show
+                      const syntheticTask: TeamTask = {
+                        id: taskId,
+                        teamId: '',
+                        galaxyId: galaxy.id,
+                        title,
+                        description: description || '',
+                        type: 'prep',
+                        taskCategory: 'task',
+                        date: new Date().toISOString().split('T')[0],
+                        startTime: '10:00',
+                        endTime: '11:00',
+                        status: 'pending',
+                        assignedBy: '',
+                        createdAt: new Date().toISOString(),
+                        updatedAt: new Date().toISOString(),
+                      };
+                      handleTaskClick(syntheticTask);
+                    }
                   }}
                   onTaskContextMenu={effectiveIsAdmin && teamMembers.length > 0 ? (taskId, x, y) => {
                     setTaskContextMenu({ taskId, x, y });
@@ -1424,6 +1453,10 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
             setTeamTasks(prev => prev.map(t => t.id === updated.id ? updated : t));
             setSelectedUploadTask(updated);
           }}
+          onAskMark={(contextMessage) => {
+            setMarkInitialMessage(contextMessage);
+            setShowMarkChat(true);
+          }}
           onClose={() => {
             setShowUploadPosts(false);
             setSelectedUploadTask(null);
@@ -1487,7 +1520,8 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
       {/* Mark Chat Panel */}
       <MarkChatPanel
         isOpen={showMarkChat}
-        onClose={() => setShowMarkChat(false)}
+        onClose={() => { setShowMarkChat(false); setMarkInitialMessage(undefined); }}
+        initialMessage={markInitialMessage}
         context={{
           userId: currentUserId || '',
           userName: teamMembers.find(m => m.userId === currentUserId)?.displayName 
