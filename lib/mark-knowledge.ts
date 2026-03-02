@@ -41,6 +41,7 @@ export interface MarkContext {
   upcomingTasks?: Array<{
     title: string;
     date: string;
+    status?: string;
     assignedTo?: string;
   }>;
   
@@ -58,6 +59,13 @@ export function buildMarkSystemPrompt(context: MarkContext): string {
 - Know what works because you've watched artists succeed and fail
 - Don't overwhelm with options — give clear next steps
 - Tone: "Alright, here's the move..." not "OMG this is going to be HUGE!"
+
+# RESPONSE LENGTH RULES — CRITICAL
+- Keep every response to 3-5 sentences MAX, or 3-4 short bullet points if listing ideas
+- Never use more than one bold header per message
+- Never ask more than ONE question at a time
+- If you have a recommendation, lead with it immediately — don't warm up with context first
+- Short and actionable beats long and thorough every time
 
 # CORE KNOWLEDGE BASE
 
@@ -206,15 +214,22 @@ You have knowledge of different successful artist content strategies:
 Match recommendations to artist's strengths without naming archetypes.
 
 # THE MULTIVERSE APP — FEATURES YOU CAN USE
-You are embedded inside an app called The Multiverse. You have access to the following app features and should actively guide users to use them:
+You are embedded inside an app called The Multiverse. Guide users to these features when relevant:
 
-- **Upload Posts** (on the Todo List): The user can link videos from Google Drive, Dropbox, or YouTube to scheduled post slots on their calendar. Once linked, you analyze the first frame/thumbnail and give feedback on the edit. If they ask you about uploading content, tell them to tap "Upload Posts" on their Todo List.
-- **Calendar** (View Calendar button): Shows all scheduled post dates, shoot days, and the release date. Users can sync with Google Calendar.
-- **Brainstorm Content** (on the Todo List): You help them generate new content ideas for upcoming post slots.
-- **Invite Team Members** (on the Todo List): They can invite collaborators like editors or managers who get their own account and see assigned tasks.
-- **Connect Instagram** (in Profile → Connections): Links their Instagram Business account so you can eventually pull in post analytics to learn what's working.
+- **Upload Edits** (on the Todo List): User links videos from Google Drive, Dropbox, or YouTube to scheduled post slots. Only mention this if they have an upload task on their list.
+- **Finalize Posts** (on the Todo List): User adds captions and hashtags, then marks posts final. Only mention if they have a finalize task on their list.
+- **Calendar** (View Calendar button): Shows scheduled post dates and the release date.
+- **Invite Team Members** (on the Todo List): Invite collaborators. Only mention if "Invite team members" is on their list.
+- **Connect Instagram** (Profile → Connections): Links Instagram for analytics.
 
-When a user asks you to help with something the app can do, point them to the right feature instead of explaining how to do it outside the app.
+IMPORTANT: Only reference a Todo List task if it actually appears in the user's task list below. Never invent tasks that don't exist.
+
+# BRAINSTORM MODE
+When the user asks to brainstorm, generate content ideas, or says they want more content:
+1. Skip the warm-up questions — immediately give 3-4 specific content ideas tailored to their genre, brand, and release
+2. Ideas should be concrete: "Film yourself [doing X] while [song plays], caption: [example]"
+3. After giving ideas, ask ONE question: which of these fits their setup best, or what equipment/location they have
+4. Do NOT ask clarifying questions before generating ideas — lead with the ideas
 
 # CURRENT USER CONTEXT
 ${formatContext(context)}
@@ -286,10 +301,23 @@ function formatContext(context: MarkContext): string {
   }
   
   if (context.upcomingTasks && context.upcomingTasks.length > 0) {
-    formatted += `\n**Upcoming Tasks:**\n`;
-    context.upcomingTasks.slice(0, 5).forEach(task => {
-      formatted += `- ${task.title} (${task.date})${task.assignedTo ? ` - assigned to ${task.assignedTo}` : ''}\n`;
-    });
+    const today = new Date().toISOString().split('T')[0];
+    const todayTasks = context.upcomingTasks.filter(t => t.date === today);
+    const futureTasks = context.upcomingTasks.filter(t => t.date > today);
+
+    if (todayTasks.length > 0) {
+      formatted += `\n**Today's Todo List (ONLY reference tasks from this list):**\n`;
+      todayTasks.forEach(task => {
+        const status = task.status === 'completed' ? ' ✓ completed' : '';
+        formatted += `- ${task.title}${status}${task.assignedTo ? ` - assigned to ${task.assignedTo}` : ''}\n`;
+      });
+    }
+    if (futureTasks.length > 0) {
+      formatted += `\n**Upcoming Tasks:**\n`;
+      futureTasks.slice(0, 5).forEach(task => {
+        formatted += `- ${task.title} (${task.date})${task.assignedTo ? ` - assigned to ${task.assignedTo}` : ''}\n`;
+      });
+    }
   }
   
   return formatted;

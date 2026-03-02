@@ -75,6 +75,38 @@ const speakWithElevenLabs = async (
   }
 };
 
+// Preferred male voice names in priority order (macOS + Windows + Linux)
+const MALE_VOICE_NAMES = [
+  'Alex',     // macOS en-US male
+  'Daniel',   // macOS en-GB male
+  'Fred',     // macOS en-US male
+  'Oliver',   // macOS en-GB male
+  'Tom',      // macOS en-US male
+  'Aaron',    // macOS en-US male
+  'Arthur',   // macOS en-GB male
+  'David',    // Windows male
+  'Mark',     // Windows male
+  'Richard',  // Windows male
+  'Google UK English Male',
+  'Google US English Male',
+];
+
+let cachedMaleVoice: SpeechSynthesisVoice | null | undefined = undefined;
+
+function getMaleVoice(): SpeechSynthesisVoice | null {
+  if (cachedMaleVoice !== undefined) return cachedMaleVoice;
+  const voices = window.speechSynthesis.getVoices();
+  if (voices.length === 0) return null; // not loaded yet
+  for (const name of MALE_VOICE_NAMES) {
+    const v = voices.find(v => v.name === name || v.name.startsWith(name));
+    if (v) { cachedMaleVoice = v; return v; }
+  }
+  // Fallback: any voice with "male" in name
+  const maleFallback = voices.find(v => v.name.toLowerCase().includes('male'));
+  cachedMaleVoice = maleFallback || null;
+  return cachedMaleVoice;
+}
+
 // Browser Web Speech API TTS fallback
 const speakWithBrowser = (text: string, onEnd?: () => void) => {
   if (typeof window === 'undefined' || !window.speechSynthesis) {
@@ -101,20 +133,13 @@ const speakWithBrowser = (text: string, onEnd?: () => void) => {
   
   const utterance = new SpeechSynthesisUtterance(cleanText);
   
-  // Try to find a deeper male voice for Mark
-  const voices = window.speechSynthesis.getVoices();
-  const markVoice = voices.find(v => 
-    v.name.includes('Male') || 
-    v.name.includes('Daniel') || 
-    v.name.includes('David')
-  );
-  
-  if (markVoice) {
-    utterance.voice = markVoice;
+  const maleVoice = getMaleVoice();
+  if (maleVoice) {
+    utterance.voice = maleVoice;
   }
   
   utterance.rate = 1.0;
-  utterance.pitch = 0.8; // Lower pitch for experienced vet vibe
+  utterance.pitch = 0.7; // Low pitch — force male sound even if voice list not loaded
   utterance.volume = 1.0;
   
   utterance.onend = () => {
@@ -130,6 +155,12 @@ const speakWithBrowser = (text: string, onEnd?: () => void) => {
 };
 
 export function MarkChatPanel({ isOpen, onClose, context, initialMessage }: MarkChatPanelProps) {
+  // Refresh voice cache when browser voice list loads
+  useEffect(() => {
+    const refresh = () => { cachedMaleVoice = undefined; };
+    window.speechSynthesis?.addEventListener('voiceschanged', refresh);
+    return () => window.speechSynthesis?.removeEventListener('voiceschanged', refresh);
+  }, []);
   const DEFAULT_GREETING = "Hey, it's Mark. What do you need help with?";
   const [messages, setMessages] = useState<Message[]>([
     {

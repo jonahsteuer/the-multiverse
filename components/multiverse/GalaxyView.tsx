@@ -1555,9 +1555,10 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
               role: m.role,
               permissions: m.permissions,
             })),
-            upcomingTasks: displayTasks.slice(0, 5).map(t => ({
+            upcomingTasks: displayTasks.map(t => ({
               title: t.title,
               date: t.date,
+              status: t.status,
               assignedTo: t.assignedTo ? teamMembers.find(m => m.userId === t.assignedTo)?.displayName : undefined,
             })),
             budget: (artistProfile as any)?.budget,
@@ -1615,9 +1616,10 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
             role: m.role,
             permissions: m.permissions,
           })),
-          upcomingTasks: displayTasks.slice(0, 5).map(t => ({
+          upcomingTasks: displayTasks.map(t => ({
             title: t.title,
             date: t.date,
+            status: t.status,
             assignedTo: t.assignedTo ? teamMembers.find(m => m.userId === t.assignedTo)?.displayName : undefined,
           })),
           budget: (artistProfile as any)?.budget,
