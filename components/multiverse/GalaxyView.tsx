@@ -1494,9 +1494,9 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
       )}
 
       {/* Upload Posts Modal */}
-      {showUploadPosts && team && (
+      {showUploadPosts && (
         <UploadPostsModal
-          teamId={team.id}
+          teamId={team?.id || ''}
           galaxyId={galaxy.id}
           galaxyName={galaxy.name}
           teamMembers={teamMembers}
@@ -1570,9 +1570,9 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
       )}
 
       {/* Finalize Posts Modal */}
-      {selectedFinalizeTask && team && (
+      {selectedFinalizeTask && (
         <FinalizePostsModal
-          teamId={team.id}
+          teamId={team?.id || ''}
           galaxyId={galaxy.id}
           galaxyName={galaxy.name}
           finalizeTask={selectedFinalizeTask}
