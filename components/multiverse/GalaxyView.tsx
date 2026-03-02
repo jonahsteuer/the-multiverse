@@ -407,6 +407,12 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
       return;
     }
 
+    // Brainstorm tasks: open the BrainstormContent modal
+    if (/brainstorm/i.test(task.title) || task.type === 'brainstorm') {
+      setShowBrainstorm(true);
+      return;
+    }
+
     // All other tasks open the TaskPanel (brainstorm, prep, edit, review, etc.)
     setSelectedTaskForPanel(task);
   };
@@ -1436,6 +1442,7 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
           scheduledPosts={getBrainstormPosts()}
           artistProfile={artistProfile}
           preferredDays={artistProfile?.preferredDays || ['saturday', 'sunday']}
+          releaseDate={galaxy.worlds[0]?.releaseDate || ''}
           onComplete={handleBrainstormComplete}
           onClose={() => setShowBrainstorm(false)}
         />
@@ -1600,6 +1607,7 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
         isOpen={showMarkChat}
         onClose={() => { setShowMarkChat(false); setMarkInitialMessage(undefined); }}
         initialMessage={markInitialMessage}
+        onOpenBrainstorm={() => { setShowMarkChat(false); setShowBrainstorm(true); }}
         context={{
           userId: currentUserId || '',
           userName: teamMembers.find(m => m.userId === currentUserId)?.displayName 

@@ -12,6 +12,7 @@ import type {
   BrainstormShootDay,
   BrainstormResult,
 } from '@/types';
+import type { ContentIdea } from '@/app/api/tiktok-insights/route';
 
 // ============================================================================
 // TYPES
@@ -33,6 +34,7 @@ interface BrainstormContentProps {
   scheduledPosts: ScheduledPost[]; // The 6 (or however many) posts from the calendar
   artistProfile?: Partial<ArtistProfile>;
   preferredDays?: string[];
+  releaseDate?: string;
   onComplete: (result: BrainstormResult) => void;
   onClose: () => void;
 }
@@ -45,6 +47,14 @@ interface ChatMessage {
 }
 
 type BrainstormStep =
+  // NEW: AI-powered ideas phase
+  | 'ask_song_story'
+  | 'ask_vibe'
+  | 'ask_comfort'
+  | 'loading_ideas'
+  | 'show_ideas'
+  | 'ideas_feedback'
+  // EXISTING: format/post assignment phase
   | 'intro'
   | 'format_selection'
   | 'post_assignment'
@@ -142,19 +152,36 @@ function hasFootageForFormat(
 // COMPONENT
 // ============================================================================
 
+const DIFFICULTY_COLOR: Record<string, string> = {
+  easy:   'bg-green-500/20 text-green-300 border-green-500/30',
+  medium: 'bg-yellow-500/20 text-yellow-300 border-yellow-500/30',
+  hard:   'bg-red-500/20 text-red-300 border-red-500/30',
+};
+
 export function BrainstormContent({
   galaxyId,
   galaxyName,
   scheduledPosts,
   artistProfile,
   preferredDays = ['saturday', 'sunday'],
+  releaseDate = '',
   onComplete,
   onClose,
 }: BrainstormContentProps) {
-  const [step, setStep] = useState<BrainstormStep>('intro');
+  const [step, setStep] = useState<BrainstormStep>('ask_song_story');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [userInput, setUserInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+
+  // Ideas phase state
+  const [songStory, setSongStory]       = useState('');
+  const [artistVibe, setArtistVibe]     = useState('');
+  const [comfortLevel, setComfortLevel] = useState('');
+  const [contentIdeas, setContentIdeas] = useState<ContentIdea[]>([]);
+  const [likedIdeas, setLikedIdeas]     = useState<Set<string>>(new Set());
+  const [dislikedIdeas, setDislikedIdeas] = useState<Set<string>>(new Set());
+  const [tiktokCount, setTiktokCount]   = useState(0);
+  const [loadingIdeas, setLoadingIdeas] = useState(false);
 
   // Selection state
   const [selectedFormat, setSelectedFormat] = useState<ContentFormat | null>(null);
@@ -218,29 +245,117 @@ export function BrainstormContent({
     ]);
   };
 
-  // Initialize with intro message
+  // ── Initialize: start the ideas phase ───────────────────────────────────────
   useEffect(() => {
-    const hasRecommended = formats.some((f) => f.recommended);
-    const recommendedFormat = formats.find((f) => f.recommended);
-
-    let intro = `Hey! Let's brainstorm some content for **${galaxyName}** 🌌\n\n`;
-    intro += `You've got **${scheduledPosts.length} posts** scheduled. Let's figure out what kind of content to make for them.\n\n`;
-
-    if (hasRecommended && recommendedFormat) {
-      intro += `I see you already have some assets to work with — that's great! `;
-      if (recommendedFormat.id === 'music_video_snippet') {
-        intro += `Since you have a music video, we could cut some snippets from it.`;
-      } else if (recommendedFormat.id === 'bts_performance') {
-        intro += `Your behind-the-scenes footage could work really well.`;
-      }
-      intro += `\n\n`;
-    }
-
-    intro += `Pick a content format below, unless you have another idea! 👇`;
-
-    addBotMessage(intro, 300);
-    setStep('format_selection');
+    addBotMessage(
+      `Let's brainstorm content for **${galaxyName}**.\n\nFirst — what's the story behind this song? What were you going through when you wrote it? Even one sentence helps me give you way better ideas.`,
+      300
+    );
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Ideas phase handlers ─────────────────────────────────────────────────────
+
+  const handleSongStorySubmit = () => {
+    if (!userInput.trim()) return;
+    const story = userInput.trim();
+    setSongStory(story);
+    addUserMessage(story);
+    setUserInput('');
+    setStep('ask_vibe');
+    addBotMessage(
+      `Got it. Now — how would you describe your visual aesthetic / vibe? (e.g. "dark glam", "raw and lo-fi", "cinematic", "bright and playful")`,
+      500
+    );
+  };
+
+  const handleVibeSubmit = () => {
+    if (!userInput.trim()) return;
+    const vibe = userInput.trim();
+    setArtistVibe(vibe);
+    addUserMessage(vibe);
+    setUserInput('');
+    setStep('ask_comfort');
+    addBotMessage(
+      `Perfect. Last one — how comfortable are you on camera?\n\n👇 Pick the closest:`,
+      500
+    );
+  };
+
+  const handleComfortSelect = async (level: string) => {
+    setComfortLevel(level);
+    addUserMessage(level);
+    setStep('loading_ideas');
+    setLoadingIdeas(true);
+    addBotMessage(
+      `Pulling real TikTok data from similar artists and generating your ideas... give me a sec 🔍`,
+      400
+    );
+
+    try {
+      const genres: string[] = (artistProfile as any)?.genre || ['indie'];
+      const res = await fetch('/api/tiktok-insights', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          genres,
+          songName: galaxyName,
+          songStory,
+          artistVibe,
+          comfortLevel: level,
+          releaseDate,
+        }),
+      });
+
+      if (!res.ok) throw new Error('API error');
+      const data = await res.json();
+      setContentIdeas(data.ideas || []);
+      const count = data.tiktokPostsAnalyzed || 0;
+      setTiktokCount(count);
+      setLoadingIdeas(false);
+      setStep('show_ideas');
+      addBotMessage(
+        count > 0
+          ? `Here are 5 ideas based on ${count} real TikTok posts from artists in your space. Thumbs up the ones you like — I'll use those to plan your posts.`
+          : `Here are 5 content ideas tailored to your song and vibe. Thumbs up the ones you like:`,
+        800
+      );
+    } catch {
+      setContentIdeas([]);
+      setLoadingIdeas(false);
+      setStep('show_ideas');
+      addBotMessage(`Here are 5 content ideas for your song. Thumbs up the ones you like:`, 800);
+    }
+  };
+
+  const toggleLike = (id: string) => {
+    setLikedIdeas(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) { next.delete(id); } else { next.add(id); dislikedIdeas.delete(id); }
+      return next;
+    });
+    setDislikedIdeas(prev => { const next = new Set(prev); next.delete(id); return next; });
+  };
+
+  const toggleDislike = (id: string) => {
+    setDislikedIdeas(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) { next.delete(id); } else { next.add(id); likedIdeas.delete(id); }
+      return next;
+    });
+    setLikedIdeas(prev => { const next = new Set(prev); next.delete(id); return next; });
+  };
+
+  const handleIdeasConfirmed = () => {
+    const liked = contentIdeas.filter(i => likedIdeas.has(i.id));
+    const count = liked.length || contentIdeas.length;
+    addUserMessage(`I like ${liked.length > 0 ? `${liked.length} of these ideas` : 'the ideas, let\'s move on'}`);
+
+    // Transition to format selection
+    const hasRecommended = formats.some(f => f.recommended);
+    let msg = `Let's assign these to your ${scheduledPosts.length} scheduled posts.\n\nPick a content format to start:`;
+    addBotMessage(msg, 500);
+    setStep('format_selection');
+  };
 
   // ============================================================================
   // STEP HANDLERS
@@ -764,6 +879,135 @@ export function BrainstormContent({
 
         {/* Interactive Area */}
         <div className="border-t border-purple-500/20 bg-gray-900/80 px-6 py-4">
+
+          {/* ASK SONG STORY */}
+          {step === 'ask_song_story' && !isTyping && (
+            <div className="flex gap-2">
+              <input
+                ref={inputRef}
+                type="text"
+                value={userInput}
+                onChange={e => setUserInput(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleSongStorySubmit()}
+                placeholder="What were you going through when you wrote it..."
+                className="flex-1 px-4 py-2 bg-gray-800 border border-gray-700 rounded-xl text-white text-sm placeholder-gray-500 focus:outline-none focus:border-purple-500"
+              />
+              <Button onClick={handleSongStorySubmit} disabled={!userInput.trim()} className="bg-purple-600 hover:bg-purple-700 text-white rounded-xl">
+                →
+              </Button>
+            </div>
+          )}
+
+          {/* ASK VIBE */}
+          {step === 'ask_vibe' && !isTyping && (
+            <div className="flex gap-2">
+              <input
+                ref={inputRef}
+                type="text"
+                value={userInput}
+                onChange={e => setUserInput(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleVibeSubmit()}
+                placeholder="Dark glam, raw lo-fi, cinematic..."
+                className="flex-1 px-4 py-2 bg-gray-800 border border-gray-700 rounded-xl text-white text-sm placeholder-gray-500 focus:outline-none focus:border-purple-500"
+              />
+              <Button onClick={handleVibeSubmit} disabled={!userInput.trim()} className="bg-purple-600 hover:bg-purple-700 text-white rounded-xl">
+                →
+              </Button>
+            </div>
+          )}
+
+          {/* ASK COMFORT */}
+          {step === 'ask_comfort' && !isTyping && (
+            <div className="grid grid-cols-1 gap-2">
+              {[
+                { label: 'Performance — I love being on camera, singing/playing', value: 'performance' },
+                { label: 'Storytelling — I can talk to camera but prefer not to perform', value: 'storytelling' },
+                { label: 'Behind the scenes — I prefer not to be on camera much', value: 'bts' },
+              ].map(opt => (
+                <button
+                  key={opt.value}
+                  onClick={() => handleComfortSelect(opt.label)}
+                  className="p-3 rounded-xl border border-gray-700 bg-gray-800/50 hover:bg-purple-600/20 hover:border-purple-500/50 text-left text-sm text-gray-200 transition-all"
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* LOADING IDEAS */}
+          {step === 'loading_ideas' && (
+            <div className="flex items-center gap-3 py-2 text-gray-400 text-sm">
+              <div className="flex gap-1">
+                {[0,1,2].map(i => (
+                  <span key={i} className="w-2 h-2 bg-purple-400 rounded-full animate-bounce" style={{ animationDelay: `${i * 150}ms` }} />
+                ))}
+              </div>
+              <span>Analyzing TikTok trends for your genre...</span>
+            </div>
+          )}
+
+          {/* SHOW IDEAS — cards with thumbs up/down */}
+          {step === 'show_ideas' && !isTyping && contentIdeas.length > 0 && (
+            <div className="space-y-3">
+              <div className="space-y-2 max-h-[280px] overflow-y-auto pr-1">
+                {contentIdeas.map(idea => {
+                  const liked    = likedIdeas.has(idea.id);
+                  const disliked = dislikedIdeas.has(idea.id);
+                  return (
+                    <div
+                      key={idea.id}
+                      className={`rounded-xl border p-3 transition-all ${
+                        liked    ? 'border-green-500/60 bg-green-500/10' :
+                        disliked ? 'border-gray-700 bg-gray-800/30 opacity-50' :
+                                   'border-gray-700 bg-gray-800/50'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1 flex-wrap">
+                            <span className="text-white font-semibold text-sm">{idea.title}</span>
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${DIFFICULTY_COLOR[idea.difficulty]}`}>
+                              {idea.difficulty}
+                            </span>
+                            <span className="text-[10px] text-gray-500">{idea.format}</span>
+                          </div>
+                          <p className="text-xs text-purple-300 mb-1">
+                            <span className="text-gray-500">Hook: </span>{idea.hook}
+                          </p>
+                          <p className="text-xs text-gray-400 italic mb-1">"{idea.exampleCaption}"</p>
+                          <p className="text-[11px] text-gray-500">{idea.whyItWorks}</p>
+                        </div>
+                        <div className="flex flex-col gap-1 flex-shrink-0">
+                          <button
+                            onClick={() => toggleLike(idea.id)}
+                            className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm transition-all ${liked ? 'bg-green-500 text-white' : 'bg-gray-700 hover:bg-green-500/30 text-gray-400'}`}
+                          >
+                            👍
+                          </button>
+                          <button
+                            onClick={() => toggleDislike(idea.id)}
+                            className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm transition-all ${disliked ? 'bg-red-500/50 text-white' : 'bg-gray-700 hover:bg-red-500/20 text-gray-400'}`}
+                          >
+                            👎
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <Button
+                onClick={handleIdeasConfirmed}
+                className="w-full bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-semibold"
+              >
+                {likedIdeas.size > 0
+                  ? `Use ${likedIdeas.size} idea${likedIdeas.size !== 1 ? 's' : ''} → assign to posts`
+                  : 'Continue to post assignment →'}
+              </Button>
+            </div>
+          )}
+
           {/* FORMAT SELECTION */}
           {step === 'format_selection' && !isTyping && (
             <div className="space-y-3">

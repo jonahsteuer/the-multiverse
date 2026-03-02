@@ -14,68 +14,14 @@
 import { test, Page } from '@playwright/test';
 import { snap } from './helpers';
 
-const BASE_URL  = 'https://the-multiverse.vercel.app';
-const EMAIL     = 'jonah+kb3@gmail.com';
-const PASSWORD  = 'Multiverse2026!';
+const BASE_URL = 'https://the-multiverse.vercel.app';
 
-// ─── reuse sign-in pattern from kiss-bang-3day ────────────────────────────────
-
-async function signIn(page: Page) {
-  // Already on galaxy view? Done.
-  const alreadyIn = await page.locator('text=Todo List').isVisible({ timeout: 3_000 }).catch(() => false);
-  const callMark  = await page.locator('button:has-text("CALL MARK")').isVisible({ timeout: 2_000 }).catch(() => false);
-  if (alreadyIn || callMark) return;
-
-  // Switch to login form if needed
-  const loginLink = page.locator('button:has-text("log in"), button:has-text("Already have an account")').first();
-  if (await loginLink.isVisible({ timeout: 3_000 }).catch(() => false)) {
-    await loginLink.click();
-    await page.waitForTimeout(500);
-  }
-
-  await page.locator('#email, input[type="email"]').first().fill(EMAIL);
-  await page.locator('#password, input[type="password"]').first().fill(PASSWORD);
-  const submitBtn = page.locator('button[type="submit"], button:has-text("Sign In"), button:has-text("Log In")').first();
-  await submitBtn.click();
-  await page.waitForTimeout(2_000);
-}
-
-async function navigateToGalaxy(page: Page): Promise<boolean> {
-  const deadline = Date.now() + 90_000;
-  while (Date.now() < deadline) {
-    const onGalaxy = await page.locator('text=Todo List').isVisible({ timeout: 2_000 }).catch(() => false);
-    if (onGalaxy) return true;
-
-    const isLoading = await page.locator('text=BUILDING OUT YOUR GALAXY').isVisible({ timeout: 1_000 }).catch(() => false);
-    if (isLoading) { await page.waitForTimeout(3_000); continue; }
-
-    const contBtn = page.locator('button:has-text("Continue →"), button:has-text("Continue")').first();
-    if (await contBtn.isVisible({ timeout: 1_500 }).catch(() => false)) {
-      await contBtn.click();
-      await page.waitForTimeout(3_000);
-      continue;
-    }
-
-    const navBtn = page.locator('button:has-text("View Calendar"), button:has-text("View my universe"), button:has-text("Let\'s go")').first();
-    if (await navBtn.isVisible({ timeout: 1_500 }).catch(() => false)) {
-      await navBtn.click();
-      await page.waitForTimeout(3_000);
-      continue;
-    }
-
-    await page.waitForTimeout(2_000);
-  }
-  return false;
-}
-
+// Auth session pre-loaded via storageState in playwright.config.ts —
+// each test already starts signed in. Just navigate and wait for the galaxy.
 async function goToGalaxy(page: Page) {
-  await page.goto(BASE_URL, { timeout: 30_000 });
-  await page.waitForLoadState('networkidle');
-  await signIn(page);
-  const reached = await navigateToGalaxy(page);
-  if (!reached) throw new Error('Could not reach galaxy view after sign-in');
+  await page.goto(BASE_URL, { waitUntil: 'domcontentloaded' });
+  await page.locator('text=Todo List').waitFor({ timeout: 30_000 });
   await snap(page, 'v-galaxy-ready');
-  console.log('✅ Galaxy view reached');
 }
 
 // ─── tests ────────────────────────────────────────────────────────────────────

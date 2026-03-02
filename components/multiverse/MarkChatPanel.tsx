@@ -13,6 +13,7 @@ interface MarkChatPanelProps {
   onClose: () => void;
   context: MarkContext;
   initialMessage?: string; // context-aware greeting spoken when panel opens
+  onOpenBrainstorm?: () => void; // called when Mark emits [OPEN_BRAINSTORM]
 }
 
 // Global audio instance for TTS
@@ -154,7 +155,7 @@ const speakWithBrowser = (text: string, onEnd?: () => void) => {
   window.speechSynthesis.speak(utterance);
 };
 
-export function MarkChatPanel({ isOpen, onClose, context, initialMessage }: MarkChatPanelProps) {
+export function MarkChatPanel({ isOpen, onClose, context, initialMessage, onOpenBrainstorm }: MarkChatPanelProps) {
   // Refresh voice cache when browser voice list loads
   useEffect(() => {
     const refresh = () => { cachedMaleVoice = undefined; };
@@ -263,16 +264,26 @@ export function MarkChatPanel({ isOpen, onClose, context, initialMessage }: Mark
 
       const data = await response.json();
 
+      // Strip [OPEN_BRAINSTORM] tag before displaying, then trigger modal
+      const rawMessage: string = data.message || '';
+      const hasBrainstormSignal = rawMessage.includes('[OPEN_BRAINSTORM]');
+      const cleanMessage = rawMessage.replace(/\[OPEN_BRAINSTORM\]/g, '').trim();
+
       const assistantMessage: Message = {
         role: 'assistant',
-        content: data.message,
+        content: cleanMessage,
         timestamp: new Date(),
       };
 
       setMessages(prev => [...prev, assistantMessage]);
-      
-      // Speak Mark's response
-      speak(data.message);
+      speak(cleanMessage);
+
+      if (hasBrainstormSignal && onOpenBrainstorm) {
+        setTimeout(() => {
+          onClose();
+          onOpenBrainstorm();
+        }, 1_200); // small delay so user reads Mark's message first
+      }
     } catch (error) {
       console.error('[Mark Chat] Error:', error);
       const errorMessage: Message = {
