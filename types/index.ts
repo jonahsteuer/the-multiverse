@@ -510,6 +510,8 @@ export interface ContentFormatAssignment {
   postId: string; // ID of the scheduled post
   format: ContentFormat;
   customFormatName?: string; // If format is 'custom'
+  ideaTitle?: string;        // The brainstormed idea title (e.g. "Power Reclaim Moment")
+  ideaHook?: string;         // The 3-second hook for this idea
   postType: 'teaser' | 'promo' | 'audience-builder'; // Original post type
   date: string; // ISO date of the post
 }
@@ -548,6 +550,7 @@ export interface BrainstormResult {
   formatAssignments: ContentFormatAssignment[];
   editDays: BrainstormEditDay[];
   shootDays: BrainstormShootDay[];
+  shootDayAction?: 'plan_now' | 'schedule_task' | 'skip'; // What to do about shoot days
   completedBy?: string; // user_id
   completedAt: string;
   reviewedBy?: string; // user_id (admin who reviewed)

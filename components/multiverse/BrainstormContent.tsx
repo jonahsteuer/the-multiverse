@@ -55,14 +55,15 @@ interface ChatMessage {
 }
 
 type BrainstormStep =
-  // NEW: AI-powered ideas phase
+  // AI-powered ideas phase
   | 'ask_song_story'
   | 'ask_vibe'
   | 'ask_comfort'
   | 'loading_ideas'
   | 'show_ideas'
   | 'ideas_feedback'
-  // EXISTING: format/post assignment phase
+  // Post assignment & confirmation
+  | 'shoot_day_prompt'
   | 'intro'
   | 'format_selection'
   | 'post_assignment'
@@ -479,21 +480,18 @@ export function BrainstormContent({
 
   // Auto-assign liked ideas to scheduled posts and proceed to summary
   const proceedToPostAssignment = (ideas: ContentIdea[]) => {
-    if (ideas.length === 0 || scheduledPosts.length === 0) {
-      addBotMessage(`No posts to assign. Let's wrap up.`, 500);
-      setStep('complete');
-      handleConfirm();
-      return;
-    }
+    const targetPosts = scheduledPosts.length > 0 ? scheduledPosts : generateFallbackPosts(ideas.length);
 
     // Distribute ideas evenly across posts
-    const newAssignments: ContentFormatAssignment[] = scheduledPosts.map((post, idx) => {
+    const newAssignments: ContentFormatAssignment[] = targetPosts.map((post, idx) => {
       const idea = ideas[idx % ideas.length];
       return {
         postIndex: idx,
         postId: post.id,
         format: ideaFormatToContentFormat(idea.format),
-        customFormatName: idea.title, // use idea title as the "format name" for display
+        customFormatName: idea.title,
+        ideaTitle: idea.title,
+        ideaHook: idea.hook,
         postType: post.type,
         date: post.date,
       };
@@ -501,6 +499,23 @@ export function BrainstormContent({
 
     setAssignments(newAssignments);
     generateSummary(newAssignments, ideas);
+  };
+
+  // Generate fallback post slots when none exist yet (evenly spread over next 4 weeks)
+  const generateFallbackPosts = (count: number) => {
+    const today = new Date();
+    return Array.from({ length: Math.max(count, 5) }, (_, i) => {
+      const date = new Date(today.getTime() + (7 + i * 3) * 24 * 60 * 60 * 1000);
+      return {
+        id: `brainstorm-post-${i}`,
+        index: i,
+        title: `Post ${i + 1}`,
+        type: (i === 0 ? 'teaser' : i < count - 1 ? 'promo' : 'audience-builder') as 'teaser' | 'promo' | 'audience-builder',
+        date: date.toISOString().split('T')[0],
+        startTime: '10:00',
+        endTime: '10:30',
+      };
+    });
   };
 
   // ============================================================================
@@ -660,10 +675,13 @@ export function BrainstormContent({
   // SUMMARY & SCHEDULE GENERATION
   // ============================================================================
 
+  const [summaryIdeas, setSummaryIdeas] = useState<ContentIdea[]>([]);
+
   const generateSummary = (allAssignments: ContentFormatAssignment[], ideas?: ContentIdea[]) => {
     setStep('summary');
+    if (ideas) setSummaryIdeas(ideas);
 
-    // Group assignments by format
+    // Group assignments by format for edit/shoot day calculation
     const byFormat = allAssignments.reduce(
       (acc, a) => {
         const key = a.format === 'custom' ? (a.customFormatName || 'Custom') : a.format;
@@ -674,71 +692,45 @@ export function BrainstormContent({
       {} as Record<string, ContentFormatAssignment[]>
     );
 
-    // Calculate edit days and shoot days
     const editDays: BrainstormEditDay[] = [];
     const shootDays: BrainstormShootDay[] = [];
 
-    for (const [formatKey, fAssignments] of Object.entries(byFormat)) {
+    for (const [, fAssignments] of Object.entries(byFormat)) {
       const format = fAssignments[0].format;
       const needsShoot = !doesFormatHaveFootage(format);
 
       if (needsShoot) {
-        // Schedule a shoot day
-        const earliestPostDate = fAssignments
-          .map((a) => a.date)
-          .sort()[0];
-
+        const earliestPostDate = fAssignments.map(a => a.date).sort()[0];
         const shootDate = calculateShootDate(earliestPostDate, preferredDays);
         shootDays.push({
           id: `shoot-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
           format,
           customFormatName: format === 'custom' ? fAssignments[0].customFormatName : undefined,
           reason: `${getFormatLabel(format, fAssignments[0].customFormatName)} footage needed`,
-          duration: 180, // 3 hours default
+          duration: 180,
           date: shootDate,
           startTime: '10:00',
           endTime: '13:00',
-          sharedWith: [], // Artist would be added here
+          sharedWith: [],
         });
       }
 
-      // Schedule edit days — 2 posts per edit day
       const postsPerEditDay = 2;
       const numEditDays = Math.ceil(fAssignments.length / postsPerEditDay);
-
       for (let i = 0; i < numEditDays; i++) {
-        const coveredPosts = fAssignments.slice(
-          i * postsPerEditDay,
-          (i + 1) * postsPerEditDay
-        );
-        const latestPostDate = coveredPosts
-          .map((a) => a.date)
-          .sort()
-          .reverse()[0];
-
-        // Edit day should be before the posts but after any shoot day for this format
-        let editDate: string;
-        if (needsShoot && shootDays.length > 0) {
-          // Must be after the shoot day
-          const shootDay = shootDays.find(
-            (s) => s.format === format
-          );
-          editDate = calculateEditDate(
-            latestPostDate,
-            i,
-            numEditDays,
-            shootDay?.date
-          );
-        } else {
-          editDate = calculateEditDate(latestPostDate, i, numEditDays);
-        }
+        const coveredPosts = fAssignments.slice(i * postsPerEditDay, (i + 1) * postsPerEditDay);
+        const latestPostDate = coveredPosts.map(a => a.date).sort().reverse()[0];
+        const shootDay = shootDays.find(s => s.format === format);
+        const editDate = needsShoot && shootDay
+          ? calculateEditDate(latestPostDate, i, numEditDays, shootDay.date)
+          : calculateEditDate(latestPostDate, i, numEditDays);
 
         editDays.push({
           id: `edit-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`,
           format,
           customFormatName: format === 'custom' ? coveredPosts[0].customFormatName : undefined,
-          postsCovered: coveredPosts.map((p) => p.postIndex),
-          duration: 120, // 2 hours default
+          postsCovered: coveredPosts.map(p => p.postIndex),
+          duration: 120,
           date: editDate,
           startTime: '10:00',
           endTime: '12:00',
@@ -746,66 +738,15 @@ export function BrainstormContent({
       }
     }
 
-    // Build summary message
-    let summary = `Here's the plan! 🎯\n\n`;
+    // Short bot message — cards do the heavy lifting
+    const shootNote = shootDays.length > 0
+      ? ` We'll also need a shoot day — I'll ask about that next.`
+      : '';
+    addBotMessage(
+      `Here's your content plan for **${galaxyName}**. ${allAssignments.length} posts scheduled.${shootNote}`,
+      600
+    );
 
-    // Show liked ideas used
-    if (ideas && ideas.length > 0) {
-      summary += `**Ideas you're going with:**\n`;
-      const deduped = ideas.filter((v, i, a) => a.findIndex(t => t.id === v.id) === i);
-      deduped.slice(0, 5).forEach(idea => {
-        summary += `• **${idea.title}** — ${idea.format}\n`;
-      });
-      summary += '\n';
-    }
-
-    summary += `**Post Schedule:**\n`;
-    for (const [formatKey, fAssignments] of Object.entries(byFormat)) {
-      const label = fAssignments[0].customFormatName || getFormatLabel(
-        fAssignments[0].format,
-        fAssignments[0].customFormatName
-      );
-      summary += `• **${label}** → ${fAssignments.length} post${fAssignments.length > 1 ? 's' : ''}\n`;
-      fAssignments.forEach((a) => {
-        const postLabel = a.postType.charAt(0).toUpperCase() + a.postType.slice(1).replace('-', ' ');
-        const dateLabel = new Date(a.date).toLocaleDateString('en-US', {
-          weekday: 'short',
-          month: 'short',
-          day: 'numeric',
-        });
-        summary += `  → ${postLabel} — ${dateLabel}\n`;
-      });
-    }
-
-    summary += `\n**Schedule Updates:**\n`;
-    if (editDays.length > 0) {
-      summary += `✂️ **${editDays.length} edit day${editDays.length > 1 ? 's'  : ''}** added to the schedule\n`;
-      editDays.forEach((ed) => {
-        const dateLabel = new Date(ed.date).toLocaleDateString('en-US', {
-          weekday: 'short',
-          month: 'short',
-          day: 'numeric',
-        });
-        summary += `  → ${dateLabel}: Edit ${getFormatLabel(ed.format, ed.customFormatName)} (${ed.postsCovered.length} posts)\n`;
-      });
-    }
-    if (shootDays.length > 0) {
-      summary += `📸 **${shootDays.length} shoot day${shootDays.length > 1 ? 's' : ''}** added to the schedule\n`;
-      shootDays.forEach((sd) => {
-        const dateLabel = new Date(sd.date).toLocaleDateString('en-US', {
-          weekday: 'short',
-          month: 'short',
-          day: 'numeric',
-        });
-        summary += `  → ${dateLabel}: ${sd.reason} (appears on artist's calendar too)\n`;
-      });
-    }
-
-    summary += `\nLook good? Hit **Confirm** to finalize, or go back to make changes.`;
-
-    addBotMessage(summary, 800);
-
-    // Store for confirmation
     setGeneratedEditDays(editDays);
     setGeneratedShootDays(shootDays);
   };
@@ -813,8 +754,28 @@ export function BrainstormContent({
   const [generatedEditDays, setGeneratedEditDays] = useState<BrainstormEditDay[]>([]);
   const [generatedShootDays, setGeneratedShootDays] = useState<BrainstormShootDay[]>([]);
 
+  const [shootDayAction, setShootDayAction] = useState<'plan_now' | 'schedule_task' | 'skip' | null>(null);
+
   const handleConfirm = () => {
     addUserMessage("Looks great, let's do it! ✅");
+
+    // Determine if shoot day decision is needed
+    const needsShootDay = generatedShootDays.length > 0 ||
+      assignments.some(a => !doesFormatHaveFootage(a.format));
+
+    if (needsShootDay && shootDayAction === null) {
+      setStep('shoot_day_prompt');
+      addBotMessage(
+        `Some of these ideas will need a shoot day — you'll need fresh footage. Do you want to plan it now, or should I add a **"Plan shoot day"** task to your calendar?`,
+        500
+      );
+    } else {
+      finalizeAndComplete(shootDayAction || 'skip');
+    }
+  };
+
+  const finalizeAndComplete = (action: 'plan_now' | 'schedule_task' | 'skip') => {
+    setShootDayAction(action);
     setStep('complete');
 
     const result: BrainstormResult = {
@@ -824,18 +785,22 @@ export function BrainstormContent({
       formatAssignments: assignments,
       editDays: generatedEditDays,
       shootDays: generatedShootDays,
+      shootDayAction: action,
       completedAt: new Date().toISOString(),
       status: 'completed',
     };
 
+    const shootMsg = action === 'plan_now'
+      ? ' Shoot day added for tomorrow — check your calendar.'
+      : action === 'schedule_task'
+      ? ' A "Plan shoot day" task has been added to your calendar.'
+      : '';
+
     addBotMessage(
-      `Done! 🎉 Your content plan for **${galaxyName}** is set.\n\n` +
-      `The schedule has been updated with your edit days${generatedShootDays.length > 0 ? ' and shoot day' : ''}. ` +
-      `The admin will be notified about your content choices.`,
+      `Done! 🎉 **${assignments.length} posts** added to your schedule for **${galaxyName}**.${shootMsg}`,
       500
     );
 
-    // Delay slightly so the user sees the confirmation message
     setTimeout(() => {
       onComplete(result);
     }, 2000);
@@ -1036,14 +1001,27 @@ export function BrainstormContent({
         {/* Interactive Area */}
         <div className="border-t border-purple-500/20 bg-gray-900/80 px-6 py-4">
 
-          {/* ASK SONG STORY — voice input */}
+          {/* ASK SONG STORY — voice input + skip shortcut */}
           {step === 'ask_song_story' && !isTyping && (
-            <VoiceInput
-              onTranscript={(text) => { setSongStory(text); handleSongStorySubmitWithText(text); }}
-              autoSubmit={true}
-              autoStartAfterDisabled={false}
-              placeholder="Tap the mic to answer..."
-            />
+            <div className="space-y-2">
+              <VoiceInput
+                onTranscript={(text) => { setSongStory(text); handleSongStorySubmitWithText(text); }}
+                autoSubmit={true}
+                autoStartAfterDisabled={false}
+                placeholder="Tap the mic to answer..."
+              />
+              <button
+                onClick={() => {
+                  setSongStory('not provided');
+                  setArtistVibe('not provided');
+                  setStep('ask_comfort');
+                  addBotMessage(`No problem — how do you like to show up on camera? 👇`, 300);
+                }}
+                className="w-full text-[11px] text-gray-600 hover:text-gray-400 py-1 transition-colors"
+              >
+                Already know your vibe? Skip the questions →
+              </button>
+            </div>
           )}
 
           {/* ASK VIBE — voice input */}
@@ -1112,11 +1090,15 @@ export function BrainstormContent({
                             </span>
                             <span className="text-[10px] text-gray-500">{idea.format}</span>
                           </div>
-                          <p className="text-xs text-purple-300 mb-1">
+                          <p className="text-xs text-purple-300 mb-1.5">
                             <span className="text-gray-500">Hook: </span>{idea.hook}
                           </p>
-                          <p className="text-xs text-gray-400 italic mb-1">"{idea.exampleCaption}"</p>
-                          <p className="text-[11px] text-gray-500">{idea.whyItWorks}</p>
+                          {/* whyItWorks — prominently displayed */}
+                          <div className="flex items-start gap-1 mb-1">
+                            <span className="text-yellow-400 text-[11px] flex-shrink-0">✨</span>
+                            <p className="text-xs text-yellow-200/80 font-medium leading-snug">{idea.whyItWorks}</p>
+                          </div>
+                          <p className="text-[11px] text-gray-500 italic">"{idea.exampleCaption}"</p>
                         </div>
                         <div className="flex flex-col gap-1 flex-shrink-0">
                           <button
@@ -1371,39 +1353,95 @@ export function BrainstormContent({
             </div>
           )}
 
-          {/* SUMMARY — Confirm or Go Back */}
+          {/* SUMMARY — visual idea cards + confirm */}
           {step === 'summary' && !isTyping && (
-            <div className="flex gap-3">
-              <Button
-                onClick={() => {
-                  // Reset state for redo
-                  setStep('format_selection');
-                  setMessages([]);
-                  setSelectedFormat(null);
-                  setSecondFormat(null);
-                  setSelectedPostIndices([]);
-                  setAssignments([]);
-                  setCustomFormatName('');
-                  setSecondCustomFormatName('');
-                  setHasFootageForBTS(null);
-                  setHasFootageForCustom(null);
-                  setNeedsFootageCheck(false);
-                  // Re-add intro
-                  const hasRecommended = formats.some((f) => f.recommended);
-                  let intro = `Let's try again! Pick a content format for **${galaxyName}**:`;
-                  addBotMessage(intro, 300);
-                }}
-                variant="outline"
-                className="flex-1 border-gray-600 text-gray-300 hover:bg-gray-800 rounded-xl"
-              >
-                ↩ Start Over
-              </Button>
+            <div className="space-y-3">
+              {/* Idea-to-post cards */}
+              <div className="space-y-1.5 max-h-[220px] overflow-y-auto pr-1">
+                {assignments.map((a, idx) => {
+                  const idea = summaryIdeas[idx % Math.max(summaryIdeas.length, 1)];
+                  const dateLabel = new Date(a.date).toLocaleDateString('en-US', {
+                    weekday: 'short', month: 'short', day: 'numeric',
+                  });
+                  const typeLabel = a.postType.charAt(0).toUpperCase() + a.postType.slice(1).replace('-', ' ');
+                  return (
+                    <div key={idx} className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-gray-800/80 border border-gray-700/60">
+                      <div className="w-1 self-stretch rounded-full bg-purple-500 flex-shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-white truncate">
+                          {a.ideaTitle || a.customFormatName || typeLabel}
+                        </p>
+                        <p className="text-[11px] text-gray-400">{typeLabel} · {dateLabel}</p>
+                      </div>
+                      <span className="text-[10px] text-gray-500 flex-shrink-0">
+                        {idea?.difficulty || ''}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+              {/* Edit days compact display */}
+              {generatedEditDays.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {generatedEditDays.map((ed, i) => {
+                    const d = new Date(ed.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                    return (
+                      <span key={i} className="text-[11px] px-2 py-1 rounded-full bg-blue-500/20 border border-blue-500/30 text-blue-300">
+                        ✂️ Edit day · {d}
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
               <Button
                 onClick={handleConfirm}
-                className="flex-1 bg-green-600 hover:bg-green-700 text-white rounded-xl font-semibold"
+                className="w-full bg-green-600 hover:bg-green-700 text-white rounded-xl font-semibold"
               >
-                ✅ Confirm Plan
+                ✅ Add {assignments.length} posts to my schedule
               </Button>
+              <button
+                onClick={() => {
+                  setStep('show_ideas');
+                  setAssignments([]);
+                  setSummaryIdeas([]);
+                  addBotMessage(`Back to ideas — adjust your likes and we'll regenerate the plan.`, 300);
+                }}
+                className="w-full text-xs text-gray-500 hover:text-gray-300 transition-colors py-1"
+              >
+                ↩ Go back and change ideas
+              </button>
+            </div>
+          )}
+
+          {/* SHOOT DAY PROMPT */}
+          {step === 'shoot_day_prompt' && !isTyping && (
+            <div className="space-y-2">
+              <button
+                onClick={() => finalizeAndComplete('plan_now')}
+                className="w-full flex items-center gap-3 p-3 rounded-xl border border-purple-500/40 bg-purple-600/20 hover:bg-purple-600/40 text-left transition-all"
+              >
+                <span className="text-xl">📅</span>
+                <div>
+                  <p className="text-sm font-semibold text-white">Plan it now</p>
+                  <p className="text-[11px] text-gray-400">Add a shoot day to tomorrow's schedule</p>
+                </div>
+              </button>
+              <button
+                onClick={() => finalizeAndComplete('schedule_task')}
+                className="w-full flex items-center gap-3 p-3 rounded-xl border border-gray-600 bg-gray-800/50 hover:bg-gray-700/50 text-left transition-all"
+              >
+                <span className="text-xl">🗓</span>
+                <div>
+                  <p className="text-sm font-semibold text-white">Add "Plan shoot day" to my calendar</p>
+                  <p className="text-[11px] text-gray-400">I'll schedule the task before your first post</p>
+                </div>
+              </button>
+              <button
+                onClick={() => finalizeAndComplete('skip')}
+                className="w-full text-xs text-gray-500 hover:text-gray-300 py-2 transition-colors"
+              >
+                I already have footage — skip this
+              </button>
             </div>
           )}
 

@@ -704,6 +704,30 @@ export async function createTasksFromBrainstorm(
 ): Promise<TeamTask[]> {
   const tasks: TeamTask[] = [];
 
+  // Create post events for each brainstormed idea assignment
+  for (const assignment of result.formatAssignments) {
+    const postLabel = assignment.postType.charAt(0).toUpperCase() +
+      assignment.postType.slice(1).replace('-', ' ');
+    const title = assignment.ideaTitle
+      ? assignment.ideaTitle
+      : `${postLabel} Post`;
+    const description = assignment.ideaHook
+      ? `Hook: ${assignment.ideaHook}`
+      : `${postLabel} post from content brainstorm`;
+
+    const task = await createTask(teamId, {
+      galaxyId,
+      title,
+      description,
+      type: 'post',
+      taskCategory: 'event',
+      date: assignment.date,
+      startTime: '10:00',
+      endTime: '10:30',
+    });
+    if (task) tasks.push(task);
+  }
+
   // Create edit day tasks
   for (const editDay of result.editDays) {
     const task = await createTask(teamId, {
@@ -720,19 +744,57 @@ export async function createTasksFromBrainstorm(
     if (task) tasks.push(task);
   }
 
-  // Create shoot day events
-  for (const shootDay of result.shootDays) {
+  // Create shoot day events or "Plan shoot day" task based on artist's choice
+  if (result.shootDayAction === 'schedule_task') {
+    // Artist wants a task on their calendar to plan it later
+    const firstPostDate = result.formatAssignments
+      .map(a => a.date)
+      .sort()[0];
+    const shootTaskDate = firstPostDate
+      ? new Date(new Date(firstPostDate).getTime() - 7 * 24 * 60 * 60 * 1000)
+          .toISOString().split('T')[0]
+      : new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
     const task = await createTask(teamId, {
       galaxyId,
-      title: `Shoot: ${shootDay.customFormatName || shootDay.format}`,
-      description: shootDay.reason,
+      title: 'Plan shoot day',
+      description: 'Plan and schedule a shoot day for your brainstormed content ideas.',
       type: 'shoot',
-      taskCategory: 'event', // Events are visible to all team members
-      date: shootDay.date,
-      startTime: shootDay.startTime,
-      endTime: shootDay.endTime,
+      taskCategory: 'task',
+      date: shootTaskDate,
+      startTime: '10:00',
+      endTime: '11:00',
     });
     if (task) tasks.push(task);
+  } else if (result.shootDayAction === 'plan_now') {
+    // Artist chose to plan now — create shoot event for tomorrow (or earliest preferred day)
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const task = await createTask(teamId, {
+      galaxyId,
+      title: 'Shoot day',
+      description: 'Shoot content for your brainstormed ideas. Check your plan for details.',
+      type: 'shoot',
+      taskCategory: 'event',
+      date: tomorrow,
+      startTime: '10:00',
+      endTime: '14:00',
+    });
+    if (task) tasks.push(task);
+  } else {
+    // Legacy path: create actual shoot day events from result.shootDays
+    for (const shootDay of result.shootDays) {
+      const task = await createTask(teamId, {
+        galaxyId,
+        title: `Shoot: ${shootDay.customFormatName || shootDay.format}`,
+        description: shootDay.reason,
+        type: 'shoot',
+        taskCategory: 'event',
+        date: shootDay.date,
+        startTime: shootDay.startTime,
+        endTime: shootDay.endTime,
+      });
+      if (task) tasks.push(task);
+    }
   }
 
   return tasks;
