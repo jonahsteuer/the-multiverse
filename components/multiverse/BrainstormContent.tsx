@@ -340,10 +340,14 @@ export function BrainstormContent({
     fetchIdeas(songStory, artistVibe, level);
   };
 
+  // Accumulated liked ideas across all feedback rounds
+  const [allLikedIdeas, setAllLikedIdeas] = useState<ContentIdea[]>([]);
+  const [feedbackRound, setFeedbackRound] = useState(0);
+
   const toggleLike = (id: string) => {
     setLikedIdeas(prev => {
       const next = new Set(prev);
-      if (next.has(id)) { next.delete(id); } else { next.add(id); dislikedIdeas.delete(id); }
+      if (next.has(id)) { next.delete(id); } else { next.add(id); }
       return next;
     });
     setDislikedIdeas(prev => { const next = new Set(prev); next.delete(id); return next; });
@@ -352,22 +356,151 @@ export function BrainstormContent({
   const toggleDislike = (id: string) => {
     setDislikedIdeas(prev => {
       const next = new Set(prev);
-      if (next.has(id)) { next.delete(id); } else { next.add(id); likedIdeas.delete(id); }
+      if (next.has(id)) { next.delete(id); } else { next.add(id); }
       return next;
     });
     setLikedIdeas(prev => { const next = new Set(prev); next.delete(id); return next; });
   };
 
+  // Called when user hits "Continue" on the ideas screen
   const handleIdeasConfirmed = () => {
     const liked = contentIdeas.filter(i => likedIdeas.has(i.id));
-    const count = liked.length || contentIdeas.length;
+
+    // Merge newly liked ideas into the accumulated list (avoid duplicates)
+    const merged = [
+      ...allLikedIdeas,
+      ...liked.filter(l => !allLikedIdeas.find(a => a.id === l.id)),
+    ];
+    setAllLikedIdeas(merged);
+
+    const likedCount = merged.length;
     addUserMessage(`I like ${liked.length > 0 ? `${liked.length} of these ideas` : 'the ideas, let\'s move on'}`);
 
-    // Transition to format selection
-    const hasRecommended = formats.some(f => f.recommended);
-    let msg = `Let's assign these to your ${scheduledPosts.length} scheduled posts.\n\nPick a content format to start:`;
-    addBotMessage(msg, 500);
-    setStep('format_selection');
+    const TARGET = 5;
+    if (likedCount >= TARGET) {
+      // Have enough — ask if they want to refine or move on
+      addBotMessage(
+        `You've got ${likedCount} ideas you like — that's enough to cover your posts. Any final notes, or should we move on to scheduling them?`,
+        500
+      );
+    } else {
+      addBotMessage(
+        `${likedCount > 0 ? `Nice — ${likedCount} idea${likedCount > 1 ? 's' : ''} locked in.` : ''} Any notes on these, or want to pitch a different angle? I'll generate fresh ideas based on your feedback.`,
+        500
+      );
+    }
+    setStep('ideas_feedback');
+  };
+
+  // Positive sentiment phrases that mean "move on" (no real feedback)
+  const isPositiveOrEmpty = (text: string): boolean => {
+    if (!text.trim()) return true;
+    const t = text.toLowerCase().trim();
+    const positives = [
+      'looks good', 'sounds good', 'good', 'great', 'perfect', 'love it', 'love them',
+      'move on', "let's go", 'lets go', 'yes', 'yeah', 'yep', 'no notes', 'no feedback',
+      'none', 'nothing', 'all good', 'ok', 'okay', "that's fine", 'go ahead', 'proceed',
+      "i'm good", 'im good', "i'm happy", 'im happy', "those are good", 'these are good',
+    ];
+    return positives.some(p => t === p || t.startsWith(p + ' ') || t.includes(p));
+  };
+
+  const handleFeedbackSubmit = async (text: string) => {
+    if (!text.trim() && allLikedIdeas.length === 0) return; // need at least something
+
+    addUserMessage(text.trim() || 'Looks good, let\'s move on');
+
+    if (isPositiveOrEmpty(text) || allLikedIdeas.length >= 5) {
+      // Move to post assignment
+      proceedToPostAssignment(allLikedIdeas.length > 0 ? allLikedIdeas : contentIdeas);
+      return;
+    }
+
+    // Has real feedback — generate a new round of ideas
+    const round = feedbackRound + 1;
+    setFeedbackRound(round);
+    setStep('loading_ideas');
+    addBotMessage(`Got it — adjusting the ideas based on your notes...`, 400);
+
+    setLoadingIdeas(true);
+    try {
+      const genres: string[] = (artistProfile as any)?.genre || ['indie'];
+      const allShownIds = new Set(contentIdeas.map(i => i.id));
+      const previousIdeasForAPI = contentIdeas; // pass all shown ideas to avoid repeats
+
+      const res = await fetch('/api/tiktok-insights', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          genres,
+          songName: galaxyName,
+          songStory,
+          artistVibe,
+          comfortLevel,
+          releaseDate,
+          feedback: text.trim(),
+          previousIdeas: previousIdeasForAPI,
+        }),
+      });
+      if (!res.ok) throw new Error('API error');
+      const data = await res.json();
+      const newIdeas: ContentIdea[] = (data.ideas || []).map((idea: ContentIdea, idx: number) => ({
+        ...idea,
+        id: `round${round}_idea_${idx + 1}`, // ensure unique IDs across rounds
+      }));
+
+      // Replace content ideas with new batch — liked state for previous ideas is preserved in allLikedIdeas
+      setContentIdeas(newIdeas);
+      setLikedIdeas(new Set());
+      setDislikedIdeas(new Set());
+
+      const likedSoFar = allLikedIdeas.length;
+      const remaining = Math.max(0, 5 - likedSoFar);
+      addBotMessage(
+        `Here are 5 fresh ideas. ${likedSoFar > 0 ? `You have ${likedSoFar} locked in already — pick ${remaining} more you like:` : 'Tap 👍 on the ones that fit:'}`,
+        800
+      );
+      setStep('show_ideas');
+    } catch {
+      addBotMessage(`Had trouble generating new ideas. Let's move on with what you have.`, 600);
+      proceedToPostAssignment(allLikedIdeas.length > 0 ? allLikedIdeas : contentIdeas);
+    } finally {
+      setLoadingIdeas(false);
+    }
+  };
+
+  // Map a ContentIdea format string to a ContentFormat for scheduling purposes
+  const ideaFormatToContentFormat = (formatStr: string): ContentFormat => {
+    const f = formatStr.toLowerCase();
+    if (f.includes('music video')) return 'music_video_snippet';
+    if (f.includes('bts') || f.includes('behind') || f.includes('performance')) return 'bts_performance';
+    return 'custom';
+  };
+
+  // Auto-assign liked ideas to scheduled posts and proceed to summary
+  const proceedToPostAssignment = (ideas: ContentIdea[]) => {
+    if (ideas.length === 0 || scheduledPosts.length === 0) {
+      addBotMessage(`No posts to assign. Let's wrap up.`, 500);
+      setStep('complete');
+      handleConfirm();
+      return;
+    }
+
+    // Distribute ideas evenly across posts
+    const newAssignments: ContentFormatAssignment[] = scheduledPosts.map((post, idx) => {
+      const idea = ideas[idx % ideas.length];
+      return {
+        postIndex: idx,
+        postId: post.id,
+        format: ideaFormatToContentFormat(idea.format),
+        customFormatName: idea.title, // use idea title as the "format name" for display
+        postType: post.type,
+        date: post.date,
+      };
+    });
+
+    setAssignments(newAssignments);
+    generateSummary(newAssignments, ideas);
   };
 
   // ============================================================================
@@ -527,7 +660,7 @@ export function BrainstormContent({
   // SUMMARY & SCHEDULE GENERATION
   // ============================================================================
 
-  const generateSummary = (allAssignments: ContentFormatAssignment[]) => {
+  const generateSummary = (allAssignments: ContentFormatAssignment[], ideas?: ContentIdea[]) => {
     setStep('summary');
 
     // Group assignments by format
@@ -615,22 +748,32 @@ export function BrainstormContent({
 
     // Build summary message
     let summary = `Here's the plan! 🎯\n\n`;
-    summary += `**Content Format Assignments:**\n`;
+
+    // Show liked ideas used
+    if (ideas && ideas.length > 0) {
+      summary += `**Ideas you're going with:**\n`;
+      const deduped = ideas.filter((v, i, a) => a.findIndex(t => t.id === v.id) === i);
+      deduped.slice(0, 5).forEach(idea => {
+        summary += `• **${idea.title}** — ${idea.format}\n`;
+      });
+      summary += '\n';
+    }
+
+    summary += `**Post Schedule:**\n`;
     for (const [formatKey, fAssignments] of Object.entries(byFormat)) {
-      const label = getFormatLabel(
+      const label = fAssignments[0].customFormatName || getFormatLabel(
         fAssignments[0].format,
         fAssignments[0].customFormatName
       );
       summary += `• **${label}** → ${fAssignments.length} post${fAssignments.length > 1 ? 's' : ''}\n`;
       fAssignments.forEach((a) => {
-        const post = scheduledPosts[a.postIndex];
         const postLabel = a.postType.charAt(0).toUpperCase() + a.postType.slice(1).replace('-', ' ');
         const dateLabel = new Date(a.date).toLocaleDateString('en-US', {
           weekday: 'short',
           month: 'short',
           day: 'numeric',
         });
-        summary += `  → Post ${a.postIndex + 1}: ${label} (${postLabel}) — ${dateLabel}\n`;
+        summary += `  → ${postLabel} — ${dateLabel}\n`;
       });
     }
 
@@ -999,9 +1142,27 @@ export function BrainstormContent({
                 className="w-full bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-semibold"
               >
                 {likedIdeas.size > 0
-                  ? `Use ${likedIdeas.size} idea${likedIdeas.size !== 1 ? 's' : ''} → assign to posts`
-                  : 'Continue to post assignment →'}
+                  ? `Lock in ${likedIdeas.size + allLikedIdeas.length} idea${(likedIdeas.size + allLikedIdeas.length) !== 1 ? 's' : ''} →`
+                  : 'Continue →'}
               </Button>
+            </div>
+          )}
+
+          {/* IDEAS FEEDBACK — ask for notes or pitch, generate new round if needed */}
+          {step === 'ideas_feedback' && !isTyping && (
+            <div className="space-y-3">
+              <VoiceInput
+                onTranscript={(text) => handleFeedbackSubmit(text)}
+                autoSubmit={true}
+                autoStartAfterDisabled={false}
+                placeholder="Tap the mic — give notes, pitch an idea, or say 'looks good'"
+              />
+              <button
+                onClick={() => handleFeedbackSubmit('looks good')}
+                className="w-full py-2.5 rounded-xl border border-purple-500/40 bg-purple-600/20 hover:bg-purple-600/40 text-purple-200 text-sm font-medium transition-all"
+              >
+                These look great — move on to scheduling →
+              </button>
             </div>
           )}
 

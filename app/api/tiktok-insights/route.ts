@@ -125,11 +125,21 @@ async function synthesiseInsights(
     artistVibe: string;
     comfortLevel: string;
     releaseDate: string;
+    feedback?: string;          // User's notes on previous ideas
+    previousIdeas?: ContentIdea[]; // Ideas already shown — avoid repeating
   }
 ): Promise<ContentIdea[]> {
   const postsText = posts.slice(0, 20).map((p, i) =>
     `[${i + 1}] Views:${fmtNum(p.stats.playCount)} Likes:${fmtNum(p.stats.likeCount)} Shares:${fmtNum(p.stats.shareCount)} Duration:${p.video?.duration || '?'}s\nCaption: "${p.desc.slice(0, 120)}"`
   ).join('\n\n');
+
+  const previousIdeasText = artistContext.previousIdeas && artistContext.previousIdeas.length > 0
+    ? `\nIDEAS ALREADY SHOWN (do NOT repeat these concepts):\n${artistContext.previousIdeas.map(i => `- ${i.title}: ${i.hook}`).join('\n')}`
+    : '';
+
+  const feedbackText = artistContext.feedback
+    ? `\nARTIST FEEDBACK on previous ideas: "${artistContext.feedback}"\nIncorporate this feedback — lean into what they want, away from what they didn't like.`
+    : '';
 
   const prompt = `You are a music content strategist analyzing real TikTok/Instagram Reels data to generate content ideas for a music artist.
 
@@ -142,6 +152,7 @@ ARTIST CONTEXT:
 - Story behind the song: ${artistContext.songStory || 'Not provided'}
 - Artist vibe/aesthetic: ${artistContext.artistVibe || 'Not specified'}
 - Comfort on camera: ${artistContext.comfortLevel || 'Not specified'}
+${feedbackText}${previousIdeasText}
 
 ALGORITHM CONTEXT (2026):
 - DM shares weight 3-5x more than likes
@@ -151,7 +162,7 @@ ALGORITHM CONTEXT (2026):
 - 85% of Reels watched with sound OFF — text overlay is critical
 - Use original audio → your song becomes a clickable sound others can use
 
-Generate exactly 5 content ideas. Each must be specific to THIS artist and THIS song.
+Generate exactly 5 FRESH content ideas. Each must be specific to THIS artist and THIS song.${artistContext.previousIdeas?.length ? ' Make these clearly different from the previous ideas listed above.' : ''}
 
 Respond ONLY with a valid JSON array. No markdown, no code fences, just the raw JSON:
 [
@@ -239,7 +250,16 @@ function getFallbackIdeas(songName: string, genre: string): ContentIdea[] {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { genres = ['indie'], songName = '', songStory = '', artistVibe = '', comfortLevel = '', releaseDate = '' } = body;
+    const {
+      genres = ['indie'],
+      songName = '',
+      songStory = '',
+      artistVibe = '',
+      comfortLevel = '',
+      releaseDate = '',
+      feedback = '',           // Artist notes on previous round
+      previousIdeas = [],      // Ideas already shown — avoid repeating
+    } = body;
 
     // Fetch TikTok data + synthesise ideas in parallel where possible
     const posts = await getTikTokInsights(genres);
@@ -251,6 +271,8 @@ export async function POST(req: NextRequest) {
       artistVibe,
       comfortLevel,
       releaseDate,
+      feedback: feedback || undefined,
+      previousIdeas: previousIdeas.length > 0 ? previousIdeas : undefined,
     });
 
     return NextResponse.json({
