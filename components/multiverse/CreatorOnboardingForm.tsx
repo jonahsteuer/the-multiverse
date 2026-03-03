@@ -335,8 +335,7 @@ export function CreatorOnboardingForm({ onSuccess }: CreatorOnboardingFormProps)
 
           // Check for test accounts that should skip onboarding
           const isJulianKenji = data.creatorName === 'Julian kenji' || data.creatorName === 'Julian Kenji';
-          const isLeonTax = data.creatorName === 'Leon Tax';
-          const shouldSkipOnboarding = isJulianKenji || isLeonTax;
+          const shouldSkipOnboarding = isJulianKenji;
           
           // Julian Kenji's onboarding data (from completed conversation)
           const julianOnboardingData = {
@@ -368,36 +367,6 @@ export function CreatorOnboardingForm({ onSuccess }: CreatorOnboardingFormProps)
             teamMembers: "videographer friends who can help shoot ideas",
           };
           
-          // Leon Tax's onboarding data
-          const leonOnboardingData = {
-            genre: ["indie pop"],
-            musicalInspiration: ["Dominic Fike", "Bon Iver"],
-            visualAesthetic: "dreamy atmospheric",
-            visualStyleDescription: "aesthetic performance shots with atmospheric elements",
-            releases: [
-              {
-                type: "single",
-                name: "will I find you",
-                releaseDate: "2025-03-01",
-                isReleased: false,
-                songs: ["will I find you"]
-              }
-            ],
-            hasBestPosts: true,
-            bestPostDescription: "Performance shot with Snapchat filter got 1200 views, 40 likes, 9 comments - worked because it showed authentic performance with visual enhancement",
-            platforms: ["instagram", "tiktok"],
-            currentPostingFrequency: "none",
-            desiredPostingFrequency: "2-3x_week",
-            enjoyedContentFormats: ["visually aesthetic performance shots"],
-            equipment: "iPhone, camcorder, Canon DSLR",
-            timeBudgetHoursPerWeek: 6,
-            preferredDays: ["friday", "saturday", "sunday"],
-            hasExistingAssets: true,
-            existingAssetsDescription: "Yosemite camcorder footage for next single promotion",
-            hasTeam: true,
-            teamMembers: "girlfriend (shoot/edit), roommate Julian (shooting ideas)",
-          };
-          
           if (shouldSkipOnboarding) {
             console.log('[Signup] 🎯 TEST ACCOUNT DETECTED - Skipping onboarding for:', data.creatorName);
           }
@@ -410,15 +379,14 @@ export function CreatorOnboardingForm({ onSuccess }: CreatorOnboardingFormProps)
             spotifyLinked: spotifyLinked,
             instagramLinked: instagramLinked,
             onboardingComplete: shouldSkipOnboarding,
-            onboardingProfile: isJulianKenji ? julianOnboardingData as any : (isLeonTax ? leonOnboardingData as any : undefined),
+            onboardingProfile: isJulianKenji ? julianOnboardingData as any : undefined,
           };
         }
       } else {
         // Fallback: use localStorage only
         // Check for test accounts that should skip onboarding
         const isJulianKenji = data.creatorName === 'Julian kenji' || data.creatorName === 'Julian Kenji';
-        const isLeonTax = data.creatorName === 'Leon Tax';
-        const shouldSkipOnboarding = isJulianKenji || isLeonTax;
+        const shouldSkipOnboarding = isJulianKenji;
         
         // Julian Kenji's onboarding data
         const julianOnboardingData = {
@@ -450,36 +418,6 @@ export function CreatorOnboardingForm({ onSuccess }: CreatorOnboardingFormProps)
           teamMembers: "videographer friends who can help shoot ideas",
         };
         
-        // Leon Tax's onboarding data
-        const leonOnboardingData = {
-          genre: ["indie pop"],
-          musicalInspiration: ["Dominic Fike", "Bon Iver"],
-          visualAesthetic: "dreamy atmospheric",
-          visualStyleDescription: "aesthetic performance shots with atmospheric elements",
-          releases: [
-            {
-              type: "single",
-              name: "will I find you",
-              releaseDate: "2025-03-01",
-              isReleased: false,
-              songs: ["will I find you"]
-            }
-          ],
-          hasBestPosts: true,
-          bestPostDescription: "Performance shot with Snapchat filter got 1200 views, 40 likes, 9 comments",
-          platforms: ["instagram", "tiktok"],
-          currentPostingFrequency: "none",
-          desiredPostingFrequency: "2-3x_week",
-          enjoyedContentFormats: ["visually aesthetic performance shots"],
-          equipment: "iPhone, camcorder, Canon DSLR",
-          timeBudgetHoursPerWeek: 6,
-          preferredDays: ["friday", "saturday", "sunday"],
-          hasExistingAssets: true,
-          existingAssetsDescription: "Yosemite camcorder footage for next single promotion",
-          hasTeam: true,
-          teamMembers: "girlfriend (shoot/edit), roommate Julian (shooting ideas)",
-        };
-        
         if (shouldSkipOnboarding) {
           console.log('[Signup] 🎯 TEST ACCOUNT DETECTED (localStorage) - Skipping onboarding for:', data.creatorName);
         }
@@ -492,7 +430,7 @@ export function CreatorOnboardingForm({ onSuccess }: CreatorOnboardingFormProps)
           spotifyLinked: spotifyLinked,
           instagramLinked: instagramLinked,
           onboardingComplete: shouldSkipOnboarding,
-          onboardingProfile: isJulianKenji ? julianOnboardingData as any : (isLeonTax ? leonOnboardingData as any : undefined),
+          onboardingProfile: isJulianKenji ? julianOnboardingData as any : undefined,
         };
       }
 
