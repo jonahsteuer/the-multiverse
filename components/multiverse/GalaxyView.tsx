@@ -16,6 +16,7 @@ import { TaskAssignmentDropdown } from './TaskAssignmentDropdown';
 import { BrainstormReview } from './BrainstormReview';
 import { MarkChatPanel } from './MarkChatPanel';
 import { UploadPostsModal } from './UploadPostsModal';
+import { UploadFootageModal } from './UploadFootageModal';
 import { PostDetailModal } from './PostDetailModal';
 import { TaskPanel } from './TaskPanel';
 import { FinalizePostsModal } from './FinalizePostsModal';
@@ -117,6 +118,10 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
   const [taskContextMenu, setTaskContextMenu] = useState<{ taskId: string; x: number; y: number } | null>(null);
   const [showUploadPosts, setShowUploadPosts] = useState(false);
   const [selectedUploadTask, setSelectedUploadTask] = useState<TeamTask | null>(null);
+  const [showUploadFootage, setShowUploadFootage] = useState(false);
+  const [selectedFootageTask, setSelectedFootageTask] = useState<TeamTask | null>(null);
+  // Used to eagerly generate post events to DB (renders hidden calendar once)
+  const [needsPostScheduleInit, setNeedsPostScheduleInit] = useState(false);
   const [markInitialMessage, setMarkInitialMessage] = useState<string | undefined>(undefined);
   const [selectedFinalizeTask, setSelectedFinalizeTask] = useState<TeamTask | null>(null);
   const [lockedTaskInfo, setLockedTaskInfo] = useState<{ title: string; reason: string; prerequisite: string } | null>(null);
@@ -131,6 +136,17 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
       checkCalendarConnection().then(setIsGoogleCalendarConnected);
     }
   }, [showCalendar]);
+
+  // Eagerly generate post schedule to DB when team loads and no event tasks exist yet.
+  // This ensures UploadPostsModal can always find post slots even before the calendar is opened.
+  useEffect(() => {
+    if (!team || !galaxy.releaseDate || sharedEventsSavedRef.current) return;
+    const hasEvents = teamTasks.some(t => t.taskCategory === 'event' && t.galaxyId === galaxy.id);
+    if (!hasEvents && effectiveIsAdmin) {
+      setNeedsPostScheduleInit(true);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [team?.id, teamTasks.length, galaxy.id]);
 
   // Check Instagram connection status when profile panel opens
   useEffect(() => {
@@ -396,8 +412,15 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
       return;
     }
 
-    // Upload edits/footage tasks: open the post-pairing upload modal
-    if (/upload \d+ edits?/i.test(task.title) || /upload footage/i.test(task.title)) {
+    // "Upload footage" → simple footage library (no post pairing)
+    if (/^upload footage$/i.test(task.title.trim())) {
+      setSelectedFootageTask(task);
+      setShowUploadFootage(true);
+      return;
+    }
+
+    // "Upload N edits" / "Upload rough edit(s)" → pair edits with post slots
+    if (/upload \d+ edits?/i.test(task.title) || /upload rough edit/i.test(task.title)) {
       setSelectedUploadTask(task);
       setShowUploadPosts(true);
       return;
@@ -1346,6 +1369,9 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
           world={selectedWorld}
           universe={universe}
           artistProfile={artistProfile}
+          teamId={team?.id || ''}
+          teamTasks={teamTasks}
+          teamMembers={teamMembers}
           onClose={() => {
             setShowWorldDetail(false);
             setSelectedWorld(null);
@@ -1353,6 +1379,26 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
           onUpdate={handleWorldUpdate}
           onDelete={handleWorldDelete}
         />
+      )}
+
+      {/* Hidden calendar: eagerly generates shared post events to DB on first load */}
+      {needsPostScheduleInit && galaxy.releaseDate && (
+        <div style={{ display: 'none' }} aria-hidden>
+          <EnhancedCalendar
+            songName={galaxy.name}
+            releaseDate={galaxy.releaseDate}
+            artistProfile={adminArtistProfile || artistProfile || undefined}
+            brainstormResult={brainstormResult || undefined}
+            teamTasks={teamTasks}
+            teamMembers={teamMembers}
+            currentUserId={currentUserId || undefined}
+            userPermissions="full"
+            onSharedEventsGenerated={async (events) => {
+              setNeedsPostScheduleInit(false);
+              await handleSharedEventsGenerated(events);
+            }}
+          />
+        </div>
       )}
 
       {/* Calendar View */}
@@ -1414,10 +1460,19 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
                     loadTeamData();
                   }}
                   onPostCardClick={(taskId) => {
-                    const dbTask = teamTasks.find(t => t.id === taskId);
+                    // Try exact ID first (real DB tasks)
+                    let dbTask = teamTasks.find(t => t.id === taskId);
+                    // Fallback: calendar IDs are like 'teaser-2026-03-17' — match by date
+                    if (!dbTask) {
+                      const dateMatch = taskId.match(/(\d{4}-\d{2}-\d{2})$/);
+                      if (dateMatch) {
+                        dbTask = teamTasks.find(t => t.taskCategory === 'event' && t.date === dateMatch[1]);
+                      }
+                    }
                     if (dbTask) {
-                      setSelectedPostId(taskId);
+                      setSelectedPostId(dbTask.id);
                     } else {
+                      // Open upload modal — user can pair edits with any scheduled posts
                       setShowUploadPosts(true);
                     }
                   }}
@@ -1510,6 +1565,26 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
         </div>
       )}
 
+      {/* Hidden calendar used to eagerly generate + save post events to DB before the user opens the calendar */}
+      {needsPostScheduleInit && effectiveIsAdmin && galaxy.releaseDate && (
+        <div style={{ display: 'none' }} aria-hidden="true">
+          <EnhancedCalendar
+            songName={galaxy.name}
+            releaseDate={galaxy.releaseDate}
+            artistProfile={artistProfile || undefined}
+            brainstormResult={brainstormResult || undefined}
+            teamTasks={teamTasks}
+            teamMembers={teamMembers}
+            currentUserId={currentUserId || undefined}
+            userPermissions="full"
+            onSharedEventsGenerated={(events) => {
+              handleSharedEventsGenerated(events);
+              setNeedsPostScheduleInit(false);
+            }}
+          />
+        </div>
+      )}
+
       {/* Brainstorm Review Modal */}
       {showBrainstormReview && pendingBrainstormReview && (
         <BrainstormReview
@@ -1528,6 +1603,27 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
         />
       )}
 
+      {/* Upload Footage Modal */}
+      {showUploadFootage && (
+        <UploadFootageModal
+          teamId={team?.id || ''}
+          galaxyId={galaxy.id}
+          galaxyName={galaxy.name}
+          footageTask={selectedFootageTask ?? undefined}
+          onAskMark={(contextMessage) => {
+            setMarkInitialMessage(contextMessage);
+            setShowMarkChat(true);
+          }}
+          onFootageUploaded={() => {
+            loadTeamData();
+          }}
+          onClose={() => {
+            setShowUploadFootage(false);
+            setSelectedFootageTask(null);
+          }}
+        />
+      )}
+
       {/* Upload Posts Modal */}
       {showUploadPosts && (
         <UploadPostsModal
@@ -1536,6 +1632,7 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
           galaxyName={galaxy.name}
           teamMembers={teamMembers}
           uploadTask={selectedUploadTask ?? undefined}
+          fallbackPosts={teamTasks}
           onUploadTaskUpdated={(updated) => {
             setTeamTasks(prev => prev.map(t => t.id === updated.id ? updated : t));
             setSelectedUploadTask(updated);

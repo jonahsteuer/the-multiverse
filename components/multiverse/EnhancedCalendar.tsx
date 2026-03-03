@@ -89,11 +89,13 @@ interface EnhancedCalendarProps {
 
 // ============================================================
 // HAS RAW FOOTAGE task templates (artist has unedited clips, no finalized posts)
-// Flow: Review footage → Send to editor → Review edits → Upload → Finalize → Brainstorm → Shoot plan
+// Flow: Upload footage → Upload rough edits → Send to editor → Finalize → Brainstorm → Shoot plan
 // ============================================================
 function buildRawFootagePrepTasks(
   roughClipCount: number,
   editorName?: string,
+  rawFootageDesc?: string,
+  editedClipCount?: number,
 ): {
   week1: { title: string; description: string; duration: number; dayOffset?: number }[];
   week2: { title: string; description: string; duration: number; dayOffset?: number }[];
@@ -102,35 +104,47 @@ function buildRawFootagePrepTasks(
   const batchTwo = Math.max(0, roughClipCount - 10);
   const editorNote = editorName ? ` to ${editorName}` : '';
 
-  const week1: { title: string; description: string; duration: number; dayOffset?: number }[] = [
-    {
-      title: `Review & organize existing footage`,
-      description: `Go through your ${roughClipCount} rough clips. Pick the ${batchOne} strongest and flag any that need specific edits before they're post-ready.`,
+  const week1: { title: string; description: string; duration: number; dayOffset?: number }[] = [];
+
+  // "Upload footage" matches the todo list task for raw/unedited footage
+  if (rawFootageDesc) {
+    week1.push({
+      title: `Upload footage`,
+      description: `Upload your raw footage (${rawFootageDesc}) so your team can access and edit it. Paste a Google Drive, Dropbox, or YouTube link.`,
+      duration: 15,
+    });
+  }
+
+  // "Upload rough edit(s)" matches the todo list task for rough cuts
+  if (editedClipCount && editedClipCount > 0) {
+    const roughLabel = editedClipCount === 1 ? 'rough edit' : `${editedClipCount} rough edits`;
+    week1.push({
+      title: editedClipCount === 1 ? `Upload rough edit` : `Upload ${editedClipCount} rough edits`,
+      description: `Upload your ${roughLabel} so ${editorName ? editorName : 'your editor'} can refine and finalize them for posting. Paste a Google Drive, YouTube, or Dropbox link.`,
+      duration: 15,
+    });
+  } else if (!rawFootageDesc) {
+    // Fallback if no specific footage/edit info — use generic clip count
+    week1.push({
+      title: `Upload footage`,
+      description: `Go through your ${roughClipCount} rough clips and upload the strongest ones. Paste a Google Drive, Dropbox, or YouTube link.`,
       duration: 45,
-    },
-  ];
+    });
+  }
 
   if (editorName) {
     week1.push({
-      title: `Send first batch to ${editorName} for editing (posts 1–${batchOne})`,
-      description: `Forward your top ${batchOne} clips${editorNote} with any notes on cuts, color, or vibe. Include the post dates you're targeting.`,
+      title: `Send footage to ${editorName} for editing`,
+      description: `Forward your uploaded clips${editorNote} with any notes on cuts, color, or vibe. Include the post dates you're targeting.`,
       duration: 20,
     });
-  } else {
+  } else if (roughClipCount > 0) {
     week1.push({
       title: `Edit first batch (posts 1–${batchOne})`,
       description: `Cut your top ${batchOne} rough clips into post-ready videos. Aim for 15–30 seconds each.`,
       duration: Math.min(batchOne * 15, 120),
     });
   }
-
-  week1.push({
-    title: `Finalize any posts ready to go live`,
-    description: editorName
-      ? `Any clips you already know look good — write captions and schedule them now. Don't wait for the full batch.`
-      : `Do a final pass on the clips you just edited. Write captions and confirm scheduling.`,
-    duration: 25,
-  });
 
   const week2: { title: string; description: string; duration: number; dayOffset?: number }[] = [];
 
@@ -1331,7 +1345,7 @@ export function EnhancedCalendar({
         week2Tasks = prepTasks.week2;
       } else if (hasRawButNoEdited) {
         // Artist has unedited footage — skip shoot day, focus on editing existing clips
-        const prepTasks = buildRawFootagePrepTasks(roughClipCount, editorName);
+        const prepTasks = buildRawFootagePrepTasks(roughClipCount, editorName, rawFootageDesc, (artistProfile as any)?.editedClipCount);
         week1Tasks = prepTasks.week1;
         week2Tasks = prepTasks.week2;
       } else {
@@ -1866,27 +1880,13 @@ export function EnhancedCalendar({
               <p className="text-blue-400 text-sm">{(artistProfile as any).teamDescription || (artistProfile.teamMembers ? `${artistProfile.teamMembers.length} member(s)` : 'Has support')}</p>
             </div>
           )}
-          {/* View Toggle */}
+          {/* Calendar label */}
           <div className="flex border border-gray-600 rounded-lg overflow-hidden">
             <button
               onClick={() => setViewMode('calendar')}
-              className={`px-3 py-1 text-xs font-medium transition-colors ${
-                viewMode === 'calendar'
-                  ? 'bg-blue-500 text-white'
-                  : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
-              }`}
+              className="px-3 py-1 text-xs font-medium bg-blue-500 text-white"
             >
               📅 Calendar
-            </button>
-            <button
-              onClick={() => setViewMode('posts')}
-              className={`px-3 py-1 text-xs font-medium transition-colors ${
-                viewMode === 'posts'
-                  ? 'bg-purple-500 text-white'
-                  : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
-              }`}
-            >
-              🎬 All Posts
             </button>
           </div>
         </div>

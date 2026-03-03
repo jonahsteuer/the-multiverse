@@ -392,7 +392,7 @@ export type TeamRole = 'admin' | 'manager' | 'videographer' | 'editor' | 'artist
 export type TeamPermission = 'full' | 'member';
 export type InvitationStatus = 'pending' | 'accepted' | 'declined';
 export type TeamTaskType = 'invite_team' | 'brainstorm' | 'prep' | 'film' | 'edit' | 'review' | 'post' | 'release' | 'shoot' | 'custom';
-export type TeamTaskCategory = 'task' | 'event';
+export type TeamTaskCategory = 'task' | 'event' | 'footage';
 export type TeamTaskStatus = 'pending' | 'in_progress' | 'completed';
 export type NotificationType = 'task_assigned' | 'task_completed' | 'task_rescheduled' | 'invite_accepted' | 'member_joined' | 'brainstorm_completed' | 'brainstorm_revision' | 'general';
 

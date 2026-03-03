@@ -450,6 +450,7 @@ interface UploadPostsModalProps {
   galaxyName: string;
   teamMembers: TeamMemberRecord[];
   uploadTask?: TeamTask; // optional: the "Upload X edits" task that opened this modal
+  fallbackPosts?: TeamTask[]; // pre-loaded posts from parent (used if DB returns none)
   onUploadTaskUpdated?: (updated: TeamTask) => void;
   onAskMark?: (contextMessage: string) => void; // open MarkChatPanel with contextual greeting
   onClose: () => void;
@@ -461,6 +462,7 @@ export function UploadPostsModal({
   galaxyName,
   teamMembers,
   uploadTask,
+  fallbackPosts,
   onUploadTaskUpdated,
   onAskMark,
   onClose,
@@ -475,16 +477,24 @@ export function UploadPostsModal({
 
   useEffect(() => {
     loadPosts();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [teamId, galaxyId]);
 
   const loadPosts = async () => {
     setIsLoading(true);
     try {
       const events = await getPostEvents(teamId, galaxyId);
-      setPosts(events);
+      // If DB returned nothing but parent passed pre-loaded tasks, use those as fallback
+      const resolved = events.length > 0
+        ? events
+        : (fallbackPosts ?? []).filter(t =>
+            t.taskCategory === 'event' &&
+            ['post', 'release', 'audience-builder', 'teaser', 'promo'].includes(t.type)
+          );
+      setPosts(resolved);
       // Record baseline: how many were already linked when modal opened
       if (baselineLinkedRef.current === null) {
-        baselineLinkedRef.current = events.filter((p: any) => p.postStatus && p.postStatus !== 'unlinked').length;
+        baselineLinkedRef.current = resolved.filter((p: any) => p.postStatus && p.postStatus !== 'unlinked').length;
       }
     } finally {
       setIsLoading(false);

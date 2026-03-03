@@ -4,7 +4,7 @@
 
 CREATE TABLE IF NOT EXISTS public.mark_conversations (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  user_id UUID REFERENCES public.profiles(user_id) ON DELETE CASCADE,
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
   galaxy_id UUID,
   session_type TEXT NOT NULL DEFAULT 'general',
   -- 'general' | 'brainstorm' | 'onboarding_post'
