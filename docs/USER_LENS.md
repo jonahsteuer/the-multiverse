@@ -126,6 +126,8 @@ Most artists work with a small team — a manager, an editor, a photographer. Th
 
 ## Using This Lens in Playwright Tests
 
+Always open **both** `USER_LENS.md` (principles) and `USER_FEEDBACK.md` (real user data) before evaluating a test result or a proposed change.
+
 When writing or reviewing Playwright tests, ask:
 
 1. **Efficiency check**: How many clicks/interactions does this flow take? Is that the minimum possible?
@@ -133,5 +135,6 @@ When writing or reviewing Playwright tests, ask:
 3. **Control check**: Can the user skip, reject, or override at each step?
 4. **Momentum check**: Is there clear progress feedback and a "what's next" after each completion?
 5. **Transparency check**: Does the user understand *why* each suggestion is being made?
+6. **Feedback alignment check**: Does this change resolve any `open` entries in `USER_FEEDBACK.md`? Does it risk reversing any `resolved` ones?
 
-If a test passes but violates one of these principles, treat it as a product bug and surface it for review.
+If a test passes but violates one of these principles or contradicts logged feedback, treat it as a product bug and surface it for review before shipping.
