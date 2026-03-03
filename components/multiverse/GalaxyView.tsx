@@ -606,10 +606,14 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
       updatedAt: new Date().toISOString(),
     })));
 
-    if (!team || !effectiveIsAdmin || sharedEventsSavedRef.current) return;
-    sharedEventsSavedRef.current = true;
+    if (!team || !effectiveIsAdmin) return;
 
     const existingEvents = teamTasks.filter(t => t.taskCategory === 'event' && t.galaxyId === galaxy.id);
+
+    // If events already exist in teamTasks, skip DB write (already saved)
+    // Exception: if sharedEventsSavedRef is false AND no events found, always try to save
+    if (sharedEventsSavedRef.current && existingEvents.length > 0) return;
+    sharedEventsSavedRef.current = true;
 
     // Deduplicate existing DB events: if multiple events share the same date, keep
     // the first and delete the rest. This repairs duplicates from previous bugs.
