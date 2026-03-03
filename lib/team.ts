@@ -1183,7 +1183,7 @@ export async function sendPostForRevision(
 
 /** Get all post-type events for a galaxy (for Upload Posts modal) */
 export async function getPostEvents(teamId: string, galaxyId: string): Promise<TeamTask[]> {
-  if (!isSupabaseConfigured()) return [];
+  if (!isSupabaseConfigured() || !teamId || !galaxyId) return [];
 
   const { data, error } = await supabase
     .from('team_tasks')
@@ -1191,7 +1191,7 @@ export async function getPostEvents(teamId: string, galaxyId: string): Promise<T
     .eq('team_id', teamId)
     .eq('galaxy_id', galaxyId)
     .eq('task_category', 'event')
-    .in('type', ['post', 'release'])
+    .in('type', ['post', 'release', 'audience-builder', 'teaser', 'promo'])
     .order('date', { ascending: true });
 
   if (error) {
