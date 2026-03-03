@@ -668,9 +668,13 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
     );
     const editorName = editorMember?.displayName;
 
-    // Default scheduling starts at 10am
+    // Schedule anchor: start from current time + 30min buffer (rounded to next :00 or :30), min 10am
+    const currentHour = h + m / 60;
+    const anchorHour = Math.max(10, Math.ceil((currentHour + 0.5) * 2) / 2); // round up to nearest half-hour
+    const anchorMin = Math.round((anchorHour % 1) * 60);
+    const anchorH = Math.floor(anchorHour);
     const makeTime = (offsetMinutes: number) => {
-      const total = 10 * 60 + offsetMinutes; // anchor at 10:00am
+      const total = anchorH * 60 + anchorMin + offsetMinutes;
       return `${pad(Math.floor(total / 60) % 24)}:${pad(total % 60)}`;
     };
 
@@ -747,44 +751,65 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
       // it appears in the calendar (week 2) and auto-surfaces in the todo list
       // once the upload task is marked done.
     } else if (hasRawButNoEdited) {
-      // Has raw footage — no shoot needed, focus on reviewing + sending to editor
-      const batchOne = Math.min(10, roughClipCount);
-      defaultTasks.push({
-        id: 'default-review-footage',
-        teamId: '',
-        galaxyId: galaxy.id,
-        title: `Review & organize existing footage (est. 45 min)`,
-        description: `Go through your ${roughClipCount} rough clips. Pick the ${batchOne} strongest and flag any that need specific edit notes.`,
-        type: 'prep' as const,
-        taskCategory: 'task' as const,
-        date: todayStr,
-        startTime: makeTime(20),
-        endTime: makeTime(65),
-        status: 'pending' as const,
-        assignedBy: '',
-        createdAt: now.toISOString(),
-        updatedAt: now.toISOString(),
-      });
-      defaultTasks.push({
-        id: 'default-send-footage',
-        teamId: '',
-        galaxyId: galaxy.id,
-        title: editorName
-          ? `Send first batch to ${editorName} for editing (est. 20 min)`
-          : `Edit first batch of posts (est. 90 min)`,
-        description: editorName
-          ? `Forward your top ${batchOne} clips to ${editorName} with any notes on cuts, color, or vibe. Include the target post dates.`
-          : `Cut your top ${batchOne} rough clips into 15–30 second post-ready videos.`,
-        type: 'prep' as const,
-        taskCategory: 'task' as const,
-        date: todayStr,
-        startTime: makeTime(70),
-        endTime: makeTime(90),
-        status: 'pending' as const,
-        assignedBy: '',
-        createdAt: now.toISOString(),
-        updatedAt: now.toISOString(),
-      });
+      // Has raw footage and/or rough edits — generate specific upload tasks
+      // "Upload footage" for raw/unedited footage
+      if (rawFootageDesc) {
+        defaultTasks.push({
+          id: 'default-upload-footage',
+          teamId: '',
+          galaxyId: galaxy.id,
+          title: 'Upload footage',
+          description: `Upload your raw footage (${rawFootageDesc}) to the platform so your team can access and edit it.`,
+          type: 'prep' as const,
+          taskCategory: 'task' as const,
+          date: todayStr,
+          startTime: makeTime(20),
+          endTime: makeTime(35),
+          status: 'pending' as const,
+          assignedBy: '',
+          createdAt: now.toISOString(),
+          updatedAt: now.toISOString(),
+        });
+      }
+      // "Upload rough edit(s)" for any rough cuts the artist made themselves
+      if (editedClipCount > 0) {
+        const roughLabel = editedClipCount === 1 ? 'rough edit' : `${editedClipCount} rough edits`;
+        defaultTasks.push({
+          id: 'default-upload-rough',
+          teamId: '',
+          galaxyId: galaxy.id,
+          title: editedClipCount === 1 ? 'Upload rough edit' : `Upload ${editedClipCount} rough edits`,
+          description: `Upload your ${roughLabel} so ${editorName ? editorName : 'your editor'} can refine and finalize them for posting. Paste a Google Drive, YouTube, or Dropbox link.`,
+          type: 'prep' as const,
+          taskCategory: 'task' as const,
+          date: todayStr,
+          startTime: makeTime(rawFootageDesc ? 40 : 20),
+          endTime: makeTime(rawFootageDesc ? 55 : 35),
+          status: 'pending' as const,
+          assignedBy: '',
+          createdAt: now.toISOString(),
+          updatedAt: now.toISOString(),
+        });
+      }
+      // If they have an editor, surface a "send to editor" task
+      if (editorName) {
+        defaultTasks.push({
+          id: 'default-send-footage',
+          teamId: '',
+          galaxyId: galaxy.id,
+          title: `Send footage to ${editorName} for editing (est. 20 min)`,
+          description: `Once footage is uploaded, notify ${editorName} with any notes on the vibe, cuts, or target post dates.`,
+          type: 'prep' as const,
+          taskCategory: 'task' as const,
+          date: todayStr,
+          startTime: makeTime(60),
+          endTime: makeTime(80),
+          status: 'pending' as const,
+          assignedBy: '',
+          createdAt: now.toISOString(),
+          updatedAt: now.toISOString(),
+        });
+      }
     } else {
       // Content-light flow: brainstorm → plan shoot
       defaultTasks.push({
@@ -1684,7 +1709,8 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
 
           for (const release of releases) {
             if (!release.releaseDate || release.releaseDate === 'TBD' || release.releaseDate === null) continue;
-            const releaseDate = new Date(release.releaseDate);
+            const rdStr = release.releaseDate as string;
+            const releaseDate = new Date(rdStr.includes('T') ? rdStr : rdStr + 'T12:00:00');
             const daysUntilRelease = Math.floor((releaseDate.getTime() - postDate.getTime()) / (1000 * 60 * 60 * 24));
             if (daysUntilRelease > 0 && daysUntilRelease <= 14) {
               postType = 'teaser';
@@ -1695,7 +1721,8 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
           if (postType === 'audience-builder') {
             for (const release of releases) {
               if (!release.releaseDate || release.releaseDate === 'TBD' || release.releaseDate === null) continue;
-              const releaseDate = new Date(release.releaseDate);
+              const rdStr = release.releaseDate as string;
+              const releaseDate = new Date(rdStr.includes('T') ? rdStr : rdStr + 'T12:00:00');
               const daysSinceRelease = Math.floor((postDate.getTime() - releaseDate.getTime()) / (1000 * 60 * 60 * 24));
               if (daysSinceRelease > 0 && daysSinceRelease <= 30) {
                 postType = 'promo';

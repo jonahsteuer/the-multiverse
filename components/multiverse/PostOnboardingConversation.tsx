@@ -738,9 +738,11 @@ export function PostOnboardingConversation({
   };
 
   // Handle send
-  const handleSend = () => {
-    if (userInput.trim() && !isSpeaking) {
-      handleUserResponse(userInput.trim());
+  const handleSend = (overrideText?: string) => {
+    const text = overrideText !== undefined ? overrideText : userInput;
+    if (text.trim() && !isSpeaking) {
+      if (!overrideText) setUserInput('');
+      handleUserResponse(text.trim());
     }
   };
 
@@ -1001,7 +1003,11 @@ export function PostOnboardingConversation({
             <div className="space-y-3">
               {/* Voice Input */}
               <VoiceInput
-                onTranscript={(text) => setUserInput(text)}
+                onTranscript={(text) => {
+                  setUserInput(text);
+                  // Auto-submit when VoiceInput fires (matches behavior of initial onboarding)
+                  handleSend(text);
+                }}
                 disabled={isSpeaking}
                 autoStartAfterDisabled={true}
               />
@@ -1018,7 +1024,7 @@ export function PostOnboardingConversation({
                   className="flex-1 px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-yellow-500/50 disabled:opacity-50"
                 />
                 <Button
-                  onClick={handleSend}
+                  onClick={() => handleSend()}
                   disabled={!userInput.trim() || isSpeaking}
                   className="px-6 bg-yellow-500 hover:bg-yellow-600 text-black font-star-wars disabled:opacity-50"
                 >

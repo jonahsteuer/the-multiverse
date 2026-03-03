@@ -55,7 +55,8 @@ export function ScheduleWalkthrough({
       songName
     });
     
-    const release = new Date(releaseDate);
+    // Parse as local noon to avoid UTC-midnight off-by-one in negative-offset timezones
+    const release = new Date(releaseDate.includes('T') ? releaseDate : releaseDate + 'T12:00:00');
     const today = new Date();
     const launchDay = new Date(today.getTime() + 14 * 24 * 60 * 60 * 1000); // 2 weeks from now
     

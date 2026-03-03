@@ -979,8 +979,15 @@ export function EnhancedCalendar({
     const workdayStart = 10; // 10am
     const workdayEnd = 22;  // 10pm
     const durationHours = durationMinutes / 60;
-    
-    let currentTime = workdayStart;
+
+    // For today, don't schedule in the past — start from current time + 30min buffer
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const isToday = dateStr === todayStr;
+    const currentHour = now.getHours() + now.getMinutes() / 60;
+    const earliestStart = isToday ? Math.max(workdayStart, Math.ceil((currentHour + 0.5) * 2) / 2) : workdayStart;
+
+    let currentTime = earliestStart;
     
     for (const busy of busyTimes) {
       // Check if there's enough time before this busy period
@@ -1239,8 +1246,11 @@ export function EnhancedCalendar({
     const releases = (artistProfile as any)?.releases || [];
     releases.forEach((release: any, index: number) => {
       if (release.releaseDate && release.releaseDate !== 'TBD' && release.releaseDate !== null) {
-        const releaseDateObj = new Date(release.releaseDate);
-        const releaseDateStr = releaseDateObj.toISOString().split('T')[0];
+        // Parse as local noon to avoid UTC-midnight off-by-one
+        const releaseDateObj = new Date(
+          release.releaseDate.includes('T') ? release.releaseDate : release.releaseDate + 'T12:00:00'
+        );
+        const releaseDateStr = release.releaseDate.substring(0, 10);
         const releaseName = release.name || release.title || 'Release';
         
         // Check if release is within our 28-day window

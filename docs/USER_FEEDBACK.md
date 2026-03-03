@@ -263,15 +263,140 @@ Patterns that appear across multiple entries. These should directly inform featu
 
 ---
 
+---
+
+### Entry 018
+**Date:** 2026-03-02
+**Source:** Leon Tax (direct user test — onboarding)
+**Raw quote:** *"I thought my manager's name was Mark. Why is it in a girl's voice?"*
+**Theme:** Mark / Voice Consistency
+**Status:** open
+**Notes:** The male voice fix from Entry 010 was not sufficient — voice still switches to female for some users. Browser TTS voice loading is asynchronous and the cached voice may not be ready on first speak.
+
+---
+
+### Entry 019
+**Date:** 2026-03-02
+**Source:** Leon Tax (direct user test — calendar walkthrough)
+**Raw quote:** *"I noticed on the calendar walkthrough after I finished the initial conversation that it got my release date wrong. I told it March 21st, but on the walkthrough calendar it said March 20th."*
+**Theme:** Release Date / Timezone Bug
+**Status:** open
+**Notes:** Classic off-by-1 timezone issue. Dates stored as "2026-03-21" parse as UTC midnight, which renders as March 20 in UTC-8 (PST) timezones.
+
+---
+
+### Entry 020
+**Date:** 2026-03-02
+**Source:** Leon Tax (direct user test — calendar walkthrough)
+**Raw quote:** *"I responded to Mark's question 'do you think you could stick to the plan' with 'yes, send' and it didn't send the message like it was sending it during the initial conversation. It just turned off the mic and I had to manually press send."*
+**Theme:** Voice Input / Send Trigger
+**Status:** open
+**Notes:** "Yes, send" is a recognized send trigger phrase. It's working in the initial onboarding conversation but not in the post-onboarding calendar walkthrough — suggesting the PostOnboardingConversation component has a different VoiceInput configuration.
+
+---
+
+### Entry 021
+**Date:** 2026-03-02
+**Source:** Leon Tax (direct user test — todo list)
+**Raw quote:** *"For some reason it scheduled tasks for today at 10am, but that time has already passed. How could I review and organize existing footage at 10am when it is 5:26PM?"*
+**Theme:** Task Scheduling / Past Times
+**Status:** open
+**Notes:** The scheduling logic always uses 10am as default start time. If the user signs up in the afternoon, today's tasks are immediately in the past.
+
+---
+
+### Entry 022
+**Date:** 2026-03-02
+**Source:** Leon Tax (direct user test — task panel)
+**Raw quote:** *"I got this task 'review and organize existing footage' that doesn't make sense at all. Why is it having me review 10 rough edits when I told it I only have one?"*
+**Theme:** Task Generation / Data Accuracy
+**Status:** open
+**Notes:** The task description is pulling from a hardcoded template ("10 rough clips") rather than the actual `editedClipCount` from the user's onboarding profile. Leon Tax said he has 1 rough edit, not 10.
+
+---
+
+### Entry 023
+**Date:** 2026-03-02
+**Source:** Leon Tax (direct user test — task generation)
+**Raw quote:** *"If I told Mark that I have footage, there should be a task that asks me to upload this footage. There should also be a task that asks me to upload my rough edit since it knows I have that."*
+**Theme:** Task Generation / Content Workflow
+**Status:** open
+**Notes:** Instead of "Review & organize existing footage," the app should generate two distinct tasks: "Upload footage" (for the raw visualizer footage) and "Upload rough edit" (for the one rough edit). These should be the entry points for team collaboration.
+
+---
+
+### Entry 024
+**Date:** 2026-03-02
+**Source:** Leon Tax (direct user test — team collaboration)
+**Raw quote:** *"If I log on, invite Ruby, upload footage from the visualizer I said I have, can you make sure she can access both the footage and the rough edit I made. Maybe it makes sense somewhere in the main galaxyview to include a place where all members of my team can access edits and footage."*
+**Theme:** Team Collaboration / Media Library
+**Status:** open
+**Notes:** There is currently no shared media library in GalaxyView. Uploaded footage and edits should be accessible to all invited team members. This is a new feature request.
+
+---
+
+### Entry 025
+**Date:** 2026-03-02
+**Source:** Leon Tax (direct user test — brainstorm)
+**Raw quote:** *"Those ideas were fine but the angle and a lot of the captions seemed a little corny to me."*
+**Theme:** Brainstorm / Idea Quality
+**Status:** open
+**Notes:** User noticed the captions felt generic/corny. This confirms the need for more authentic, artist-specific language in generated captions — less marketing-speak.
+
+---
+
+### Entry 026
+**Date:** 2026-03-02
+**Source:** Leon Tax (direct user test — brainstorm)
+**Raw quote:** *"Some of those ideas were a little bit better but do you have anything that's a little less depressing — a lot of those ideas were kind of morbid. I wonder if there's a way to take a more lighthearted approach, think ideas that I can easily film with my phone in my studio or outside my backyard."*
+**Theme:** Brainstorm / Idea Tone + Equipment Match
+**Status:** open
+**Notes:** The first two rounds generated emotionally heavy content. The brainstorm should calibrate tone to what the artist actually wants. Also, equipment context ("phone in studio or backyard") should be weighted more heavily when generating ideas.
+
+---
+
+### Entry 027
+**Date:** 2026-03-02
+**Source:** Leon Tax (direct user test — brainstorm summary)
+**Raw quote:** *"For some reason it added 6 posts. I chose 3 and I guess it duplicated each."*
+**Theme:** Brainstorm → Schedule / Post Duplication
+**Status:** open
+**Notes:** `proceedToPostAssignment` fills ALL scheduled post slots by cycling through liked ideas. If there are 6 slots and 3 ideas, each idea gets used twice. Fix: create exactly N post events for N liked ideas, not fill all slots.
+
+---
+
+### Entry 028
+**Date:** 2026-03-02
+**Source:** Leon Tax (direct user test — shoot day)
+**Raw quote:** *"When I hit 'plan shoot day now', it just added the posts to my schedule instead of helping me plan my shoot day. Mark should've remembered that I said I wanted to shoot these content ideas tomorrow."*
+**Theme:** Shoot Day Planning / Context Memory
+**Status:** open
+**Notes:** "Plan it now" just creates a generic task for tomorrow. (1) It should ask for the shoot date, defaulting to what the user mentioned. (2) Mark should retain context from the brainstorm conversation (e.g., "shoot tomorrow") and pre-fill answers.
+
+---
+
+### Entry 029
+**Date:** 2026-03-02
+**Source:** Leon Tax (direct user test — data)
+**Raw quote:** *"We should be saving all user conversations with Mark, especially during brainstorm — this is valuable data that we can use to make Mark better and more informed."*
+**Theme:** Data / Conversation Logging
+**Status:** open
+**Notes:** Mark conversations (especially brainstorm sessions) are not currently persisted to the database. This data is critical for improving Mark and for future context recall.
+
+---
+
 ## Open Questions from Users
 
 Things users raised that we haven't fully resolved yet. These should be prioritized.
 
 | # | Question / Request | Source | Date | Priority |
 |---|---|---|---|---|
-| Q1 | "I want some help brainstorming some new content I like the 15 videos I have but want more to post" — full voice-driven brainstorm end-to-end has not been tested live with the new flow | Kiss Bang | 2026-03-01 | High |
-| Q2 | Shoot day planning "now" option currently just adds a task for tomorrow — user expected a guided shoot day planning flow | Kiss Bang | 2026-03-02 | Medium |
-| Q3 | "Send edits back to Ruby with notes" task — full revision notification flow to team members not fully verified | Kiss Bang | 2026-03-01 | Medium |
+| Q1 | Full voice-driven brainstorm end-to-end has not been tested live with the new flow | Kiss Bang | 2026-03-01 | High |
+| Q2 | Shoot day planning "now" should ask for preferred date, not blindly use tomorrow | Kiss Bang / Leon Tax | 2026-03-02 | High |
+| Q3 | "Send edits back to Ruby with notes" — full revision notification flow to team not verified | Kiss Bang | 2026-03-01 | Medium |
+| Q4 | Shared media library in GalaxyView — team members need access to uploaded footage and rough edits | Leon Tax | 2026-03-02 | High |
+| Q5 | Mark conversations (especially brainstorm) should be saved to DB for training and future context | Leon Tax | 2026-03-02 | High |
+| Q6 | Mark's voice still switching to female for some users despite the fix in Entry 010 | Leon Tax | 2026-03-02 | High |
 
 ---
 

@@ -551,6 +551,7 @@ export interface BrainstormResult {
   editDays: BrainstormEditDay[];
   shootDays: BrainstormShootDay[];
   shootDayAction?: 'plan_now' | 'schedule_task' | 'skip'; // What to do about shoot days
+  shootDayDate?: string; // YYYY-MM-DD — the chosen shoot date when action is 'plan_now'
   completedBy?: string; // user_id
   completedAt: string;
   reviewedBy?: string; // user_id (admin who reviewed)

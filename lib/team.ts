@@ -767,15 +767,16 @@ export async function createTasksFromBrainstorm(
     });
     if (task) tasks.push(task);
   } else if (result.shootDayAction === 'plan_now') {
-    // Artist chose to plan now — create shoot event for tomorrow (or earliest preferred day)
-    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    // Artist chose to plan now — use the date they picked, falling back to tomorrow
+    const fallbackTomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const shootDate = result.shootDayDate || fallbackTomorrow;
     const task = await createTask(teamId, {
       galaxyId,
       title: 'Shoot day',
       description: 'Shoot content for your brainstormed ideas. Check your plan for details.',
       type: 'shoot',
       taskCategory: 'event',
-      date: tomorrow,
+      date: shootDate,
       startTime: '10:00',
       endTime: '14:00',
     });
@@ -1201,3 +1202,58 @@ export async function getPostEvents(teamId: string, galaxyId: string): Promise<T
   return (data || []).map(mapTaskFromDb);
 }
 
+// ============================================================================
+// MARK CONVERSATION STORAGE
+// ============================================================================
+
+export interface MarkConversationMessage {
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: string;
+}
+
+/**
+ * Upsert a Mark conversation session.
+ * Pass `sessionId` to update an existing row, or omit to insert a new one.
+ * Returns the row's id so the caller can update it on subsequent saves.
+ */
+export async function saveMarkConversation(
+  userId: string,
+  galaxyId: string | null,
+  sessionType: 'general' | 'brainstorm' | 'onboarding_post',
+  messages: MarkConversationMessage[],
+  context?: Record<string, unknown>,
+  sessionId?: string,
+): Promise<string | null> {
+  if (!isSupabaseConfigured()) return null;
+  if (!userId) return null;
+
+  try {
+    if (sessionId) {
+      const { error } = await supabase
+        .from('mark_conversations')
+        .update({ messages, updated_at: new Date().toISOString() })
+        .eq('id', sessionId)
+        .eq('user_id', userId);
+      if (error) throw error;
+      return sessionId;
+    } else {
+      const { data, error } = await supabase
+        .from('mark_conversations')
+        .insert({
+          user_id: userId,
+          galaxy_id: galaxyId,
+          session_type: sessionType,
+          messages,
+          context: context || {},
+        })
+        .select('id')
+        .single();
+      if (error) throw error;
+      return data?.id ?? null;
+    }
+  } catch (err) {
+    console.warn('[Mark] Failed to save conversation (non-blocking):', err);
+    return null;
+  }
+}

@@ -64,6 +64,7 @@ type BrainstormStep =
   | 'ideas_feedback'
   // Post assignment & confirmation
   | 'shoot_day_prompt'
+  | 'shoot_day_date'
   | 'intro'
   | 'format_selection'
   | 'post_assignment'
@@ -480,11 +481,12 @@ export function BrainstormContent({
 
   // Auto-assign liked ideas to scheduled posts and proceed to summary
   const proceedToPostAssignment = (ideas: ContentIdea[]) => {
-    const targetPosts = scheduledPosts.length > 0 ? scheduledPosts : generateFallbackPosts(ideas.length);
+    const allPosts = scheduledPosts.length > 0 ? scheduledPosts : generateFallbackPosts(ideas.length);
+    // One post per liked idea — never cycle/duplicate
+    const postsToUse = allPosts.slice(0, ideas.length);
 
-    // Distribute ideas evenly across posts
-    const newAssignments: ContentFormatAssignment[] = targetPosts.map((post, idx) => {
-      const idea = ideas[idx % ideas.length];
+    const newAssignments: ContentFormatAssignment[] = postsToUse.map((post, idx) => {
+      const idea = ideas[idx];
       return {
         postIndex: idx,
         postId: post.id,
@@ -504,7 +506,7 @@ export function BrainstormContent({
   // Generate fallback post slots when none exist yet (evenly spread over next 4 weeks)
   const generateFallbackPosts = (count: number) => {
     const today = new Date();
-    return Array.from({ length: Math.max(count, 5) }, (_, i) => {
+    return Array.from({ length: count }, (_, i) => {
       const date = new Date(today.getTime() + (7 + i * 3) * 24 * 60 * 60 * 1000);
       return {
         id: `brainstorm-post-${i}`,
@@ -755,6 +757,8 @@ export function BrainstormContent({
   const [generatedShootDays, setGeneratedShootDays] = useState<BrainstormShootDay[]>([]);
 
   const [shootDayAction, setShootDayAction] = useState<'plan_now' | 'schedule_task' | 'skip' | null>(null);
+  const tomorrow = (() => { const d = new Date(); d.setDate(d.getDate() + 1); return d.toISOString().split('T')[0]; })();
+  const [shootDayDate, setShootDayDate] = useState<string>(tomorrow);
 
   const handleConfirm = () => {
     addUserMessage("Looks great, let's do it! ✅");
@@ -774,7 +778,7 @@ export function BrainstormContent({
     }
   };
 
-  const finalizeAndComplete = (action: 'plan_now' | 'schedule_task' | 'skip') => {
+  const finalizeAndComplete = (action: 'plan_now' | 'schedule_task' | 'skip', chosenShootDate?: string) => {
     setShootDayAction(action);
     setStep('complete');
 
@@ -786,12 +790,13 @@ export function BrainstormContent({
       editDays: generatedEditDays,
       shootDays: generatedShootDays,
       shootDayAction: action,
+      shootDayDate: action === 'plan_now' ? (chosenShootDate || shootDayDate) : undefined,
       completedAt: new Date().toISOString(),
       status: 'completed',
     };
 
     const shootMsg = action === 'plan_now'
-      ? ' Shoot day added for tomorrow — check your calendar.'
+      ? ` Shoot day scheduled for ${chosenShootDate || shootDayDate} — check your calendar.`
       : action === 'schedule_task'
       ? ' A "Plan shoot day" task has been added to your calendar.'
       : '';
@@ -1417,17 +1422,21 @@ export function BrainstormContent({
           {step === 'shoot_day_prompt' && !isTyping && (
             <div className="space-y-2">
               <button
-                onClick={() => finalizeAndComplete('plan_now')}
+                onClick={() => {
+                  addUserMessage("Let's plan it now 📅");
+                  setStep('shoot_day_date');
+                  addBotMessage(`When do you want to shoot? I've suggested tomorrow — change it if you prefer a different day.`, 400);
+                }}
                 className="w-full flex items-center gap-3 p-3 rounded-xl border border-purple-500/40 bg-purple-600/20 hover:bg-purple-600/40 text-left transition-all"
               >
                 <span className="text-xl">📅</span>
                 <div>
                   <p className="text-sm font-semibold text-white">Plan it now</p>
-                  <p className="text-[11px] text-gray-400">Add a shoot day to tomorrow's schedule</p>
+                  <p className="text-[11px] text-gray-400">Pick a shoot date and add it to your schedule</p>
                 </div>
               </button>
               <button
-                onClick={() => finalizeAndComplete('schedule_task')}
+                onClick={() => { addUserMessage("Add it to my calendar 🗓"); finalizeAndComplete('schedule_task'); }}
                 className="w-full flex items-center gap-3 p-3 rounded-xl border border-gray-600 bg-gray-800/50 hover:bg-gray-700/50 text-left transition-all"
               >
                 <span className="text-xl">🗓</span>
@@ -1437,10 +1446,36 @@ export function BrainstormContent({
                 </div>
               </button>
               <button
-                onClick={() => finalizeAndComplete('skip')}
+                onClick={() => { addUserMessage("I already have footage — skip"); finalizeAndComplete('skip'); }}
                 className="w-full text-xs text-gray-500 hover:text-gray-300 py-2 transition-colors"
               >
                 I already have footage — skip this
+              </button>
+            </div>
+          )}
+
+          {/* SHOOT DAY DATE PICKER */}
+          {step === 'shoot_day_date' && !isTyping && (
+            <div className="space-y-3">
+              <div className="bg-gray-800/60 rounded-xl p-3 space-y-2">
+                <p className="text-xs text-gray-400 uppercase tracking-wider">Shoot date</p>
+                <input
+                  type="date"
+                  value={shootDayDate}
+                  min={tomorrow}
+                  onChange={(e) => setShootDayDate(e.target.value)}
+                  className="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-purple-500"
+                />
+              </div>
+              <button
+                onClick={() => {
+                  const formatted = new Date(shootDayDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+                  addUserMessage(`Let's shoot on ${formatted}`);
+                  finalizeAndComplete('plan_now', shootDayDate);
+                }}
+                className="w-full py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-sm font-semibold transition-all"
+              >
+                Confirm shoot date →
               </button>
             </div>
           )}

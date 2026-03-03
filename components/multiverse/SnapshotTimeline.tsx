@@ -44,7 +44,7 @@ export function SnapshotTimeline({ snapshots, releaseDate, worldName }: Snapshot
     return sortedGroups;
   }, [snapshots]);
 
-  const release = new Date(releaseDate);
+  const release = new Date(releaseDate.includes('T') ? releaseDate : releaseDate + 'T12:00:00');
   const today = new Date();
   const isReleased = release <= today;
 

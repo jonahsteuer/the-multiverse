@@ -42,8 +42,8 @@ const GalaxyViewWrapper = dynamic(
 // ============================================================================
 // DEV MODE: Developer testing flags
 // ============================================================================
-const DEV_SKIP_ONBOARDING = false; // Set to true to skip to galaxy view with test data
-const DEV_SKIP_TO_POST_ONBOARDING = false; // Set to true to test post-onboarding conversation
+const DEV_SKIP_ONBOARDING = false;
+const DEV_SKIP_TO_POST_ONBOARDING = false;
 
 // ============================================================================
 
@@ -337,117 +337,6 @@ export default function Home() {
         }
       }
       
-      // DEV MODE: Skip directly to enhanced calendar for testing
-      if (DEV_SKIP_TO_POST_ONBOARDING) {
-        console.log('[DEV MODE] Skipping directly to enhanced calendar view...');
-        
-        // Always skip to calendar in dev mode
-        setSkipToCalendar(true);
-        
-        // Create test account with onboarding data
-        const testAccount: CreatorAccountData = {
-          creatorName: DEV_TEST_DATA.creatorName,
-          email: DEV_TEST_DATA.email,
-          password: 'test123',
-          userType: 'artist',
-          onboardingComplete: true,
-          onboardingProfile: DEV_TEST_DATA.onboardingProfile,
-        };
-        setAccount(testAccount);
-        setShowPostOnboarding(true);
-        setIsInitializing(false);
-        setIsLoading(false);
-        return;
-      }
-      
-      // DEV MODE: Skip onboarding and create test data
-      if (DEV_SKIP_ONBOARDING) {
-        console.log('[DEV MODE] Skipping onboarding, creating test data...');
-        
-        // Check if we already have data
-        const existingAccount = await loadAccount();
-        const existingUniverse = await loadUniverse();
-        
-        if (existingAccount && existingUniverse && existingUniverse.galaxies.length > 0) {
-          console.log('[DEV MODE] Data already exists, loading...');
-          setAccount(existingAccount);
-          setUniverse(existingUniverse);
-          
-          const savedGalaxyId = loadCurrentGalaxyId();
-          if (savedGalaxyId) {
-            const galaxy = existingUniverse.galaxies.find(g => g.id === savedGalaxyId);
-            if (galaxy) setCurrentGalaxy(galaxy);
-          } else if (existingUniverse.galaxies.length > 0) {
-            setCurrentGalaxy(existingUniverse.galaxies[0]);
-          }
-        } else {
-          // Create test account
-          const testAccount: CreatorAccountData = {
-            creatorName: DEV_TEST_DATA.creatorName,
-            email: DEV_TEST_DATA.email,
-            password: '',
-            userType: 'artist',
-          };
-          await saveAccount(testAccount);
-          setAccount(testAccount);
-          
-          // Create universe with galaxies from test data
-          const newUniverse: Universe = {
-            id: `universe-${Date.now()}`,
-            name: `The ${DEV_TEST_DATA.creatorName}verse`,
-            creatorId: `dev-creator-${Date.now()}`,
-            createdAt: new Date().toISOString(),
-            galaxies: [],
-          };
-          
-          // Create galaxies and worlds from releases
-          for (const release of DEV_TEST_DATA.releases) {
-            const newGalaxy: Galaxy = {
-              id: `galaxy-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-              name: release.name,
-              universeId: newUniverse.id,
-              releaseDate: release.releaseDate,
-              visualLandscape: { images: [], colorPalette: [] },
-              worlds: [],
-              createdAt: new Date().toISOString(),
-            };
-            
-            for (const songName of release.songs) {
-              const worldColor = `#${Math.floor(Math.random()*16777215).toString(16).padStart(6, '0')}`;
-              const newWorld: World = {
-                id: `world-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-                name: songName,
-                galaxyId: newGalaxy.id,
-                releaseDate: release.releaseDate,
-                color: worldColor,
-                visualLandscape: { images: [], colorPalette: [worldColor] },
-                isPublic: false,
-                isReleased: release.isReleased,
-                createdAt: new Date().toISOString(),
-              };
-              newGalaxy.worlds.push(newWorld);
-              await saveWorld(newWorld, newGalaxy.id);
-            }
-            
-            await saveGalaxy(newGalaxy, newUniverse.id);
-            newUniverse.galaxies.push(newGalaxy);
-          }
-          
-          await saveUniverse(newUniverse);
-          setUniverse(newUniverse);
-          
-          if (newUniverse.galaxies.length > 0) {
-            saveCurrentGalaxyId(newUniverse.galaxies[0].id);
-            setCurrentGalaxy(newUniverse.galaxies[0]);
-          }
-          
-          console.log('[DEV MODE] Created test data:', newUniverse.galaxies.length, 'galaxies');
-        }
-        
-        setIsInitializing(false);
-        setIsLoading(false);
-        return;
-      }
       
       try {
         // Check for Supabase session
@@ -1359,7 +1248,7 @@ export default function Home() {
           </div>
           <PostOnboardingConversation
             creatorName={account.creatorName}
-            onboardingProfile={account.onboardingProfile || DEV_TEST_DATA.onboardingProfile}
+            onboardingProfile={(account.onboardingProfile || {}) as any}
             onComplete={handlePostOnboardingComplete}
             skipToCalendar={skipToCalendar}
           />
