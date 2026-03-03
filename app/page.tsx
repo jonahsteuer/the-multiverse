@@ -45,50 +45,6 @@ const GalaxyViewWrapper = dynamic(
 const DEV_SKIP_ONBOARDING = false; // Set to true to skip to galaxy view with test data
 const DEV_SKIP_TO_POST_ONBOARDING = false; // Set to true to test post-onboarding conversation
 
-// Julian Kenji's onboarding data (from actual user test conversation)
-const DEV_TEST_DATA = {
-  creatorName: 'Julian kenji',
-  email: 'julian@test.com',
-  // Onboarding profile data
-  onboardingProfile: {
-    genre: ['indie pop'],
-    musicalInspiration: ['Dominic Fike'],
-    visualAesthetic: 'effortlessly cool',
-    visualStyleDescription: 'Dominic Fike inspired aesthetic - effortlessly cool vibe',
-    releases: [
-      {
-        type: 'album',
-        name: 'Rabbit Season',
-        releaseDate: '2026-01-30', // Released yesterday - recent release scenario
-        isReleased: true,
-        songs: ['blur', 'psychedelic', 'I love you so much', 'cliche', 'freak', 'high demand', 'me and you', 'melody', "what's up"]
-      }
-    ],
-    hasBestPosts: true,
-    bestPostDescription: 'voiceover video about near-death experience and how it led to the genesis of the album - worked because of personal storytelling',
-    platforms: ['instagram', 'tiktok'] as ('instagram' | 'tiktok')[],
-    currentPostingFrequency: 'less_than_weekly' as const,
-    desiredPostingFrequency: '3-4x_week' as const,
-    enjoyedContentFormats: ['artsy performance videos', 'jumping to music with cool editing'],
-    equipment: 'Canon DSLR, iPhone camera, tripod',
-    timeBudgetHoursPerWeek: 7,
-    preferredDays: ['saturday', 'sunday'],
-    hasExistingAssets: false,
-    existingAssetsDescription: 'none currently, will film new content',
-    hasTeam: true,
-    teamMembers: 'videographer friends who can help shoot ideas',
-  } as any,
-  // Legacy release data for backward compatibility
-  releases: [
-    {
-      type: 'album',
-      name: 'Rabbit Season',
-      releaseDate: '2026-01-30',
-      isReleased: true,
-      songs: ['blur', 'psychedelic', 'I love you so much', 'cliche', 'freak', 'high demand', 'me and you', 'melody', "what's up"]
-    }
-  ]
-};
 // ============================================================================
 
 /** Load all galaxies from teams the user belongs to (excluding their own universe) */
@@ -502,54 +458,6 @@ export default function Home() {
             let loadedAccount = await loadAccount();
             // Only proceed if we actually have an account
             if (loadedAccount && loadedAccount.creatorName) {
-              // Auto-populate Julian Kenji account with onboarding data if incomplete or missing
-              if ((loadedAccount.creatorName === 'Julian kenji' || loadedAccount.creatorName === 'Julian Kenji') && (!loadedAccount.onboardingComplete || !loadedAccount.onboardingProfile)) {
-                console.log('[Initialize] 🎵 Auto-populating Julian Kenji account with onboarding data from completed conversation...');
-                const julianOnboardingData = {
-                  genre: ["indie pop"],
-                  musicalInspiration: ["Dominic Fike"],
-                  visualAesthetic: "effortlessly cool",
-                  visualStyleDescription: "Dominic Fike inspired aesthetic - effortlessly cool vibe",
-                  releases: [
-                    {
-                      type: "album",
-                      name: "Rabbit Season",
-                      releaseDate: "2026-01-30", // Released yesterday (from the conversation)
-                      isReleased: true,
-                      songs: ["blur", "psychedelic", "I love you so much", "cliche", "freak", "high demand", "me and you", "melody", "what's up"]
-                    }
-                  ],
-                  hasBestPosts: true,
-                  bestPostDescription: "voiceover video about near-death experience and how it led to the genesis of the album - worked because of personal storytelling",
-                  platforms: ["instagram", "tiktok"],
-                  currentPostingFrequency: "couple times a week",
-                  desiredPostingFrequency: "3-4x_week",
-                  enjoyedContentFormats: ["artsy performance videos", "jumping to music with cool editing"],
-                  equipment: "Canon DSLR, iPhone camera, tripod",
-                  timeBudgetHoursPerWeek: 7,
-                  preferredDays: ["saturday", "sunday"],
-                  hasExistingAssets: false,
-                  existingAssetsDescription: "none currently, will film new content",
-                  hasTeam: true,
-                  teamMembers: "videographer friends who can help shoot ideas",
-                };
-                
-                loadedAccount = {
-                  ...loadedAccount,
-                  onboardingComplete: true,
-                  onboardingProfile: julianOnboardingData as any,
-                };
-                await saveAccount(loadedAccount);
-                setAccount(loadedAccount);
-                console.log('[Initialize] ✅ Julian Kenji account populated and marked complete');
-                
-                // Trigger post-onboarding
-                setShowPostOnboarding(true);
-                setIsInitializing(false);
-                setIsLoading(false);
-                return;
-              }
-              
               setAccount(loadedAccount);
               console.log('[Initialize] Generic account handler for:', loadedAccount.creatorName);
               console.log('[Initialize] Onboarding complete:', loadedAccount.onboardingComplete);
