@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { MarkContext } from '@/lib/mark-knowledge';
 import { VoiceInput } from './VoiceInput';
 import { saveMarkConversation } from '@/lib/team';
@@ -195,12 +195,12 @@ export function MarkChatPanel({ isOpen, onClose, context, initialMessage, onOpen
     scrollToBottom();
   }, [messages]);
 
-  // Debounced conversation save — fires 3 seconds after last message change
-  const debouncedSave = useCallback((currentMessages: Message[]) => {
+  // Debounced conversation save via useEffect — React-safe, fires after render
+  useEffect(() => {
+    if (messages.length < 2) return;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(async () => {
-      if (currentMessages.length < 2) return; // Don't save empty/greeting-only sessions
-      const serialized = currentMessages.map(m => ({
+      const serialized = messages.map(m => ({
         role: m.role,
         content: m.content,
         timestamp: m.timestamp.toISOString(),
@@ -217,7 +217,10 @@ export function MarkChatPanel({ isOpen, onClose, context, initialMessage, onOpen
       );
       if (id && !sessionIdRef.current) sessionIdRef.current = id;
     }, 3000);
-  }, [context]);
+    return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages]);
+
 
   // Reset conversation and speak contextual greeting whenever panel opens
   useEffect(() => {
@@ -323,20 +326,15 @@ export function MarkChatPanel({ isOpen, onClose, context, initialMessage, onOpen
         timestamp: new Date(),
       };
 
-      setMessages(prev => {
-        const updated = [...prev, assistantMessage];
-        // Mark brainstorm sessions for richer tagging
-        if (hasBrainstormSignal) isBrainstormSessionRef.current = true;
-        debouncedSave(updated);
-        return updated;
-      });
+      setMessages(prev => [...prev, assistantMessage]);
+      if (hasBrainstormSignal) isBrainstormSessionRef.current = true;
       speak(cleanMessage);
 
       if (hasBrainstormSignal && onOpenBrainstorm) {
         setTimeout(() => {
           onClose();
           onOpenBrainstorm(brainstormData);
-        }, 1_200); // small delay so user reads Mark's message first
+        }, 1_200);
       }
     } catch (error) {
       console.error('[Mark Chat] Error:', error);
@@ -345,11 +343,7 @@ export function MarkChatPanel({ isOpen, onClose, context, initialMessage, onOpen
         content: "Sorry, I'm having trouble connecting right now. Try again in a sec.",
         timestamp: new Date(),
       };
-      setMessages(prev => {
-        const updated = [...prev, errorMessage];
-        debouncedSave(updated);
-        return updated;
-      });
+      setMessages(prev => [...prev, errorMessage]);
       speak(errorMessage.content);
     } finally {
       setIsLoading(false);

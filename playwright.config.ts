@@ -12,7 +12,7 @@ export default defineConfig({
   ],
   use: {
     baseURL: 'https://the-multiverse.vercel.app',
-    headless: false,
+    headless: true,
     viewport: { width: 1440, height: 900 },
     screenshot: 'only-on-failure',  // was 'on' — saves time writing files
     video: 'retain-on-failure',     // was 'on' — video for every test was slow
