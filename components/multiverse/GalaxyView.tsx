@@ -1401,8 +1401,8 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
         />
       )}
 
-      {/* Hidden calendar: eagerly generates shared post events to DB on first load */}
-      {needsPostScheduleInit && galaxy.releaseDate && (
+      {/* Hidden calendar: eagerly caches + saves post events before user opens calendar */}
+      {needsPostScheduleInit && effectiveIsAdmin && galaxy.releaseDate && (
         <div style={{ display: 'none' }} aria-hidden>
           <EnhancedCalendar
             songName={galaxy.name}
@@ -1413,9 +1413,9 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
             teamMembers={teamMembers}
             currentUserId={currentUserId || undefined}
             userPermissions="full"
-            onSharedEventsGenerated={async (events) => {
+            onSharedEventsGenerated={(events) => {
+              handleSharedEventsGenerated(events);
               setNeedsPostScheduleInit(false);
-              await handleSharedEventsGenerated(events);
             }}
           />
         </div>
@@ -1582,26 +1582,6 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
               onClose={() => setAssigningTaskId(null)}
             />
           </div>
-        </div>
-      )}
-
-      {/* Hidden calendar used to eagerly generate + save post events to DB before the user opens the calendar */}
-      {needsPostScheduleInit && effectiveIsAdmin && galaxy.releaseDate && (
-        <div style={{ display: 'none' }} aria-hidden="true">
-          <EnhancedCalendar
-            songName={galaxy.name}
-            releaseDate={galaxy.releaseDate}
-            artistProfile={artistProfile || undefined}
-            brainstormResult={brainstormResult || undefined}
-            teamTasks={teamTasks}
-            teamMembers={teamMembers}
-            currentUserId={currentUserId || undefined}
-            userPermissions="full"
-            onSharedEventsGenerated={(events) => {
-              handleSharedEventsGenerated(events);
-              setNeedsPostScheduleInit(false);
-            }}
-          />
         </div>
       )}
 

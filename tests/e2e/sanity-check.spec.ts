@@ -40,8 +40,8 @@ async function navigateToGalaxy(page: import('@playwright/test').Page) {
     await page.screenshot({ path: 'tests/e2e/screenshots/sanity-failed-load.png' });
     throw new Error('Galaxy view not reached — screenshot saved');
   }
-  // Wait for tasks to fully load
-  await page.waitForTimeout(2_000);
+  // Wait for tasks to load AND for the hidden calendar to fire + generate post events
+  await page.waitForTimeout(5_000);
 }
 
 test.use({ storageState: 'tests/e2e/.auth/kb3-session.json' });
