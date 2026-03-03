@@ -122,6 +122,8 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
   const [selectedFootageTask, setSelectedFootageTask] = useState<TeamTask | null>(null);
   // Used to eagerly generate post events to DB (renders hidden calendar once)
   const [needsPostScheduleInit, setNeedsPostScheduleInit] = useState(false);
+  // In-memory cache of calendar-generated post events — available immediately, even before DB save
+  const [generatedPostEvents, setGeneratedPostEvents] = useState<TeamTask[]>([]);
   const [markInitialMessage, setMarkInitialMessage] = useState<string | undefined>(undefined);
   const [selectedFinalizeTask, setSelectedFinalizeTask] = useState<TeamTask | null>(null);
   const [lockedTaskInfo, setLockedTaskInfo] = useState<{ title: string; reason: string; prerequisite: string } | null>(null);
@@ -586,6 +588,24 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
   // Save shared events (posts + release day) to Supabase so team members can see them
   const sharedEventsSavedRef = useRef(false); // prevent duplicate saves
   const handleSharedEventsGenerated = useCallback(async (events: { title: string; description: string; type: string; date: string; startTime: string; endTime: string }[]) => {
+    // Cache events locally immediately — available for UploadPostsModal fallback before DB save
+    setGeneratedPostEvents(events.map(e => ({
+      id: `gen-${e.date}-${e.type}`,
+      teamId: team?.id || '',
+      galaxyId: galaxy.id,
+      title: e.title,
+      description: e.description,
+      type: (e.type === 'release' ? 'release' : e.type) as any,
+      taskCategory: 'event' as const,
+      date: e.date,
+      startTime: e.startTime,
+      endTime: e.endTime,
+      status: 'pending' as const,
+      assignedBy: '',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    })));
+
     if (!team || !effectiveIsAdmin || sharedEventsSavedRef.current) return;
     sharedEventsSavedRef.current = true;
 
@@ -1632,7 +1652,7 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
           galaxyName={galaxy.name}
           teamMembers={teamMembers}
           uploadTask={selectedUploadTask ?? undefined}
-          fallbackPosts={teamTasks}
+          fallbackPosts={[...teamTasks, ...generatedPostEvents.filter(ge => !teamTasks.some(t => t.date === ge.date && t.taskCategory === 'event'))]}
           onUploadTaskUpdated={(updated) => {
             setTeamTasks(prev => prev.map(t => t.id === updated.id ? updated : t));
             setSelectedUploadTask(updated);
