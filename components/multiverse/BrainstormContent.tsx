@@ -459,19 +459,29 @@ export function BrainstormContent({
     (async () => {
       try {
         const { supabase } = await import('@/lib/supabase');
-        const { data, error } = await supabase.from('galaxies').select('brainstorm_draft, brainstorm_liked_scenes').eq('id', galaxyId).single();
+
+        // Try to load both columns; fall back to just brainstorm_draft if liked_scenes column missing
+        let draftData: { brainstorm_draft: unknown; brainstorm_liked_scenes?: unknown } | null = null;
+        const full = await supabase.from('galaxies').select('brainstorm_draft, brainstorm_liked_scenes').eq('id', galaxyId).single();
+        if (!full.error) {
+          draftData = full.data as typeof draftData;
+        } else {
+          // Column may not exist yet — retry with just brainstorm_draft
+          const slim = await supabase.from('galaxies').select('brainstorm_draft').eq('id', galaxyId).single();
+          if (!slim.error) draftData = slim.data as typeof draftData;
+        }
 
         // E: Seed allLikedIdeas from the permanent liked-scenes bank on mount
-        if (!error && Array.isArray((data as any)?.brainstorm_liked_scenes) && (data as any).brainstorm_liked_scenes.length > 0) {
+        if (draftData && Array.isArray((draftData as any)?.brainstorm_liked_scenes) && (draftData as any).brainstorm_liked_scenes.length > 0) {
           setAllLikedIdeas((prev) => {
             const existing = new Set(prev.map((i: ContentIdea) => i.id));
-            const banked = ((data as any).brainstorm_liked_scenes as ContentIdea[]).filter(i => !existing.has(i.id));
+            const banked = ((draftData as any).brainstorm_liked_scenes as ContentIdea[]).filter((i: ContentIdea) => !existing.has(i.id));
             return prev.length === 0 ? banked : [...prev, ...banked];
           });
         }
 
-        if (!error && data?.brainstorm_draft && (data.brainstorm_draft as any).step) {
-          const draft = data.brainstorm_draft as Record<string, unknown>;
+        if (draftData?.brainstorm_draft && (draftData.brainstorm_draft as any).step) {
+          const draft = draftData.brainstorm_draft as Record<string, unknown>;
           if (autoResume) {
             // A4: Auto-apply draft immediately — "Welcome back" message is the only message added
             applyDraft(draft);
@@ -488,7 +498,7 @@ export function BrainstormContent({
           // (we defer to a flag so the existing init useEffect fires on next tick)
           setAutoResumeFallback(true);
         }
-      } catch { /* silent — column may not exist */ } finally {
+      } catch { /* silent */ } finally {
         setDraftLoaded(true);
       }
     })();
