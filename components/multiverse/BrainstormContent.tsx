@@ -2567,62 +2567,22 @@ export function BrainstormContent({
                       addBotMessage(`Please upload an MP3, WAV, or M4A file.`, 300);
                       return;
                     }
-                    const fileSizeMB = file.size / (1024 * 1024);
-                    // Hard cap: reject non-WAV files over the Supabase bucket limit
-                    if (ext !== 'wav' && fileSizeMB > UPLOAD_MAX_MB) {
-                      addBotMessage(`${UPLOAD_SIZE_MSG} (your file is ${fileSizeMB.toFixed(0)} MB)`, 300);
-                      return;
-                    }
-                    // WAV files over 20MB: downsample to 16kHz mono using Web Audio API
-                    // This keeps files well under Whisper's 25MB limit
-                    let fileToUpload: File | null = file;
-                    if (ext === 'wav' && fileSizeMB > 20) {
-                      addUserMessage(`${file.name} (${fileSizeMB.toFixed(1)}MB) — compressing for upload...`);
-                      try {
-                        const arrayBuf = await file.arrayBuffer();
-                        const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-                        const decoded = await audioCtx.decodeAudioData(arrayBuf);
-                        const targetSampleRate = 16000;
-                        const offlineCtx = new OfflineAudioContext(1, Math.ceil(decoded.duration * targetSampleRate), targetSampleRate);
-                        const src = offlineCtx.createBufferSource();
-                        src.buffer = decoded;
-                        src.connect(offlineCtx.destination);
-                        src.start(0);
-                        const rendered = await offlineCtx.startRendering();
-                        await audioCtx.close();
-                        // Encode to 16-bit PCM WAV
-                        const pcm = rendered.getChannelData(0);
-                        const wavBuffer = new ArrayBuffer(44 + pcm.length * 2);
-                        const view = new DataView(wavBuffer);
-                        const writeStr = (off: number, s: string) => { for (let i = 0; i < s.length; i++) view.setUint8(off + i, s.charCodeAt(i)); };
-                        writeStr(0, 'RIFF'); view.setUint32(4, 36 + pcm.length * 2, true); writeStr(8, 'WAVE');
-                        writeStr(12, 'fmt '); view.setUint32(16, 16, true); view.setUint16(20, 1, true);
-                        view.setUint16(22, 1, true); view.setUint32(24, targetSampleRate, true); view.setUint32(28, targetSampleRate * 2, true);
-                        view.setUint16(32, 2, true); view.setUint16(34, 16, true);
-                        writeStr(36, 'data'); view.setUint32(40, pcm.length * 2, true);
-                        for (let i = 0; i < pcm.length; i++) {
-                          view.setInt16(44 + i * 2, Math.max(-1, Math.min(1, pcm[i])) * 0x7FFF, true);
-                        }
-                        fileToUpload = new File([wavBuffer], 'track_16k.wav', { type: 'audio/wav' });
-                        const compressedMB = fileToUpload.size / (1024 * 1024);
-                        // Safety: if still too large (very long song), skip upload, go to lyrics paste
-                        if (compressedMB > 24) {
-                          fileToUpload = null;
-                        }
-                      } catch (convErr) {
-                        console.warn('[L1] WAV conversion failed:', convErr);
-                        fileToUpload = null; // compression failed — skip to lyrics paste
-                      }
-                    } else {
-                      addUserMessage(`Uploading ${file.name}...`);
-                    }
+                    const fileSizeMBRaw = file.size / (1024 * 1024);
+                    const needsConvert = ext !== 'mp3';
+                    addUserMessage(needsConvert
+                      ? `Converting ${file.name} (${fileSizeMBRaw.toFixed(0)} MB) to MP3…`
+                      : `Uploading ${file.name} (${fileSizeMBRaw.toFixed(1)} MB)…`);
 
-                    // If compression produced nothing usable, go straight to lyrics paste
-                    if (!fileToUpload) {
+                    let mp3File: File;
+                    try {
+                      const { convertToMp3 } = await import('@/lib/audio-convert');
+                      mp3File = await convertToMp3(file);
+                    } catch (convErr) {
+                      console.warn('[L1] Audio conversion failed, falling back to lyrics paste:', convErr);
                       setStep('confirm_lyrics');
                       setLyricsEditValue('');
                       addBotMessage(
-                        `Your WAV file is too large to upload directly (${fileSizeMB.toFixed(0)}MB). No problem — paste your lyrics below and I'll use those instead. You can upload an MP3 export from World Settings later.`,
+                        `Couldn't convert your file automatically — no problem. Paste your lyrics below and I'll use those instead. You can upload an MP3 from World Settings later.`,
                         500
                       );
                       return;
@@ -2630,16 +2590,17 @@ export function BrainstormContent({
 
                     try {
                       const { supabase: sb } = await import('@/lib/supabase');
-                      const uploadExt = fileToUpload.name.split('.').pop() || ext;
-                      const filePath = `galaxies/${galaxyId}/track.${uploadExt}`;
+                      const filePath = `galaxies/${galaxyId}/track.mp3`;
                       const { error: uploadErr } = await sb.storage
                         .from('uploads')
-                        .upload(filePath, fileToUpload, { upsert: true, contentType: fileToUpload.type });
+                        .upload(filePath, mp3File, { upsert: true, contentType: 'audio/mpeg' });
                       if (uploadErr) throw uploadErr;
                       const { data: urlData } = sb.storage.from('uploads').getPublicUrl(filePath);
                       const trackUrl = urlData.publicUrl;
                       setUploadedTrackUrl(trackUrl);
                       await sb.from('galaxies').update({ track_url: trackUrl }).eq('id', galaxyId);
+                      const mp3MB = mp3File.size / (1024 * 1024);
+                      if (needsConvert) addBotMessage(`Converted to MP3 (${mp3MB.toFixed(1)} MB) ✓`, 200);
                       await transcribeAndContinue(trackUrl);
                     } catch (err: any) {
                       console.error('[L1] Track upload error:', err);
@@ -2965,8 +2926,8 @@ export function BrainstormContent({
           {step === 'ask_song_upload' && !isTyping && (
             <div className="space-y-3">
               <div className="rounded-xl border border-blue-500/30 bg-blue-500/10 p-3">
-                <p className="text-xs text-blue-300">
-                  Upload your track and I can play each section so you hear exactly what you&apos;re picking. MP3 only (keeps file size small).
+                  <p className="text-xs text-blue-300">
+                  Upload your track — MP3, WAV, M4A, or AIFF all work. Large files are auto-converted to MP3 before uploading.
                 </p>
               </div>
               {/* F5: Inline MP3 upload */}
@@ -2987,24 +2948,28 @@ export function BrainstormContent({
                       addBotMessage(`Please upload an MP3, WAV, or M4A file.`, 300);
                       return;
                     }
-                    const fileSizeMB = file.size / (1024 * 1024);
-                    if (fileSizeMB > UPLOAD_MAX_MB) {
-                      addBotMessage(`${UPLOAD_SIZE_MSG} (your file is ${fileSizeMB.toFixed(0)} MB)`, 300);
+                    const fileSizeMBRaw = file.size / (1024 * 1024);
+                    const needsConvert = (file.name.split('.').pop()?.toLowerCase() || '') !== 'mp3';
+                    if (!needsConvert && fileSizeMBRaw > UPLOAD_MAX_MB) {
+                      addBotMessage(`${UPLOAD_SIZE_MSG} (your file is ${fileSizeMBRaw.toFixed(0)} MB)`, 300);
                       return;
                     }
-                    addUserMessage(`Uploading ${file.name} (${fileSizeMB.toFixed(1)} MB)…`);
+                    addUserMessage(needsConvert
+                      ? `Converting ${file.name} (${fileSizeMBRaw.toFixed(0)} MB) to MP3…`
+                      : `Uploading ${file.name} (${fileSizeMBRaw.toFixed(1)} MB)…`);
                     try {
-                      // Import supabase dynamically to avoid SSR issues
+                      const { convertToMp3 } = await import('@/lib/audio-convert');
+                      const mp3File = await convertToMp3(file);
                       const { supabase } = await import('@/lib/supabase');
                       const filePath = `galaxies/${galaxyId}/track.mp3`;
                       const { error: uploadErr } = await supabase.storage
                         .from('uploads')
-                        .upload(filePath, file, { upsert: true, contentType: 'audio/mpeg' });
+                        .upload(filePath, mp3File, { upsert: true, contentType: 'audio/mpeg' });
                       if (uploadErr) throw uploadErr;
                       const { data: urlData } = supabase.storage.from('uploads').getPublicUrl(filePath);
-                      // Save track URL to galaxy record
                       await supabase.from('galaxies').update({ track_url: urlData.publicUrl }).eq('id', galaxyId);
-                      addBotMessage(`Track uploaded! 🎵 Play buttons are now active — tap any soundbyte to hear that section.`, 400);
+                      const mp3MB = mp3File.size / (1024 * 1024);
+                      addBotMessage(`Track uploaded! 🎵 ${needsConvert ? `Converted to MP3 (${mp3MB.toFixed(1)} MB). ` : ''}Play buttons are now active.`, 400);
                       setStep('ask_soundbytes');
                     } catch (err: any) {
                       console.error('[F5] Track upload error:', err);
@@ -3040,7 +3005,7 @@ export function BrainstormContent({
                 /* No track uploaded yet — prompt upload then show picker */
                 <div className="space-y-3">
                   <div className="rounded-xl border border-blue-500/30 bg-blue-500/10 p-3">
-                    <p className="text-xs text-blue-300">Upload your track to use the waveform editor. MP3, WAV, or M4A.</p>
+                    <p className="text-xs text-blue-300">Upload your track — MP3, WAV, M4A, or AIFF. Any format is auto-converted to MP3 before storing.</p>
                   </div>
                   <label className="block w-full cursor-pointer">
                     <div className="w-full rounded-xl border-2 border-dashed border-blue-500/40 bg-blue-600/10 hover:bg-blue-600/20 transition-all p-5 text-center">
@@ -3054,23 +3019,24 @@ export function BrainstormContent({
                       onChange={async (e) => {
                         const file = e.target.files?.[0];
                         if (!file) return;
-                        const fileSizeMB = file.size / (1024 * 1024);
-                        if (fileSizeMB > UPLOAD_MAX_MB) {
-                          addBotMessage(`${UPLOAD_SIZE_MSG} (your file is ${fileSizeMB.toFixed(0)} MB)`, 300);
-                          return;
-                        }
-                        addUserMessage(`Uploading ${file.name} (${fileSizeMB.toFixed(1)} MB)…`);
+                        const fileSizeMBRaw = file.size / (1024 * 1024);
+                        const needsConvert = (file.name.split('.').pop()?.toLowerCase() || '') !== 'mp3';
+                        addUserMessage(needsConvert
+                          ? `Converting ${file.name} (${fileSizeMBRaw.toFixed(0)} MB) to MP3…`
+                          : `Uploading ${file.name} (${fileSizeMBRaw.toFixed(1)} MB)…`);
                         try {
+                          const { convertToMp3 } = await import('@/lib/audio-convert');
+                          const mp3File = await convertToMp3(file);
                           const { supabase } = await import('@/lib/supabase');
                           const filePath = `galaxies/${galaxyId}/track.mp3`;
-                          const { error: uploadErr } = await supabase.storage.from('uploads').upload(filePath, file, { upsert: true, contentType: 'audio/mpeg' });
+                          const { error: uploadErr } = await supabase.storage.from('uploads').upload(filePath, mp3File, { upsert: true, contentType: 'audio/mpeg' });
                           if (uploadErr) throw uploadErr;
                           const { data: urlData } = supabase.storage.from('uploads').getPublicUrl(filePath);
                           await supabase.from('galaxies').update({ track_url: urlData.publicUrl }).eq('id', galaxyId);
                           setUploadedTrackUrl(urlData.publicUrl);
                         } catch (err: unknown) {
                           console.error('[ask_soundbytes] upload error:', err);
-                          addBotMessage('Upload failed — try again or continue without a track.', 300);
+                          addBotMessage('Conversion or upload failed — try again or continue without a track.', 300);
                         }
                       }}
                     />
