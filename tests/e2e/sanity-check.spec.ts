@@ -159,35 +159,37 @@ test('Upload edits / rough edit task opens post-pairing modal', async ({ page })
   await page.keyboard.press('Escape');
 });
 
-test('World view shows Footage, Edits, Settings tabs', async ({ page }) => {
+test('World view shows Footage, All Posts, Settings tabs', async ({ page }) => {
   test.setTimeout(TIMEOUT);
   await navigateToGalaxy(page);
 
-  // Find the spinning world/planet and click it
-  const worldButton = page.locator('canvas, [class*="world"], [class*="planet"]').first();
-  const worldVisible = await worldButton.isVisible({ timeout: 5_000 }).catch(() => false);
+  // Use the accessible hidden button added specifically for testing
+  const worldBtn = page.locator('[data-world-name]').first();
+  const worldBtnVisible = await worldBtn.isVisible({ timeout: 5_000 }).catch(() => false);
 
-  if (!worldVisible) {
-    // Try clicking based on galaxy map click area
-    const galaxyArea = page.locator('.cursor-pointer').first();
-    if (await galaxyArea.isVisible({ timeout: 3_000 }).catch(() => false)) {
-      await galaxyArea.click();
-    } else {
-      console.log('[Sanity] World/planet not found — skipping world view test');
-      return;
-    }
-  } else {
-    await worldButton.click();
+  if (!worldBtnVisible) {
+    console.log('[Sanity] World button not found — skipping world view test');
+    return;
   }
-  await page.waitForTimeout(3_000);
 
-  const footageTab = page.locator('button:has-text("Footage")');
-  const editsTab = page.locator('button:has-text("Edits")');
-  const settingsTab = page.locator('button:has-text("Settings")');
+  const worldName = await worldBtn.getAttribute('data-world-name');
+  console.log(`[Sanity] Clicking world: ${worldName}`);
+  // Programmatically dispatch click because the button is sr-only (visually hidden)
+  await page.evaluate(() => {
+    const btn = document.querySelector('[data-world-name]') as HTMLButtonElement;
+    if (btn) btn.click();
+  });
 
-  const footageVisible = await footageTab.isVisible({ timeout: 5_000 }).catch(() => false);
-  const editsVisible = await editsTab.isVisible({ timeout: 2_000 }).catch(() => false);
-  const settingsVisible = await settingsTab.isVisible({ timeout: 2_000 }).catch(() => false);
+  // WorldDetailView is a dynamic import — give it 8s to start loading before polling
+  await page.waitForTimeout(8_000);
+
+  // Then poll for up to 20s more
+  let footageVisible = false;
+  for (let i = 0; i < 40; i++) {
+    footageVisible = await page.locator('button:has-text("Footage")').isVisible({ timeout: 500 }).catch(() => false);
+    if (footageVisible) break;
+    await page.waitForTimeout(500);
+  }
 
   await page.screenshot({ path: 'tests/e2e/screenshots/sanity-world-view.png' });
 
@@ -196,13 +198,44 @@ test('World view shows Footage, Edits, Settings tabs', async ({ page }) => {
     return;
   }
 
+  console.log('[Sanity] ✅ World view opened successfully');
+
+  const allPostsVisible = await page.locator('button:has-text("All Posts")').isVisible({ timeout: 3_000 }).catch(() => false);
+  const contentPlanVisible = await page.locator('button:has-text("Snapshot Starter")').isVisible({ timeout: 2_000 }).catch(() => false);
+  const settingsVisible = await page.locator('button:has-text("Settings")').isVisible({ timeout: 2_000 }).catch(() => false);
+
   expect(footageVisible, 'Footage tab should be visible').toBe(true);
-  expect(editsVisible, 'Edits tab should be visible').toBe(true);
+  expect(allPostsVisible, 'All Posts tab should be visible').toBe(true);
+  expect(contentPlanVisible, 'Snapshot Starter tab should be visible').toBe(true);
   expect(settingsVisible, 'Settings tab should be visible').toBe(true);
 
-  // Old tabs should NOT be present
-  const snapshotStarterTab = page.locator('button:has-text("Snapshot Starter")');
-  const snapshotScheduleTab = page.locator('button:has-text("Snapshot Schedule")');
-  expect(await snapshotStarterTab.isVisible({ timeout: 1_000 }).catch(() => false)).toBe(false);
-  expect(await snapshotScheduleTab.isVisible({ timeout: 1_000 }).catch(() => false)).toBe(false);
+  // Old artifacts should NOT be present
+  expect(await page.locator('button:has-text("Edits")').isVisible({ timeout: 1_000 }).catch(() => false)).toBe(false);
+  expect(await page.locator('button:has-text("Erase World")').isVisible({ timeout: 1_000 }).catch(() => false)).toBe(false);
+  console.log('[Sanity] ✅ Tab bar correct — Footage, All Posts, Snapshot Starter, Settings');
+
+  // Click "Snapshot Starter" tab and verify it shows the brainstorm entry point
+  await page.locator('button:has-text("Snapshot Starter")').click();
+  await page.waitForTimeout(2_000);
+  await page.screenshot({ path: 'tests/e2e/screenshots/sanity-content-plan-tab.png' });
+
+  const brainstormBtnVisible = await page.locator('text=brainstorm session').isVisible({ timeout: 3_000 }).catch(() => false)
+    || await page.locator('text=content plan').isVisible({ timeout: 1_000 }).catch(() => false);
+  if (brainstormBtnVisible) {
+    console.log('[Sanity] ✅ Content Plan tab shows brainstorm entry point');
+  } else {
+    console.warn('[Sanity] ⚠️ Content Plan tab may not be showing correctly — check screenshot');
+  }
+
+  // Click "All Posts" tab and verify it loads posts (not "No scheduled posts yet")
+  await page.locator('button:has-text("All Posts")').click();
+  await page.waitForTimeout(3_000); // wait for DB fetch
+  await page.screenshot({ path: 'tests/e2e/screenshots/sanity-all-posts-tab.png' });
+
+  const noPostsText = await page.locator('text=No scheduled posts yet').isVisible({ timeout: 2_000 }).catch(() => false);
+  if (noPostsText) {
+    console.warn('[Sanity] ⚠️ All Posts tab shows "No scheduled posts yet" — galaxyId mismatch?');
+  } else {
+    console.log('[Sanity] ✅ All Posts tab shows posts (not empty state)');
+  }
 });

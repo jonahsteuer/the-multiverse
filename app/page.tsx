@@ -128,118 +128,101 @@ async function loadAllTeamGalaxyEntries(): Promise<GalaxyEntry[]> {
   return entries;
 }
 
-/** Load the universe for an invited team member (they don't own a universe, they're part of a team) */
+/** Load the universe for an invited team member via server-side API (bypasses RLS) */
 async function loadTeamUniverse(): Promise<Universe | null> {
-  let universeId: string | null = null;
-
-  // Strategy 1: Query team membership via Supabase
+  // Strategy 1: Server-side API endpoint — uses service role key, bypasses RLS
   try {
-    const teams = await getMyTeams();
-    if (teams && teams.length > 0) {
-      universeId = teams[0].universeId;
-      console.log('[loadTeamUniverse] Found team via Supabase:', teams[0].name, 'universe:', universeId);
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.access_token) {
+      const res = await fetch('/api/team/universe', {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.universe && data.universe.galaxies?.length > 0) {
+          console.log('[loadTeamUniverse] ✅ Loaded via server API:', data.universe.galaxies.length, 'galaxies');
+          return data.universe as Universe;
+        }
+        if (data.universe) {
+          console.log('[loadTeamUniverse] Server API returned universe with 0 galaxies, reason:', data.reason);
+        }
+      } else {
+        console.warn('[loadTeamUniverse] Server API returned', res.status);
+      }
     }
   } catch (err) {
-    console.warn('[loadTeamUniverse] Supabase team query failed:', err);
+    console.warn('[loadTeamUniverse] Server API failed, trying fallbacks:', err);
   }
 
-  // Strategy 2: Query team_members directly (bypasses teams RLS issue)
-  if (!universeId) {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        // team_members SELECT policy allows user_id = auth.uid()
-        const { data: memberRows } = await supabase
-          .from('team_members')
-          .select('team_id')
-          .eq('user_id', user.id)
-          .limit(1);
-        
-        if (memberRows && memberRows.length > 0) {
-          const teamId = memberRows[0].team_id;
-          console.log('[loadTeamUniverse] Found team_id via direct query:', teamId);
-          
-          // Try to get universe_id from teams table
-          const { data: teamRow } = await supabase
-            .from('teams')
-            .select('universe_id')
-            .eq('id', teamId)
-            .single();
-          
-          if (teamRow?.universe_id) {
-            universeId = teamRow.universe_id;
-            console.log('[loadTeamUniverse] Found universe via team_members→teams:', universeId);
-          }
-        }
-      }
-    } catch (err) {
-      console.warn('[loadTeamUniverse] Direct team_members query failed:', err);
-    }
-  }
-
-  // Strategy 3: Fallback to localStorage (saved during invite acceptance)
-  if (!universeId && typeof window !== 'undefined') {
+  // Strategy 2: localStorage fallback — galaxy_id is preferred, then universeId
+  if (typeof window !== 'undefined') {
     try {
       const stored = localStorage.getItem('multiverse_team_info');
       if (stored) {
         const teamInfo = JSON.parse(stored);
+
+        // 2a: Try by galaxy_id directly (galaxy-level sharing, most reliable)
+        if (teamInfo.galaxyId) {
+          console.log('[loadTeamUniverse] Trying localStorage galaxyId fallback:', teamInfo.galaxyId);
+          const { data: gd } = await supabase
+            .from('galaxies')
+            .select('id, name, universe_id, release_date, visual_landscape, created_at, worlds(id, name, galaxy_id, release_date, color, visual_landscape, snapshot_strategy, is_public, is_released, song_emotion, song_stage, listening_context, created_at)')
+            .eq('id', teamInfo.galaxyId)
+            .single();
+          if (gd) {
+            const galaxy: Galaxy = {
+              id: gd.id, name: gd.name, universeId: gd.universe_id,
+              releaseDate: gd.release_date || undefined, visualLandscape: gd.visual_landscape,
+              createdAt: gd.created_at,
+              worlds: (gd.worlds || []).map((w: any) => ({
+                id: w.id, name: w.name, galaxyId: w.galaxy_id, releaseDate: w.release_date,
+                color: w.color, visualLandscape: w.visual_landscape, snapshotStrategy: w.snapshot_strategy,
+                isPublic: w.is_public, isReleased: w.is_released,
+                songEmotion: w.song_emotion || undefined, songStage: w.song_stage || undefined,
+                listeningContext: w.listening_context || undefined, createdAt: w.created_at,
+              })),
+            };
+            console.log('[loadTeamUniverse] ✅ Loaded via localStorage+galaxyId:', galaxy.name);
+            return { id: gd.universe_id, name: galaxy.name, creatorId: '', createdAt: galaxy.createdAt, galaxies: [galaxy] };
+          }
+        }
+
+        // 2b: Try by universeId (legacy fallback)
         if (teamInfo.universeId) {
-          universeId = teamInfo.universeId;
-          console.log('[loadTeamUniverse] Found universe via localStorage:', universeId);
+          console.log('[loadTeamUniverse] Trying localStorage universeId fallback:', teamInfo.universeId);
+          const { data: uData } = await supabase.from('universes').select('id, name, creator_id, created_at').eq('id', teamInfo.universeId).single();
+          if (uData) {
+            const { data: gData } = await supabase
+              .from('galaxies')
+              .select('id, name, universe_id, release_date, visual_landscape, created_at, worlds(id, name, galaxy_id, release_date, color, visual_landscape, snapshot_strategy, is_public, is_released, song_emotion, song_stage, listening_context, created_at)')
+              .eq('universe_id', teamInfo.universeId)
+              .order('created_at', { ascending: true });
+            const galaxies: Galaxy[] = (gData || []).map((gd: any) => ({
+              id: gd.id, name: gd.name, universeId: gd.universe_id,
+              releaseDate: gd.release_date || undefined, visualLandscape: gd.visual_landscape,
+              createdAt: gd.created_at,
+              worlds: (gd.worlds || []).map((w: any) => ({
+                id: w.id, name: w.name, galaxyId: w.galaxy_id, releaseDate: w.release_date,
+                color: w.color, visualLandscape: w.visual_landscape, snapshotStrategy: w.snapshot_strategy,
+                isPublic: w.is_public, isReleased: w.is_released,
+                songEmotion: w.song_emotion || undefined, songStage: w.song_stage || undefined,
+                listeningContext: w.listening_context || undefined, createdAt: w.created_at,
+              })),
+            }));
+            if (galaxies.length > 0) {
+              console.log('[loadTeamUniverse] ✅ Loaded via localStorage+universeId:', galaxies.length, 'galaxies');
+              return { id: uData.id, name: uData.name, creatorId: uData.creator_id, createdAt: uData.created_at, galaxies };
+            }
+          }
         }
       }
     } catch (e) {
-      console.warn('[loadTeamUniverse] Error reading localStorage:', e);
+      console.warn('[loadTeamUniverse] localStorage fallback failed:', e);
     }
   }
 
-  if (!universeId) {
-    console.log('[loadTeamUniverse] No team universe found');
-    return null;
-  }
-
-  try {
-    // Load the universe directly from Supabase
-    const { data: universeData, error: universeError } = await supabase
-      .from('universes')
-      .select('id, name, creator_id, created_at')
-      .eq('id', universeId)
-      .single();
-    
-    if (universeError || !universeData) {
-      console.warn('[loadTeamUniverse] Could not load universe from Supabase:', universeError);
-      return null;
-    }
-    
-    // Load galaxies for this universe
-    const { data: galaxiesData } = await supabase
-      .from('galaxies')
-      .select('id, name, universe_id, release_date, visual_landscape, created_at')
-      .eq('universe_id', universeId)
-      .order('created_at', { ascending: true });
-    
-    const galaxies: Galaxy[] = [];
-    if (galaxiesData) {
-      for (const gd of galaxiesData) {
-        const galaxy = await loadGalaxy(gd.id);
-        if (galaxy) galaxies.push(galaxy);
-      }
-    }
-    
-    const universe: Universe = {
-      id: universeData.id,
-      name: universeData.name,
-      creatorId: universeData.creator_id,
-      createdAt: universeData.created_at,
-      galaxies,
-    };
-    
-    console.log('[loadTeamUniverse] ✅ Loaded team universe with', galaxies.length, 'galaxies');
-    return universe;
-  } catch (err) {
-    console.warn('[loadTeamUniverse] Error loading universe:', err);
-    return null;
-  }
+  console.log('[loadTeamUniverse] All strategies exhausted — no team universe found');
+  return null;
 }
 
 export default function Home() {
@@ -250,6 +233,7 @@ export default function Home() {
   const [isInitializing, setIsInitializing] = useState(true);
   const [showEnhancedOnboarding, setShowEnhancedOnboarding] = useState(false);
   const [showPostOnboarding, setShowPostOnboarding] = useState(false);
+  const [inviteWithNoUniverse, setInviteWithNoUniverse] = useState(false);
   const [skipToCalendar, setSkipToCalendar] = useState(false);
   // Multi-galaxy navigation
   const [allGalaxyEntries, setAllGalaxyEntries] = useState<GalaxyEntry[]>([]);
@@ -474,17 +458,32 @@ export default function Home() {
                     console.log('[Initialize] No owned universe, checking team membership...');
                     loadedUniverse = await loadTeamUniverse();
                   }
+
+                  // If still no galaxies, try client-side team galaxy lookup as final fallback
+                  if (!loadedUniverse || !loadedUniverse.galaxies || loadedUniverse.galaxies.length === 0) {
+                    console.log('[Initialize] API fallback: trying client-side team galaxy lookup...');
+                    const teamEntries = await loadAllTeamGalaxyEntries();
+                    if (teamEntries.length > 0) {
+                      console.log('[Initialize] ✅ Found', teamEntries.length, 'galaxy entries via client-side lookup');
+                      loadedUniverse = teamEntries[0].universe;
+                    }
+                  }
                   
-                  if (loadedUniverse) {
+                  if (loadedUniverse && loadedUniverse.galaxies && loadedUniverse.galaxies.length > 0) {
                     setUniverse(loadedUniverse);
                     
                     const savedGalaxyId = loadCurrentGalaxyId();
                     if (savedGalaxyId) {
                       const galaxy = loadedUniverse.galaxies.find(g => g.id === savedGalaxyId);
                       if (galaxy) setCurrentGalaxy(galaxy);
-                    } else if (loadedUniverse.galaxies.length > 0) {
+                      else setCurrentGalaxy(loadedUniverse.galaxies[0]);
+                    } else {
                       setCurrentGalaxy(loadedUniverse.galaxies[0]);
                     }
+                  } else {
+                    // No accessible universe/galaxies — team invite with deleted/empty universe
+                    console.log('[Initialize] No accessible galaxies found, showing invite pending state');
+                    setInviteWithNoUniverse(true);
                   }
                 }
               }
@@ -655,9 +654,9 @@ export default function Home() {
           // Has onboarding profile but no universe yet, show post-onboarding to create one
           setShowPostOnboarding(true);
         } else {
-          console.log('[Account Created] Invited user with no universe yet - waiting for admin setup');
-          // Invited user whose admin hasn't set up the universe yet
-          // Just show galaxy view with empty state
+          console.log('[Account Created] Invited user with no universe yet - showing team pending state');
+          // Invited user whose admin hasn't set up the universe yet, or the team's galaxy was deleted
+          setInviteWithNoUniverse(true);
         }
       } catch (error) {
         console.error('[Account Created] Error loading universe:', error);
@@ -966,12 +965,16 @@ export default function Home() {
       name: worldData.name || 'Unnamed World',
       galaxyId: currentGalaxy.id,
       releaseDate: worldData.releaseDate || new Date().toISOString().split('T')[0],
-      color: worldData.color || '#FFFFFF', // Ensure color is always set
+      color: worldData.color || '#FFFFFF',
       visualLandscape: worldData.visualLandscape || { images: [], colorPalette: [] },
       snapshotStrategy: snapshotStrategy,
       isPublic: false,
       isReleased: false,
       createdAt: new Date().toISOString(),
+      // Stafford: per-song context (C, D, D+)
+      songEmotion: worldData.songEmotion,
+      songStage: worldData.songStage,
+      listeningContext: worldData.listeningContext,
     };
     
     // Save world
@@ -1353,6 +1356,36 @@ export default function Home() {
     );
   }
 
-  // Fallback: shouldn't reach here, but show loading just in case
+  // Invite accepted but team's galaxy was deleted or inaccessible
+  if (inviteWithNoUniverse) {
+    return (
+      <main className="flex min-h-screen flex-col items-center justify-center p-8 bg-black">
+        <div className="text-center max-w-sm">
+          <div className="text-5xl mb-6">🌌</div>
+          <h1 className="text-2xl font-star-wars text-yellow-400 mb-3">Waiting for Your Team</h1>
+          <p className="text-gray-400 text-sm leading-relaxed mb-6">
+            You've joined the team, but the admin hasn't set up a galaxy yet — or the galaxy you were invited to was removed. Ask your admin to check the setup and re-share your invite link.
+          </p>
+          <button
+            onClick={async () => {
+              await supabase.auth.signOut();
+              if (typeof window !== 'undefined') {
+                localStorage.removeItem('multiverse_account');
+                localStorage.removeItem('multiverse_universe');
+                localStorage.removeItem('multiverse_current_galaxy');
+                localStorage.removeItem('multiverse_team_info');
+              }
+              window.location.reload();
+            }}
+            className="px-5 py-2.5 bg-gray-800 hover:bg-gray-700 border border-gray-600 text-gray-300 rounded-lg text-sm font-medium transition-colors"
+          >
+            Sign Out
+          </button>
+        </div>
+      </main>
+    );
+  }
+
+  // Fallback: account exists but universe/galaxy not resolved yet
   return <LoadingScreen message="Setting up your universe..." />;
 }

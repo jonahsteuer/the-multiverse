@@ -85,6 +85,10 @@ interface EnhancedCalendarProps {
   onNonPostTaskClick?: (taskId: string, title: string, description: string) => void;
   // Callback: fires when user right-clicks a calendar task to assign it
   onTaskContextMenu?: (taskId: string, x: number, y: number) => void;
+  // Callback: fires when admin clicks "Clear all content data" in settings
+  onClearContentData?: () => Promise<void>;
+  // CAL2: Callback when admin adds a post slot via right-click on a day
+  onAddPostSlot?: (date: string, type: string) => void;
 }
 
 // ============================================================
@@ -464,7 +468,7 @@ function DraggableTask({
   return (
     <div
       ref={setNodeRef}
-      style={style}
+      style={isExpanded ? style : { ...style, minHeight: '52px', maxHeight: '52px', overflow: 'hidden' }}
       {...attributes}
       {...listeners}
       onClick={(e) => {
@@ -486,15 +490,26 @@ function DraggableTask({
           onContextMenuAssign(task.id, e.clientX, e.clientY);
         }
       }}
-      className={`text-[10px] p-1.5 mb-1 border rounded transition-all ${
+      className={`text-[10px] p-1.5 mb-1 rounded transition-all ${
         task.isPostEvent ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing'
-      } ${getTaskColor(task.type)} ${
+      } ${
+        // F7: ambiguous (unfilled) post slots get dashed border + dimmed
+        task.description?.includes('Edit instructions will be filled')
+          ? 'border border-dashed border-gray-600/60 bg-gray-800/20 text-gray-500 opacity-70'
+          : `border ${getTaskColor(task.type)}`
+      } ${
         isExpanded ? 'ring-2 ring-white/30' : 'hover:ring-1 hover:ring-white/20'
       }`}
     >
-      <div className="flex items-center justify-between">
-        <span className="font-medium truncate">{task.title}</span>
-        <span className="text-[8px] opacity-70 ml-1">{isExpanded ? '▼' : '▶'}</span>
+      <div className="flex items-center justify-between gap-1">
+        <span className="font-medium truncate flex-1">{task.title}</span>
+        <button
+          onClick={(e) => { e.stopPropagation(); onToggle(); }}
+          className="text-[9px] opacity-50 hover:opacity-100 flex-shrink-0 px-0.5 rounded hover:bg-white/10 transition-all"
+          title="Options"
+        >
+          ⋯
+        </button>
       </div>
       
       {/* Time display/edit */}
@@ -543,10 +558,36 @@ function DraggableTask({
         </div>
       )}
       
-      {/* Expanded details */}
+      {/* ⋯ Expanded — context menu actions */}
       {isExpanded && (
-        <div className="mt-2 pt-2 border-t border-white/20">
-          <p className="text-[9px] opacity-90">{task.description}</p>
+        <div className="mt-1.5 pt-1.5 border-t border-white/20 space-y-1">
+          <p className="text-[9px] opacity-70 leading-relaxed truncate">{task.description?.slice(0, 80)}</p>
+          <div className="flex flex-wrap gap-1 pt-0.5">
+            {task.type === 'shoot' && (
+              <>
+                <button className="text-[8px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 hover:bg-blue-500/40 transition-all" onClick={(e) => { e.stopPropagation(); onNonPostClick?.(); }}>📋 Shot List</button>
+                <button className="text-[8px] px-1.5 py-0.5 rounded bg-red-500/20 text-red-300 hover:bg-red-500/40 transition-all" onClick={(e) => { e.stopPropagation(); onComplete?.(task.id); }}>🗑 Delete</button>
+              </>
+            )}
+            {task.type === 'edit' && (
+              <>
+                <button className="text-[8px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 hover:bg-purple-500/40 transition-all" onClick={(e) => { e.stopPropagation(); onNonPostClick?.(); }}>👤 Assign</button>
+                <button className="text-[8px] px-1.5 py-0.5 rounded bg-red-500/20 text-red-300 hover:bg-red-500/40 transition-all" onClick={(e) => { e.stopPropagation(); onComplete?.(task.id); }}>🗑 Delete</button>
+              </>
+            )}
+            {(task.type === 'promo' || task.type === 'teaser' || task.type === 'audience-builder' || task.type === 'prep') && (
+              <>
+                <button className="text-[8px] px-1.5 py-0.5 rounded bg-green-500/20 text-green-300 hover:bg-green-500/40 transition-all" onClick={(e) => { e.stopPropagation(); onNonPostClick?.(); }}>✏️ Edit</button>
+                <button className="text-[8px] px-1.5 py-0.5 rounded bg-red-500/20 text-red-300 hover:bg-red-500/40 transition-all" onClick={(e) => { e.stopPropagation(); onComplete?.(task.id); }}>🗑 Delete</button>
+              </>
+            )}
+            {!['shoot','edit','promo','teaser','audience-builder','prep'].includes(task.type) && (
+              <>
+                <button className="text-[8px] px-1.5 py-0.5 rounded bg-green-500/20 text-green-300 hover:bg-green-500/40 transition-all" onClick={(e) => { e.stopPropagation(); onComplete?.(task.id); }}>✓ Complete</button>
+                <button className="text-[8px] px-1.5 py-0.5 rounded bg-red-500/20 text-red-300 hover:bg-red-500/40 transition-all" onClick={(e) => { e.stopPropagation(); }}>🗑 Delete</button>
+              </>
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -655,7 +696,7 @@ function SortableTask({
   return (
     <div
       ref={setNodeRef}
-      style={style}
+      style={isExpanded ? style : { ...style, minHeight: '64px', maxHeight: '64px', overflow: 'hidden' }}
       {...attributes}
       {...listeners}
       onClick={(e) => {
@@ -664,7 +705,12 @@ function SortableTask({
           onToggle();
         }
       }}
-      className={`p-3 mb-2 border rounded-lg cursor-grab active:cursor-grabbing transition-all ${getTaskColor(task.type)} ${
+      className={`p-3 mb-2 rounded-lg cursor-grab active:cursor-grabbing transition-all ${
+        // F7: ambiguous posts get dashed border + dimmed
+        task.description?.includes('Edit instructions will be filled')
+          ? 'border border-dashed border-gray-600/60 bg-gray-800/20 text-gray-500 opacity-70'
+          : `border ${getTaskColor(task.type)}`
+      } ${
         isExpanded ? 'ring-2 ring-white/30' : 'hover:ring-1 hover:ring-white/20'
       }`}
     >
@@ -721,13 +767,47 @@ function SortableTask({
             </div>
           )}
         </div>
-        <span className="text-xs opacity-70">{isExpanded ? '▼' : '▶'}</span>
+        <button
+          onClick={(e) => { e.stopPropagation(); onToggle(); }}
+          className="text-xs opacity-50 hover:opacity-100 px-1 rounded hover:bg-white/10 transition-all flex-shrink-0"
+          title="Options"
+        >
+          ⋯
+        </button>
       </div>
       
-      {/* Expanded details */}
+      {/* ⋯ Expanded — context menu actions */}
       {isExpanded && (
-        <div className="mt-2 pt-2 border-t border-white/20">
-          <p className="text-xs opacity-90">{task.description}</p>
+        <div className="mt-2 pt-2 border-t border-white/20 space-y-2">
+          <p className="text-xs opacity-80 leading-relaxed">{task.description}</p>
+          <div className="flex flex-wrap gap-1.5">
+            {task.type === 'shoot' && (
+              <>
+                <button className="text-[11px] px-2 py-1 rounded-lg bg-blue-500/20 text-blue-300 hover:bg-blue-500/40 transition-all" onClick={(e) => { e.stopPropagation(); onComplete?.(task.id); }}>📋 Shot List</button>
+                <button className="text-[11px] px-2 py-1 rounded-lg bg-yellow-500/20 text-yellow-300 hover:bg-yellow-500/40 transition-all">🔔 Remind Team</button>
+                <button className="text-[11px] px-2 py-1 rounded-lg bg-red-500/20 text-red-300 hover:bg-red-500/40 transition-all">🗑 Delete</button>
+              </>
+            )}
+            {task.type === 'edit' && (
+              <>
+                <button className="text-[11px] px-2 py-1 rounded-lg bg-purple-500/20 text-purple-300 hover:bg-purple-500/40 transition-all">👤 Assign</button>
+                <button className="text-[11px] px-2 py-1 rounded-lg bg-red-500/20 text-red-300 hover:bg-red-500/40 transition-all">🗑 Delete</button>
+              </>
+            )}
+            {(task.type === 'promo' || task.type === 'teaser' || task.type === 'audience-builder' || task.isPostEvent) && (
+              <>
+                <button className="text-[11px] px-2 py-1 rounded-lg bg-blue-500/20 text-blue-300 hover:bg-blue-500/40 transition-all">📅 Move Date</button>
+                <button className="text-[11px] px-2 py-1 rounded-lg bg-red-500/20 text-red-300 hover:bg-red-500/40 transition-all">🗑 Delete</button>
+              </>
+            )}
+            {!['shoot','edit','promo','teaser','audience-builder'].includes(task.type) && !task.isPostEvent && (
+              <>
+                <button className="text-[11px] px-2 py-1 rounded-lg bg-green-500/20 text-green-300 hover:bg-green-500/40 transition-all" onClick={(e) => { e.stopPropagation(); onComplete?.(task.id); }}>✓ Complete</button>
+                <button className="text-[11px] px-2 py-1 rounded-lg bg-orange-500/20 text-orange-300 hover:bg-orange-500/40 transition-all">↗ Reassign</button>
+                <button className="text-[11px] px-2 py-1 rounded-lg bg-red-500/20 text-red-300 hover:bg-red-500/40 transition-all">🗑 Delete</button>
+              </>
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -751,6 +831,7 @@ function DroppableDay({
   onPostCardClick,
   onNonPostTaskClick,
   onTaskContextMenu,
+  onDayContextMenu,
 }: {
   dateStr: string;
   day: CalendarDay;
@@ -767,6 +848,7 @@ function DroppableDay({
   onPostCardClick?: (taskId: string) => void;
   onNonPostTaskClick?: (taskId: string, title: string, description: string) => void;
   onTaskContextMenu?: (taskId: string, x: number, y: number) => void;
+  onDayContextMenu?: (date: string, x: number, y: number) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({
     id: dateStr,
@@ -776,6 +858,12 @@ function DroppableDay({
     <div
       ref={setNodeRef}
       key={dayIndex}
+      onContextMenu={(e) => {
+        if (onDayContextMenu) {
+          e.preventDefault();
+          onDayContextMenu(dateStr, e.clientX, e.clientY);
+        }
+      }}
       className={`flex-1 min-h-[100px] p-2 rounded-lg border transition-all ${
         isOver ? 'border-blue-400 bg-blue-500/20 ring-2 ring-blue-400' : ''
       } ${
@@ -815,13 +903,15 @@ function DroppableDay({
             return (
               <div
                 key={`google-${item.event.id}`}
-                className="text-[9px] p-1 mb-1 bg-gray-700/50 border border-gray-600 rounded text-gray-400 truncate"
+                className="text-[9px] p-1.5 mb-1 bg-gray-700/50 border border-gray-600 rounded text-gray-400 overflow-hidden"
+                style={{ minHeight: '52px', maxHeight: '52px' }}
                 title={item.event.title}
               >
-                <span className="opacity-60">
+                <div className="font-medium truncate">{item.event.title}</div>
+                <div className="opacity-60 mt-0.5">
                   {new Date(item.event.start).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
-                </span>
-                <span className="ml-1">{item.event.title}</span>
+                  {item.event.end && ` - ${new Date(item.event.end).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`}
+                </div>
               </div>
             );
           } else if (item.type === 'task' && item.task) {
@@ -866,6 +956,8 @@ export function EnhancedCalendar({
   onPostCardClick,
   onNonPostTaskClick,
   onTaskContextMenu,
+  onClearContentData,
+  onAddPostSlot,
 }: EnhancedCalendarProps) {
   const isAdmin = userPermissions === 'full';
   const timeBudget = artistProfile?.timeBudgetHoursPerWeek || 7; // Default to 7 hours
@@ -891,7 +983,18 @@ export function EnhancedCalendar({
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
   const [scheduledTasks, setScheduledTasks] = useState<ScheduledTask[]>([]);
   const [calendarPage, setCalendarPage] = useState(0); // 0 = weeks 1-4, 1 = weeks 5-8
-  const [viewMode, setViewMode] = useState<'calendar' | 'posts' | 'list'>('calendar');
+  const [viewMode, setViewMode] = useState<'calendar' | 'posts' | 'list' | 'settings'>('calendar');
+  const [clearConfirmStep, setClearConfirmStep] = useState<'idle' | 'confirm' | 'clearing'>('idle');
+
+  // CAL2: right-click day context menu
+  const [dayCtxMenu, setDayCtxMenu] = useState<{ date: string; x: number; y: number } | null>(null);
+  const DAY_SLOT_TYPES = [
+    { type: 'post', label: '📄 Post' },
+    { type: 'teaser', label: '✨ Teaser' },
+    { type: 'promo', label: '📣 Promo' },
+    { type: 'story', label: '📖 Story' },
+    { type: 'shoot', label: '🎬 Shoot Day' },
+  ];
   
   // Drag & Drop state
   const [activeTask, setActiveTask] = useState<ScheduledTask | null>(null);
@@ -969,7 +1072,8 @@ export function EnhancedCalendar({
     
     // Add Google events
     googleEvents.forEach(event => {
-      const eventDate = new Date(event.start).toISOString().split('T')[0];
+      const _d = new Date(event.start);
+      const eventDate = `${_d.getFullYear()}-${String(_d.getMonth() + 1).padStart(2, '0')}-${String(_d.getDate()).padStart(2, '0')}`;
       if (eventDate === dateStr) {
         const startHour = new Date(event.start).getHours() + new Date(event.start).getMinutes() / 60;
         const endHour = new Date(event.end).getHours() + new Date(event.end).getMinutes() / 60;
@@ -1199,6 +1303,8 @@ export function EnhancedCalendar({
       // Add team tasks from Supabase (shared events + tasks assigned to this user)
       if (teamTasks && teamTasks.length > 0) {
         for (const tt of teamTasks) {
+          // Footage items are not calendar tasks — skip them
+          if (tt.taskCategory === 'footage') continue;
           // Shared events (posts, release day) → always show
           // Tasks → only show if assigned to current user
           if (tt.taskCategory !== 'event' && tt.assignedTo && tt.assignedTo !== currentUserId) continue;
@@ -1239,7 +1345,8 @@ export function EnhancedCalendar({
           date: day.date,
           tasks: tasks.filter(t => t.date === day.dateStr),
           googleEvents: googleEvents.filter(e => {
-            const eventDate = new Date(e.start).toISOString().split('T')[0];
+            const d = new Date(e.start);
+            const eventDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
             return eventDate === day.dateStr;
           }),
           isToday: day.weekNum === 0 && day.date.getTime() === today.getTime(),
@@ -1710,6 +1817,7 @@ export function EnhancedCalendar({
       // Non-event tasks assigned to the admin
       for (const tt of teamTasks) {
         if (tt.taskCategory === 'event') continue; // already handled above
+        if (tt.taskCategory === 'footage') continue; // footage items are not calendar tasks
         if (tasks.some(t => t.id === tt.id)) continue;
         if (tt.assignedTo && tt.assignedTo !== currentUserId) continue;
 
@@ -1738,7 +1846,8 @@ export function EnhancedCalendar({
         date: day.date,
         tasks: tasks.filter(t => t.date === day.dateStr),
         googleEvents: googleEvents.filter(e => {
-          const eventDate = new Date(e.start).toISOString().split('T')[0];
+          const d = new Date(e.start);
+          const eventDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
           return eventDate === day.dateStr;
         }),
         isToday: day.weekNum === 0 && day.date.getTime() === today.getTime(),
@@ -1880,14 +1989,22 @@ export function EnhancedCalendar({
               <p className="text-blue-400 text-sm">{(artistProfile as any).teamDescription || (artistProfile.teamMembers ? `${artistProfile.teamMembers.length} member(s)` : 'Has support')}</p>
             </div>
           )}
-          {/* Calendar label */}
+          {/* View mode tabs */}
           <div className="flex border border-gray-600 rounded-lg overflow-hidden">
             <button
               onClick={() => setViewMode('calendar')}
-              className="px-3 py-1 text-xs font-medium bg-blue-500 text-white"
+              className={`px-3 py-1 text-xs font-medium transition-colors ${viewMode === 'calendar' ? 'bg-blue-500 text-white' : 'bg-gray-800 text-gray-400 hover:text-white'}`}
             >
               📅 Calendar
             </button>
+            {isAdmin && (
+              <button
+                onClick={() => setViewMode('settings')}
+                className={`px-3 py-1 text-xs font-medium transition-colors border-l border-gray-600 ${viewMode === 'settings' ? 'bg-gray-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-white'}`}
+              >
+                ⚙️ Settings
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -1973,6 +2090,7 @@ export function EnhancedCalendar({
                     onPostCardClick={onPostCardClick}
                     onNonPostTaskClick={onNonPostTaskClick}
                     onTaskContextMenu={onTaskContextMenu}
+                    onDayContextMenu={isAdmin ? (date, x, y) => setDayCtxMenu({ date, x, y }) : undefined}
                   />
                 );
               })}
@@ -2124,6 +2242,84 @@ export function EnhancedCalendar({
         </div>
       </div>
       
+      {/* Settings Panel */}
+      {viewMode === 'settings' && isAdmin && (
+        <div className="my-4 space-y-4">
+          <div className="p-5 bg-gray-900 border border-gray-700 rounded-xl">
+            <h3 className="text-white font-semibold text-sm mb-1">Reinitialize Account</h3>
+            <p className="text-gray-400 text-xs mb-4">
+              Wipes all scheduled tasks, shoot days, edit days, and post slots, then restarts your schedule from your onboarding data.
+              Uploaded footage, files, and links are preserved. Your team, worlds, and release date are untouched.
+            </p>
+            {clearConfirmStep === 'idle' && (
+              <button
+                onClick={() => setClearConfirmStep('confirm')}
+                className="px-4 py-2 text-xs font-medium rounded-lg bg-red-900/30 border border-red-700/50 text-red-400 hover:bg-red-900/50 hover:text-red-300 transition-colors"
+              >
+                Reinitialize account
+              </button>
+            )}
+            {clearConfirmStep === 'confirm' && (
+              <div className="flex items-center gap-3">
+                <span className="text-yellow-400 text-xs">Are you sure? This cannot be undone.</span>
+                <button
+                  onClick={async () => {
+                    setClearConfirmStep('clearing');
+                    if (onClearContentData) await onClearContentData();
+                    setClearConfirmStep('idle');
+                  }}
+                  className="px-3 py-1.5 text-xs font-medium rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors"
+                >
+                  Yes, clear it
+                </button>
+                <button
+                  onClick={() => setClearConfirmStep('idle')}
+                  className="px-3 py-1.5 text-xs font-medium rounded-lg bg-gray-700 text-gray-300 hover:bg-gray-600 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+            {clearConfirmStep === 'clearing' && (
+              <span className="text-gray-400 text-xs">Clearing content data…</span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* CAL2: Admin day right-click context menu */}
+      {dayCtxMenu && isAdmin && (
+        <>
+          <div
+            className="fixed inset-0 z-[100]"
+            onClick={() => setDayCtxMenu(null)}
+            onContextMenu={(e) => { e.preventDefault(); setDayCtxMenu(null); }}
+          />
+          <div
+            className="fixed z-[101] bg-gray-900 border border-gray-600 rounded-xl shadow-2xl shadow-black/60 py-1 min-w-[160px]"
+            style={{ top: dayCtxMenu.y, left: Math.min(dayCtxMenu.x, window.innerWidth - 180) }}
+          >
+            <div className="px-3 py-1.5 border-b border-gray-700/50">
+              <p className="text-[10px] text-gray-500 uppercase tracking-wider">
+                {new Date(dayCtxMenu.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+              </p>
+            </div>
+            {DAY_SLOT_TYPES.map(({ type, label }) => (
+              <button
+                key={type}
+                onClick={() => {
+                  onAddPostSlot?.(dayCtxMenu.date, type);
+                  setDayCtxMenu(null);
+                }}
+                className="w-full text-left px-3 py-2 text-sm text-gray-200 hover:bg-gray-700/60 transition-colors flex items-center gap-2"
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
       {/* Drag Overlay - shows dragging task */}
       <DragOverlay>
         {activeTask && (

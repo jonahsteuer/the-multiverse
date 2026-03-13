@@ -809,6 +809,120 @@ function DefaultView({
   );
 }
 
+// ── F14: Shoot Day View ────────────────────────────────────────────────────────
+
+function ShootDayView({ task, onAskMark }: { task: TeamTask; onAskMark: () => void }) {
+  const desc = task.description || '';
+
+  // Parse location from description
+  const locationMatch = desc.match(/📍 Location: ([^\n(]+)/);
+  const locationName = locationMatch?.[1]?.trim() || '';
+  const locationUrlMatch = desc.match(/\(https:\/\/[^\)]+\)/);
+  const locationUrl = locationUrlMatch?.[0]?.slice(1, -1) || '';
+
+  // Parse shot list from description
+  const shotListMatch = desc.match(/🎬 SHOT LIST.*?:\n([\s\S]*?)(?:\n\n|$)/);
+  const shotListRaw = shotListMatch?.[1] || '';
+  const shotListLines = shotListRaw.split('\n').filter(l => l.trim().startsWith('Look'));
+
+  const downloadShotList = () => {
+    const content = [
+      `SHOT LIST — ${task.title}`,
+      `Date: ${task.date}`,
+      locationName ? `Location: ${locationName}` : '',
+      '',
+      'Instructions: Record the COMPLETE song from start to finish at EVERY look.',
+      '',
+      ...shotListLines,
+      '',
+      desc.match(/⏰ Time: (.+)/)?.[0] || '',
+      desc.match(/👥 Crew: (.+)/)?.[0] || '',
+    ].filter(Boolean).join('\n');
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `shot-list-${task.date}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="p-5 space-y-5">
+      {/* Location */}
+      {locationName && (
+        <div>
+          <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">📍 Location</h3>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-white">{locationName}</span>
+            {locationUrl && (
+              <a
+                href={locationUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs px-2 py-1 rounded-lg bg-blue-500/20 text-blue-300 hover:bg-blue-500/40 transition-all border border-blue-500/30"
+              >
+                📍 View on Maps
+              </a>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Shot List */}
+      {shotListLines.length > 0 && (
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">🎬 Shot List</h3>
+            <button
+              onClick={downloadShotList}
+              className="text-xs px-2 py-1 rounded-lg bg-gray-700 hover:bg-gray-600 text-gray-300 transition-all border border-gray-600"
+            >
+              ⬇ Download
+            </button>
+          </div>
+          <div className="space-y-1.5">
+            {shotListLines.map((line, i) => (
+              <div key={i} className="flex items-start gap-2 p-2 rounded-lg bg-gray-900/60 border border-gray-800">
+                <span className="text-xs font-bold text-purple-400 flex-shrink-0 w-6">{i + 1}.</span>
+                <span className="text-xs text-gray-300">{line.replace(/^Look \d+:\s*/, '')}</span>
+              </div>
+            ))}
+          </div>
+          <p className="text-[11px] text-gray-500 mt-2">Record the full song at each look. This gives you ~45 posts to cut.</p>
+        </div>
+      )}
+
+      {/* Crew & Time */}
+      {(desc.includes('⏰') || desc.includes('👥')) && (
+        <div className="flex gap-4 text-xs text-gray-400">
+          {desc.match(/⏰ Time: (.+)/)?.[1] && (
+            <span>⏰ {desc.match(/⏰ Time: (.+)/)?.[1]}</span>
+          )}
+          {desc.match(/👥 Crew: (.+)/)?.[1] && (
+            <span>👥 {desc.match(/👥 Crew: (.+)/)?.[1]}</span>
+          )}
+        </div>
+      )}
+
+      {/* Full description fallback */}
+      {shotListLines.length === 0 && task.description && (
+        <div>
+          <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Details</h3>
+          <p className="text-sm text-gray-200 leading-relaxed whitespace-pre-line">{task.description}</p>
+        </div>
+      )}
+
+      <button
+        onClick={onAskMark}
+        className="w-full flex items-center justify-center gap-2 py-3 px-4 bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/40 rounded-xl text-purple-300 text-sm font-medium transition-all"
+      >
+        <span>🎯</span><span>Ask Mark for help</span>
+      </button>
+    </div>
+  );
+}
+
 // ── Main TaskPanel ────────────────────────────────────────────────────────────
 
 interface TaskPanelProps {
@@ -829,6 +943,7 @@ export function TaskPanel({ task: initialTask, allTasks, teamMembers, markContex
   const isSendRevisionsTask = titleLower.includes('send edits back') || (titleLower.includes('send') && titleLower.includes('with notes'));
   const isFinalizeTask = titleLower.includes('finalize posts');
   const isBrainstorm = task.type === 'brainstorm';
+  const isShootDay = task.type === 'shoot';
 
   // Brainstorm tasks: auto-open Mark in brainstorm mode
   useEffect(() => {
@@ -909,6 +1024,8 @@ export function TaskPanel({ task: initialTask, allTasks, teamMembers, markContex
             <SendRevisionsView task={task} allTasks={allTasks} onTaskUpdated={handleTaskUpdated} onAskMark={handleAskMark} />
           ) : isFinalizeTask ? (
             <FinalizePostsView task={task} allTasks={allTasks} onTaskUpdated={handleTaskUpdated} onAskMark={handleAskMark} />
+          ) : isShootDay ? (
+            <ShootDayView task={task} onAskMark={handleAskMark} />
           ) : (
             <DefaultView task={task} onTaskUpdated={handleTaskUpdated} onAskMark={handleAskMark} />
           )}

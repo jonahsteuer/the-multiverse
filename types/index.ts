@@ -51,6 +51,7 @@ export interface ArtistProfile {
   // NEW: Time Budget & Availability (from conversational onboarding)
   timeBudgetHoursPerWeek?: number; // e.g., 6
   preferredDays?: string[]; // e.g., ['saturday', 'sunday'] — kept for data storage but not shown in UI
+  homeCity?: string; // e.g., 'Los Angeles' — pre-fills location area in brainstorm sessions
 
   // NEW: Content inventory (from conversational onboarding)
   editedClipCount?: number; // How many edited clips are ready to post
@@ -76,6 +77,9 @@ export interface ArtistProfile {
   // NEW: Release Strategy (what they want to promote)
   releaseStrategy?: 'promote_recent' | 'build_to_release' | 'audience_growth' | 'balanced';
   releaseStrategyDescription?: string; // Their specific answer
+
+  // Stafford: target listener interests (B) — what else they're into besides music
+  targetListenerInterests?: string; // e.g. "comedy, late nights, fitness, nostalgia"
   
   createdAt: string;
   updatedAt: string;
@@ -197,6 +201,10 @@ export interface World {
   isPublic: boolean;
   isReleased: boolean;
   createdAt: string;
+  // Stafford approach: per-song context (C, D, D+)
+  songEmotion?: string;       // 1-2 words: "heartbreak", "confidence" etc. (C)
+  songStage?: string;         // writing/recorded/mixed/mastered/ready (D)
+  listeningContext?: string;  // "late-night drive", "gym", "bedroom" etc. (D+)
 }
 
 // Snapshot Strategy
@@ -394,12 +402,13 @@ export type InvitationStatus = 'pending' | 'accepted' | 'declined';
 export type TeamTaskType = 'invite_team' | 'brainstorm' | 'prep' | 'film' | 'edit' | 'review' | 'post' | 'release' | 'shoot' | 'custom';
 export type TeamTaskCategory = 'task' | 'event' | 'footage';
 export type TeamTaskStatus = 'pending' | 'in_progress' | 'completed';
-export type NotificationType = 'task_assigned' | 'task_completed' | 'task_rescheduled' | 'invite_accepted' | 'member_joined' | 'brainstorm_completed' | 'brainstorm_revision' | 'general';
+export type NotificationType = 'task_assigned' | 'task_completed' | 'task_rescheduled' | 'invite_accepted' | 'member_joined' | 'brainstorm_completed' | 'brainstorm_revision' | 'general' | 'review_notes_sent';
 
 // Team — one per universe
 export interface Team {
   id: string;
   universeId: string;
+  galaxyId?: string; // galaxy-level sharing — the specific galaxy this team is for
   name: string;
   createdBy: string; // user_id
   createdAt: string;
@@ -514,6 +523,36 @@ export interface ContentFormatAssignment {
   ideaHook?: string;         // The 3-second hook for this idea
   postType: 'teaser' | 'promo' | 'audience-builder'; // Original post type
   date: string; // ISO date of the post
+  // Stafford: soundbyte + shoot look
+  soundbyte?: string;        // which song section: intro/verse/pre-chorus/chorus/bridge/outro
+  shootLook?: string;        // e.g. "Look 2 — close-up, side angle, seated"
+  rolloutZone?: 'pre-release' | 'release-week' | 'post-release'; // where in the campaign arc
+  // Variation tracking
+  variationIndex?: number;     // 0 = original, 1+ = variation (all shot same day)
+  variationOf?: string;        // postId of the original this is a variation of
+  variationRationale?: string; // Why this variation is worth shooting
+  // Trial reels: slight edit-level changes posted on Instagram the day before to test
+  trialReelDate?: string;      // date string for trial reel post (day before this.date)
+}
+
+// A single look (camera setup) planned for a shoot day
+export interface ShootLook {
+  number: number;          // 1-based index
+  description: string;     // e.g. "Wide, standing, front-facing"
+  angle: string;           // wide / medium / close-up
+  energy: string;          // calm / mid-energy / high-energy
+}
+
+// An expected edit derived from footage — maps to a post slot
+export interface ExpectedEdit {
+  postIndex: number;
+  postDate: string;
+  postTitle: string;
+  lookNumber: number;          // which ShootLook to pull footage from
+  soundbyte: string;           // intro/verse/pre-chorus/chorus/bridge/outro
+  targetLength: string;        // "7s" | "15s" | "30s"
+  textOverlaySuggestion: string;
+  editDayDate: string;         // scheduled date to do this edit
 }
 
 // Generated edit/shoot tasks from brainstorm
@@ -527,6 +566,9 @@ export interface BrainstormEditDay {
   startTime: string;
   endTime: string;
   assignedTo?: string; // user_id (e.g., Ruby)
+  // Stafford: explicit editor instructions
+  editorInstructions?: string; // What footage to pull, soundbyte targets, etc.
+  footageRef?: string;         // Reference to footage item
 }
 
 export interface BrainstormShootDay {
@@ -538,6 +580,11 @@ export interface BrainstormShootDay {
   date: string; // ISO date
   startTime: string;
   endTime: string;
+  timeOfDay?: string;    // morning / afternoon / evening
+  crew?: string;         // solo / have help
+  location?: string;     // confirmed shoot location name
+  locationUrl?: string;  // Google Maps link
+  looks?: ShootLook[];   // auto-generated look list
   assignedTo?: string; // user_id
   sharedWith?: string[]; // user_ids who also need to attend (e.g., artist)
 }
@@ -552,12 +599,50 @@ export interface BrainstormResult {
   shootDays: BrainstormShootDay[];
   shootDayAction?: 'plan_now' | 'schedule_task' | 'skip'; // What to do about shoot days
   shootDayDate?: string; // YYYY-MM-DD — the chosen shoot date when action is 'plan_now'
+  // Stafford: shoot day details
+  confirmedLocation?: string;    // shoot location name
+  confirmedLocationUrl?: string; // Google Maps link
+  shootTimeOfDay?: string;       // morning / afternoon / evening
+  shootCrew?: string;            // solo / have help
+  looks?: ShootLook[];           // shot list
+  expectedEdits?: ExpectedEdit[]; // derived edit targets
+  confirmedScenes?: Array<{      // locked scene ideas from brainstorm (E1-E3)
+    title: string;
+    setting?: string;
+    action?: string;
+    emotionalAngle?: string;
+    timeOfDay?: string;
+    difficulty?: string;
+    practicalRequirements?: string;
+  }>;
+  // Trial reels: Instagram-only test posts scheduled the day before each real post
+  trialReels?: Array<{
+    postIndex: number;
+    postDate: string;   // the actual post date
+    trialDate: string;  // day before postDate
+    postTitle: string;
+  }>;
   completedBy?: string; // user_id
   completedAt: string;
   reviewedBy?: string; // user_id (admin who reviewed)
   reviewedAt?: string;
   revisionNotes?: string; // Notes from admin if sent back
   status: 'completed' | 'pending_review' | 'revision_requested';
+}
+
+// Post Edit — one uploaded edit version for a scheduled post
+export interface PostEdit {
+  id: string;
+  postTaskId: string;
+  teamId: string;
+  galaxyId: string;
+  uploadedBy?: string;
+  uploaderName: string;
+  videoUrl: string;
+  versionNumber: number;
+  description?: string; // "What changed?" for v2+
+  createdAt: string;
+  updatedAt: string;
 }
 
 // Helper: Check if a team member has admin/full permissions

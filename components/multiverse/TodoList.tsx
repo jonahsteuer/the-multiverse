@@ -215,19 +215,71 @@ function TaskItem({
         {formatDueDate(task.date, task.startTime)}
       </div>
 
-      {/* Assign button (admin only, non-invite tasks) */}
-      {isAdmin && onAssign && task.type !== 'invite_team' && !task.assignedTo && (
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onAssign();
-          }}
-          className="flex-shrink-0 text-xs text-purple-400 hover:text-purple-300 px-2 py-1 rounded border border-purple-500/30 hover:border-purple-500/50 opacity-0 group-hover:opacity-100 transition-opacity"
-        >
-          Assign
-        </button>
-      )}
+      {/* ⋯ context menu button */}
+      <div className="relative flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+        <ThreeDotMenu task={task} isAdmin={isAdmin} onAssign={onAssign} />
+      </div>
     </button>
+  );
+}
+
+// Inline 3-dot menu for todo tasks
+function ThreeDotMenu({
+  task,
+  isAdmin,
+  onAssign,
+}: {
+  task: TeamTask;
+  isAdmin: boolean;
+  onAssign?: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+
+  const menuItems: { label: string; action: () => void; color?: string }[] = [];
+  if (task.type === 'shoot') {
+    menuItems.push({ label: '📋 Shot List', action: () => setOpen(false) });
+    menuItems.push({ label: '🔔 Remind Team', action: () => setOpen(false) });
+    menuItems.push({ label: '🗑 Delete', action: () => setOpen(false), color: 'text-red-400' });
+  } else if (task.type === 'edit') {
+    if (isAdmin) menuItems.push({ label: '👤 Assign', action: () => { onAssign?.(); setOpen(false); } });
+    menuItems.push({ label: '🗑 Delete', action: () => setOpen(false), color: 'text-red-400' });
+  } else if (task.type === 'post') {
+    menuItems.push({ label: '📅 Move Date', action: () => setOpen(false) });
+    menuItems.push({ label: '🗑 Delete', action: () => setOpen(false), color: 'text-red-400' });
+  } else {
+    menuItems.push({ label: '✓ Complete', action: () => setOpen(false), color: 'text-green-400' });
+    if (isAdmin) menuItems.push({ label: '↗ Reassign', action: () => { onAssign?.(); setOpen(false); } });
+    menuItems.push({ label: '🗑 Delete', action: () => setOpen(false), color: 'text-red-400' });
+  }
+
+  if (menuItems.length === 0) return null;
+
+  return (
+    <>
+      <button
+        onClick={(e) => { e.stopPropagation(); setOpen(v => !v); }}
+        className="text-xs text-gray-500 hover:text-gray-300 px-1.5 py-0.5 rounded hover:bg-white/5 transition-all opacity-0 group-hover:opacity-100"
+        title="Options"
+      >
+        ⋯
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 top-6 z-50 min-w-[140px] bg-gray-800 border border-gray-700 rounded-xl shadow-xl overflow-hidden">
+            {menuItems.map((item, i) => (
+              <button
+                key={i}
+                onClick={(e) => { e.stopPropagation(); item.action(); }}
+                className={`w-full text-left px-3 py-2 text-xs hover:bg-gray-700/80 transition-colors ${item.color || 'text-gray-300'}`}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </>
   );
 }
 

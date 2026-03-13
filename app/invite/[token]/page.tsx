@@ -108,10 +108,11 @@ export default function InviteAcceptPage() {
           onboardingComplete: true,
         }));
 
-        // Save team info so loadTeamUniverse can find the universe
+        // Save team info so loadTeamUniverse can find the galaxy/universe
         if (invitation?.teamId) {
           localStorage.setItem('multiverse_team_info', JSON.stringify({
             teamId: invitation.teamId,
+            galaxyId: (invitation.team as any)?.galaxyId || null,
             universeId: invitation.team?.universeId || null,
             teamName: invitation.team?.name || '',
             role: invitation.role || 'videographer',
@@ -121,15 +122,13 @@ export default function InviteAcceptPage() {
         // Accept the invitation directly (client-side, so Supabase has the user session)
         const result = await acceptInvitation(token, signInData.user.id, displayName);
         if (result.success) {
-          // Update team info with universeId from result
-          if (result.universeId) {
-            localStorage.setItem('multiverse_team_info', JSON.stringify({
-              teamId: result.teamId,
-              universeId: result.universeId,
-              teamName: invitation?.team?.name || '',
-              role: invitation?.role || 'videographer',
-            }));
-          }
+          localStorage.setItem('multiverse_team_info', JSON.stringify({
+            teamId: result.teamId,
+            galaxyId: (result as any).galaxyId || (invitation?.team as any)?.galaxyId || null,
+            universeId: result.universeId || null,
+            teamName: invitation?.team?.name || '',
+            role: invitation?.role || 'videographer',
+          }));
           setAccepted(true);
         } else {
           setError('Failed to accept invitation.');
@@ -163,10 +162,11 @@ export default function InviteAcceptPage() {
         onboardingComplete: true,
       }));
 
-      // 2c. Save team info so loadTeamUniverse can find the universe
+      // 2c. Save team info so loadTeamUniverse can find the galaxy/universe
       if (invitation?.teamId) {
         localStorage.setItem('multiverse_team_info', JSON.stringify({
           teamId: invitation.teamId,
+          galaxyId: (invitation.team as any)?.galaxyId || null,
           universeId: invitation.team?.universeId || null,
           teamName: invitation.team?.name || '',
           role: invitation.role || 'videographer',
@@ -176,15 +176,13 @@ export default function InviteAcceptPage() {
       // 3. Accept the invitation directly (client-side, so Supabase has the user session)
       const result = await acceptInvitation(token, authData.user.id, displayName);
       if (result.success) {
-        // Update team info with universeId from result
-        if (result.universeId) {
-          localStorage.setItem('multiverse_team_info', JSON.stringify({
-            teamId: result.teamId,
-            universeId: result.universeId,
-            teamName: invitation?.team?.name || '',
-            role: invitation?.role || 'videographer',
-          }));
-        }
+        localStorage.setItem('multiverse_team_info', JSON.stringify({
+          teamId: result.teamId,
+          galaxyId: (result as any).galaxyId || (invitation?.team as any)?.galaxyId || null,
+          universeId: result.universeId || null,
+          teamName: invitation?.team?.name || '',
+          role: invitation?.role || 'videographer',
+        }));
         setAccepted(true);
       } else {
         setError('Failed to accept invitation.');

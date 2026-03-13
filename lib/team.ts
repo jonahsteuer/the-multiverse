@@ -17,6 +17,7 @@ import type {
   TeamTaskStatus,
   NotificationType,
   BrainstormResult,
+  PostEdit,
 } from '@/types';
 
 // ============================================================================
@@ -24,8 +25,8 @@ import type {
 // ============================================================================
 
 /** Create a team for a universe (called after onboarding) */
-export async function createTeam(universeId: string, name: string): Promise<Team | null> {
-  console.log('[Team] createTeam called:', { universeId, name });
+export async function createTeam(universeId: string, name: string, galaxyId?: string): Promise<Team | null> {
+  console.log('[Team] createTeam called:', { universeId, name, galaxyId });
   
   if (!isSupabaseConfigured()) {
     console.error('[Team] Supabase not configured!');
@@ -47,6 +48,7 @@ export async function createTeam(universeId: string, name: string): Promise<Team
     .from('teams')
     .insert({
       universe_id: universeId,
+      galaxy_id: galaxyId || null,
       name,
       created_by: user.id,
     })
@@ -72,22 +74,57 @@ export async function createTeam(universeId: string, name: string): Promise<Team
   return mapTeamFromDb(data);
 }
 
-/** Get team for a universe */
+/**
+ * Get team for a universe.
+ * For invited members (non-owners), this first looks for the team the current
+ * user is actually a member of — preventing duplicate-team issues where
+ * `universe_id` might match multiple teams.
+ */
 export async function getTeamForUniverse(universeId: string): Promise<Team | null> {
   if (!isSupabaseConfigured()) return null;
 
+  // Strategy 1: find the team the current user is a member of for this universe
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      const { data: memberRows } = await supabase
+        .from('team_members')
+        .select('team_id')
+        .eq('user_id', user.id);
+
+      if (memberRows && memberRows.length > 0) {
+        const teamIds = memberRows.map(r => r.team_id);
+        const { data: teamRows } = await supabase
+          .from('teams')
+          .select('*, team_members:team_members(*)')
+          .eq('universe_id', universeId)
+          .in('id', teamIds)
+          .limit(1);
+
+        if (teamRows && teamRows.length > 0) {
+          const team = mapTeamFromDb(teamRows[0]);
+          team.members = (teamRows[0].team_members || []).map(mapMemberFromDb);
+          return team;
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('[Team] getTeamForUniverse member-lookup failed, falling back:', e);
+  }
+
+  // Strategy 2: fall back to single-team lookup (works for admins / fresh setups)
   const { data, error } = await supabase
     .from('teams')
     .select('*, team_members:team_members(*)')
     .eq('universe_id', universeId)
-    .single();
+    .limit(1)
+    .maybeSingle();
 
   if (error) {
-    if (error.code !== 'PGRST116') { // Not "no rows" error
-      console.error('[Team] Error loading team:', error);
-    }
+    console.error('[Team] Error loading team:', error);
     return null;
   }
+  if (!data) return null;
 
   const team = mapTeamFromDb(data);
   team.members = (data.team_members || []).map(mapMemberFromDb);
@@ -263,7 +300,7 @@ export async function acceptInvitation(
   token: string,
   userId: string,
   displayName: string
-): Promise<{ success: boolean; teamId?: string; universeId?: string | null }> {
+): Promise<{ success: boolean; teamId?: string; universeId?: string | null; galaxyId?: string | null }> {
   if (!isSupabaseConfigured()) return { success: false };
 
   // 1. Get the invitation
@@ -316,6 +353,7 @@ export async function acceptInvitation(
     success: true,
     teamId: invitation.teamId,
     universeId: invitation.team?.universeId || null,
+    galaxyId: (invitation.team as any)?.galaxyId || null,
   };
 }
 
@@ -704,16 +742,18 @@ export async function createTasksFromBrainstorm(
 ): Promise<TeamTask[]> {
   const tasks: TeamTask[] = [];
 
-  // Create post events for each brainstormed idea assignment
+  // Create post events for each brainstormed idea assignment (M: includes soundbyte + rollout_zone)
   for (const assignment of result.formatAssignments) {
     const postLabel = assignment.postType.charAt(0).toUpperCase() +
       assignment.postType.slice(1).replace('-', ' ');
     const title = assignment.ideaTitle
       ? assignment.ideaTitle
       : `${postLabel} Post`;
-    const description = assignment.ideaHook
+    let description = assignment.ideaHook
       ? `Hook: ${assignment.ideaHook}`
       : `${postLabel} post from content brainstorm`;
+    if (assignment.shootLook) description += `\nLook: ${assignment.shootLook}`;
+    if (assignment.soundbyte) description += `\nSoundbyte: starts at ${assignment.soundbyte}`;
 
     const task = await createTask(teamId, {
       galaxyId,
@@ -725,15 +765,35 @@ export async function createTasksFromBrainstorm(
       startTime: '10:00',
       endTime: '10:30',
     });
+    // Save soundbyte + rollout_zone directly (createTask doesn't have these fields, use raw upsert)
+    if (task && (assignment.soundbyte || assignment.rolloutZone)) {
+      try {
+        await supabase
+          .from('team_tasks')
+          .update({
+            soundbyte: assignment.soundbyte || null,
+            rollout_zone: assignment.rolloutZone || null,
+            shoot_look: assignment.shootLook || null,
+          })
+          .eq('id', task.id);
+      } catch { /* non-blocking */ }
+    }
     if (task) tasks.push(task);
   }
 
-  // Create edit day tasks
+  // Create edit day tasks (K, L: include editor instructions + footage ref)
   for (const editDay of result.editDays) {
+    const instructionsText = editDay.editorInstructions
+      ? `\n\nEDITOR INSTRUCTIONS:\n${editDay.editorInstructions}`
+      : '';
+    const footageText = editDay.footageRef
+      ? `\nFootage: ${editDay.footageRef}`
+      : '';
+
     const task = await createTask(teamId, {
       galaxyId,
-      title: `Edit: ${editDay.customFormatName || editDay.format}`,
-      description: `Edit content for posts ${editDay.postsCovered.map(i => i + 1).join(', ')}`,
+      title: `Edit Day — ${editDay.customFormatName || `Posts ${editDay.postsCovered.map(i => i + 1).join(', ')}`}`,
+      description: `Edit ${editDay.postsCovered.length} post${editDay.postsCovered.length !== 1 ? 's' : ''} (post slots ${editDay.postsCovered.map(i => i + 1).join(', ')}).${footageText}${instructionsText}`,
       type: 'edit',
       taskCategory: 'task',
       date: editDay.date,
@@ -746,10 +806,7 @@ export async function createTasksFromBrainstorm(
 
   // Create shoot day events or "Plan shoot day" task based on artist's choice
   if (result.shootDayAction === 'schedule_task') {
-    // Artist wants a task on their calendar to plan it later
-    const firstPostDate = result.formatAssignments
-      .map(a => a.date)
-      .sort()[0];
+    const firstPostDate = result.formatAssignments.map(a => a.date).sort()[0];
     const shootTaskDate = firstPostDate
       ? new Date(new Date(firstPostDate).getTime() - 7 * 24 * 60 * 60 * 1000)
           .toISOString().split('T')[0]
@@ -766,35 +823,174 @@ export async function createTasksFromBrainstorm(
       endTime: '11:00',
     });
     if (task) tasks.push(task);
-  } else if (result.shootDayAction === 'plan_now') {
-    // Artist chose to plan now — use the date they picked, falling back to tomorrow
+  } else if (result.shootDayAction === 'plan_now' || result.shootDays.length > 0) {
+    // Shoot Day event with timed scene+look breakdown (E1-E3)
+    const shootDay = result.shootDays[0];
     const fallbackTomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-    const shootDate = result.shootDayDate || fallbackTomorrow;
+    const shootDate = result.shootDayDate || shootDay?.date || fallbackTomorrow;
+
+    // Derive shoot start time from timeOfDay preference
+    const shootStartHour = result.shootTimeOfDay === 'morning' ? 9
+      : result.shootTimeOfDay === 'afternoon' ? 13
+      : result.shootTimeOfDay === 'evening' ? 17 : 10;
+
+    const startTime = shootDay?.startTime || `${String(shootStartHour).padStart(2, '0')}:00`;
+
+    // Build timed scene schedule (E2: logical shoot order, E3: per-scene and per-look times)
+    // Order: setup-heavy / directional-light scenes first, golden-hour scenes last
+    const scenes = result.confirmedScenes || [];
+    const looksPerScene = result.looks ? Math.ceil(result.looks.length / Math.max(scenes.length, 1)) : 5;
+    const minutesPerLook = 12; // ~12 min per look including takes
+    const minutesPerScene = looksPerScene * minutesPerLook + 10; // +10 min travel/setup between scenes
+
+    // Sort scenes: golden hour scenes last, others by complexity (easy first)
+    const sortedScenes = [...scenes].sort((a: any, b: any) => {
+      const aGolden = (a.timeOfDay || '').toLowerCase().includes('golden') || (a.timeOfDay || '').toLowerCase().includes('sunset');
+      const bGolden = (b.timeOfDay || '').toLowerCase().includes('golden') || (b.timeOfDay || '').toLowerCase().includes('sunset');
+      if (aGolden && !bGolden) return 1;  // golden hour scenes go last
+      if (!aGolden && bGolden) return -1;
+      return 0;
+    });
+
+    let shotListDesc = '';
+    if (result.confirmedLocation) {
+      shotListDesc += `📍 ${result.confirmedLocation}`;
+      if (result.confirmedLocationUrl) shotListDesc += `\n🔗 ${result.confirmedLocationUrl}`;
+    }
+    if (result.shootCrew) shotListDesc += `\n👥 Crew: ${result.shootCrew}`;
+    shotListDesc += '\n';
+
+    // Build timed schedule
+    let currentMinute = shootStartHour * 60;
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const toTime = (minutes: number) => `${pad(Math.floor(minutes / 60) % 24)}:${pad(minutes % 60)}`;
+
+    if (sortedScenes.length > 0) {
+      shotListDesc += `\n📋 TIMED SHOOT SCHEDULE\n`;
+      sortedScenes.forEach((scene: any, si: number) => {
+        const sceneStart = currentMinute;
+        const sceneLooks = result.looks
+          ? result.looks.filter((_: any, li: number) => Math.floor(li / looksPerScene) === si)
+          : Array.from({ length: looksPerScene }, (_: any, li: number) => ({ number: si * looksPerScene + li + 1, description: 'Full take', angle: 'varies', energy: 'match the song' }));
+
+        shotListDesc += `\n[${toTime(sceneStart)}] SCENE ${si + 1}: ${scene.title || scene}`;
+        if (scene.setting) shotListDesc += `\n  📌 ${scene.setting}`;
+        if (scene.timeOfDay) shotListDesc += `\n  🕐 Best light: ${scene.timeOfDay}`;
+
+        sceneLooks.forEach((look: any, li: number) => {
+          const lookStart = sceneStart + li * minutesPerLook;
+          const lookEnd = lookStart + minutesPerLook;
+          shotListDesc += `\n  ${toTime(lookStart)}–${toTime(lookEnd)}  Look ${look.number || li + 1}: ${look.description} (${look.angle}, ${look.energy})`;
+        });
+
+        currentMinute = sceneStart + minutesPerScene;
+        if (si < sortedScenes.length - 1) {
+          shotListDesc += `\n  ↓ Travel to next scene`;
+        }
+      });
+    } else if (result.looks && result.looks.length > 0) {
+      // Fallback: no scene objects, just looks
+      shotListDesc += `\n🎬 SHOT LIST\n`;
+      result.looks.forEach((l: any) => {
+        const lookStart = currentMinute;
+        currentMinute += minutesPerLook;
+        shotListDesc += `\n  ${toTime(lookStart)}–${toTime(currentMinute)}  Look ${l.number}: ${l.description} (${l.angle}, ${l.energy})`;
+      });
+    }
+
+    const endTime = shootDay?.endTime || toTime(currentMinute + 15); // +15 min buffer
+    shotListDesc += `\n\n✅ Record the full song at EVERY look. Maximum footage = maximum posts to test.`;
+
     const task = await createTask(teamId, {
       galaxyId,
-      title: 'Shoot day',
-      description: 'Shoot content for your brainstormed ideas. Check your plan for details.',
+      title: `Shoot Day${result.confirmedLocation ? ` — ${result.confirmedLocation}` : ''}`,
+      description: shotListDesc || 'Shoot content for your brainstormed ideas.',
       type: 'shoot',
       taskCategory: 'event',
       date: shootDate,
-      startTime: '10:00',
-      endTime: '14:00',
+      startTime,
+      endTime,
     });
-    if (task) tasks.push(task);
-  } else {
-    // Legacy path: create actual shoot day events from result.shootDays
-    for (const shootDay of result.shootDays) {
-      const task = await createTask(teamId, {
-        galaxyId,
-        title: `Shoot: ${shootDay.customFormatName || shootDay.format}`,
-        description: shootDay.reason,
-        type: 'shoot',
-        taskCategory: 'event',
-        date: shootDay.date,
-        startTime: shootDay.startTime,
-        endTime: shootDay.endTime,
-      });
-      if (task) tasks.push(task);
+
+    // F10: Auto-generate a prep checklist task the day before the shoot
+    const shootDateObj = new Date(shootDate + 'T12:00:00');
+    shootDateObj.setDate(shootDateObj.getDate() - 1);
+    const prepDate = shootDateObj.toISOString().split('T')[0];
+    const looksCount = result.looks?.length || 5;
+    const prepDesc = [
+      `📋 Prep checklist for tomorrow's shoot${result.confirmedLocation ? ` at ${result.confirmedLocation}` : ''}:`,
+      ``,
+      `□ Charge phone/camera and all batteries`,
+      `□ Lay out outfits for each look (${looksCount} looks planned)`,
+      `□ Download and review the shot list from the Shoot Day event`,
+      result.shootCrew && result.shootCrew !== 'solo' ? `□ Confirm crew/videographer availability` : `□ Set up tripod or find a surface to prop your phone`,
+      result.confirmedLocation ? `□ Check travel time to ${result.confirmedLocation} — leave buffer for parking/setup` : `□ Confirm travel plan to shoot location`,
+      `□ Review the first-frame note on each scene so you know exactly how to start`,
+    ].join('\n');
+
+    const prepTask = await createTask(teamId, {
+      galaxyId,
+      title: `Prep for tomorrow's shoot${result.confirmedLocation ? ` — ${result.confirmedLocation}` : ''}`,
+      description: prepDesc,
+      type: 'custom',
+      taskCategory: 'task',
+      date: prepDate,
+      startTime: '20:00',
+      endTime: '20:30',
+    });
+    if (prepTask) tasks.push(prepTask);
+
+    if (task) {
+      tasks.push(task);
+
+      // E4: Notify all team members about the new shoot day
+      try {
+        const members = await getTeamMembers(teamId);
+        const adminMember = members.find(m => m.role === 'admin' || m.permissions === 'full');
+        const adminUserId = adminMember?.userId || '';
+
+        await Promise.allSettled(
+          members
+            .filter(m => m.userId && m.userId !== adminUserId)
+            .map(m => createNotification(
+              m.userId!,
+              teamId,
+              'task_assigned',
+              `Shoot Day Scheduled — ${result.confirmedLocation || 'Location TBD'}`,
+              `A shoot day has been added to the calendar for ${shootDate}. Check the event for the full timed shot list.`,
+              { taskId: task.id, shootDate, location: result.confirmedLocation || '' }
+            ))
+        );
+      } catch (notifErr) {
+        console.warn('[Team] Could not send shoot day notifications:', notifErr);
+      }
+    }
+  }
+
+  // F8: Weekly Check-in tasks (Sunday of each week for 6 weeks)
+  // Used to review post performance and fill in ambiguous post slots
+  if (result.formatAssignments.length > 0) {
+    const firstPostDate = result.formatAssignments.map(a => a.date).sort()[0];
+    if (firstPostDate) {
+      const firstDate = new Date(firstPostDate + 'T12:00:00');
+      for (let week = 0; week < 6; week++) {
+        // Find the Sunday of the week containing firstDate + (week * 7) days
+        const weekDate = new Date(firstDate.getTime() + week * 7 * 24 * 60 * 60 * 1000);
+        const daysUntilSun = (7 - weekDate.getDay()) % 7 || 7; // days until next Sunday
+        const checkInDate = new Date(weekDate.getTime() + daysUntilSun * 24 * 60 * 60 * 1000);
+        const checkInDateStr = checkInDate.toISOString().split('T')[0];
+        const task = await createTask(teamId, {
+          galaxyId,
+          title: `Weekly Check-in — Review post performance`,
+          description: `Review how this week's posts performed. Fill in edit instructions for next week's ambiguous post slots based on what worked best.`,
+          type: 'custom',
+          taskCategory: 'task',
+          date: checkInDateStr,
+          startTime: '18:00',
+          endTime: '18:30',
+        });
+        if (task) tasks.push(task);
+      }
     }
   }
 
@@ -975,6 +1171,7 @@ function mapTeamFromDb(row: any): Team {
   return {
     id: row.id,
     universeId: row.universe_id,
+    galaxyId: row.galaxy_id || undefined,
     name: row.name,
     createdBy: row.created_by,
     createdAt: row.created_at,
@@ -1039,7 +1236,12 @@ function mapTaskFromDb(row: any): TeamTask {
     hashtags: row.hashtags,
     postStatus: row.post_status,
     revisionNotes: row.revision_notes,
-  };
+    // Stafford fields (gracefully undefined if migration not yet run)
+    soundbyte: row.soundbyte ?? undefined,
+    rolloutZone: row.rollout_zone ?? undefined,
+    shootLook: row.shoot_look ?? undefined,
+    expectedFootageRef: row.expected_footage_ref ?? undefined,
+  } as any as TeamTask;
 }
 
 function mapNotificationFromDb(row: any): AppNotification {
@@ -1256,4 +1458,182 @@ export async function saveMarkConversation(
     console.warn('[Mark] Failed to save conversation (non-blocking):', err);
     return null;
   }
+}
+
+// ============================================================================
+// POST EDIT OPERATIONS
+// ============================================================================
+
+function mapPostEditFromDb(row: any): PostEdit {
+  return {
+    id: row.id,
+    postTaskId: row.post_task_id,
+    teamId: row.team_id,
+    galaxyId: row.galaxy_id,
+    uploadedBy: row.uploaded_by || undefined,
+    uploaderName: row.uploader_name || '',
+    videoUrl: row.video_url,
+    versionNumber: row.version_number || 1,
+    description: row.description || undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+/** Get all edit versions for a post task */
+export async function getPostEdits(postTaskId: string): Promise<PostEdit[]> {
+  if (!isSupabaseConfigured() || !postTaskId) return [];
+
+  const { data, error } = await supabase
+    .from('post_edits')
+    .select('*')
+    .eq('post_task_id', postTaskId)
+    .order('version_number', { ascending: true });
+
+  if (error) {
+    console.error('[Team] Error fetching post edits:', error);
+    return [];
+  }
+
+  return (data || []).map(mapPostEditFromDb);
+}
+
+/** Upload a new edit version for a post */
+export async function createPostEdit(
+  teamId: string,
+  galaxyId: string | null,
+  postTaskId: string,
+  videoUrl: string,
+  uploaderName: string,
+  description?: string,
+  versionNumber?: number,
+): Promise<PostEdit | null> {
+  if (!isSupabaseConfigured()) return null;
+
+  const { data: { user } } = await supabase.auth.getUser();
+
+  const { data, error } = await supabase
+    .from('post_edits')
+    .insert({
+      post_task_id: postTaskId || null,
+      team_id: teamId,
+      galaxy_id: galaxyId || null,
+      uploaded_by: user?.id || null,
+      uploader_name: uploaderName,
+      video_url: videoUrl,
+      version_number: versionNumber || 1,
+      description: description || null,
+    })
+    .select()
+    .single();
+
+  if (error) {
+    console.error('[Team] Error creating post edit:', error);
+    return null;
+  }
+
+  return mapPostEditFromDb(data);
+}
+
+/** Delete an edit version */
+export async function deletePostEdit(editId: string): Promise<boolean> {
+  if (!isSupabaseConfigured()) return false;
+
+  const { error } = await supabase
+    .from('post_edits')
+    .delete()
+    .eq('id', editId);
+
+  if (error) {
+    console.error('[Team] Error deleting post edit:', error);
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * Send an item (post edit or footage) to a team member with notes.
+ * Creates a "Review X's notes on Y" task + notification for the recipient.
+ */
+export async function sendItemWithNotes(
+  teamId: string,
+  galaxyId: string,
+  recipientId: string,
+  senderName: string,
+  itemName: string,
+  sourceType: 'post_edit' | 'footage',
+  sourceId: string,
+  note: string,
+): Promise<boolean> {
+  if (!isSupabaseConfigured()) return false;
+
+  const { data: { user } } = await supabase.auth.getUser();
+
+  const today = new Date();
+  const todayStr = today.toISOString().split('T')[0];
+  const h = Math.max(today.getHours(), 10);
+  const startTime = `${h.toString().padStart(2, '0')}:00`;
+  const endTime = `${Math.min(h + 1, 23).toString().padStart(2, '0')}:00`;
+
+  const { error: taskError } = await supabase.from('team_tasks').insert({
+    team_id: teamId,
+    galaxy_id: galaxyId,
+    title: `Review ${senderName}'s notes on ${itemName}`,
+    description: note,
+    type: 'review',
+    task_category: 'task',
+    date: todayStr,
+    start_time: startTime,
+    end_time: endTime,
+    assigned_to: recipientId,
+    assigned_by: user?.id || null,
+    status: 'pending',
+    mark_analysis: { sourceType, sourceId, senderName, itemName, note },
+  });
+
+  if (taskError) {
+    console.error('[Team] Error creating review task:', taskError);
+    return false;
+  }
+
+  try {
+    await createNotification(
+      recipientId,
+      teamId,
+      'review_notes_sent',
+      `${senderName} sent notes on ${itemName}`,
+      note.length > 120 ? note.slice(0, 117) + '...' : note,
+      { sourceType, sourceId, senderName, itemName },
+    );
+  } catch (e) {
+    console.warn('[Team] Review notification failed (non-blocking):', e);
+  }
+
+  return true;
+}
+
+/**
+ * Ensure a team exists for a universe. If none found, auto-create one.
+ * Safe to call on every load — only creates if missing.
+ * Pass galaxyId to associate the team with a specific galaxy (galaxy-level sharing).
+ */
+export async function ensureTeamForUniverse(
+  universeId: string,
+  teamName: string,
+  galaxyId?: string,
+): Promise<Team | null> {
+  if (!isSupabaseConfigured()) return null;
+
+  const existing = await getTeamForUniverse(universeId);
+  if (existing) {
+    // If existing team has no galaxy_id but we now have one, update it
+    if (galaxyId && !existing.galaxyId) {
+      await supabase.from('teams').update({ galaxy_id: galaxyId }).eq('id', existing.id);
+      existing.galaxyId = galaxyId;
+    }
+    return existing;
+  }
+
+  return createTeam(universeId, teamName, galaxyId);
 }

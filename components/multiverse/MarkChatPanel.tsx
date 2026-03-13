@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { MarkContext } from '@/lib/mark-knowledge';
 import { VoiceInput } from './VoiceInput';
 import { saveMarkConversation } from '@/lib/team';
+import { speakWithElevenLabs, speakWithBrowser, stopMarkSpeech, resetMaleVoiceCache } from '@/lib/mark-tts';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -23,149 +24,12 @@ interface MarkChatPanelProps {
   onOpenBrainstorm?: (data?: BrainstormIntakeData) => void; // called when Mark emits [OPEN_BRAINSTORM]
 }
 
-// Global audio instance for TTS
-let currentAudio: HTMLAudioElement | null = null;
-
-// ElevenLabs TTS with Mark's voice
-const speakWithElevenLabs = async (
-  text: string,
-  onStart?: () => void,
-  onEnd?: () => void
-) => {
-  try {
-    // Stop any current audio
-    if (currentAudio) {
-      currentAudio.pause();
-      currentAudio = null;
-    }
-
-    onStart?.();
-
-    // Use a different voice for Mark (more mature, experienced)
-    const markVoiceId = 'pNInz6obpgDQGcFmaJgB'; // Adam - deep, experienced voice
-
-    const response = await fetch('/api/tts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, voiceId: markVoiceId }),
-    });
-
-    if (!response.ok) {
-      console.error('[Mark TTS] API error:', response.status);
-      onEnd?.();
-      return;
-    }
-
-    const { audio } = await response.json();
-    
-    // Create and play audio
-    const audioBlob = new Blob(
-      [Uint8Array.from(atob(audio), c => c.charCodeAt(0))],
-      { type: 'audio/mpeg' }
-    );
-    const audioUrl = URL.createObjectURL(audioBlob);
-    
-    currentAudio = new Audio(audioUrl);
-    currentAudio.onended = () => {
-      URL.revokeObjectURL(audioUrl);
-      currentAudio = null;
-      onEnd?.();
-    };
-    currentAudio.onerror = () => {
-      console.error('[Mark TTS] Audio playback error');
-      onEnd?.();
-    };
-    
-    await currentAudio.play();
-  } catch (error) {
-    console.error('[Mark TTS] Error:', error);
-    onEnd?.();
-  }
-};
-
-// Preferred male voice names in priority order (macOS + Windows + Linux)
-const MALE_VOICE_NAMES = [
-  'Alex',     // macOS en-US male
-  'Daniel',   // macOS en-GB male
-  'Fred',     // macOS en-US male
-  'Oliver',   // macOS en-GB male
-  'Tom',      // macOS en-US male
-  'Aaron',    // macOS en-US male
-  'Arthur',   // macOS en-GB male
-  'David',    // Windows male
-  'Mark',     // Windows male
-  'Richard',  // Windows male
-  'Google UK English Male',
-  'Google US English Male',
-];
-
-let cachedMaleVoice: SpeechSynthesisVoice | null | undefined = undefined;
-
-function getMaleVoice(): SpeechSynthesisVoice | null {
-  if (cachedMaleVoice !== undefined) return cachedMaleVoice;
-  const voices = window.speechSynthesis.getVoices();
-  if (voices.length === 0) return null; // not loaded yet
-  for (const name of MALE_VOICE_NAMES) {
-    const v = voices.find(v => v.name === name || v.name.startsWith(name));
-    if (v) { cachedMaleVoice = v; return v; }
-  }
-  // Fallback: any voice with "male" in name
-  const maleFallback = voices.find(v => v.name.toLowerCase().includes('male'));
-  cachedMaleVoice = maleFallback || null;
-  return cachedMaleVoice;
-}
-
-// Browser Web Speech API TTS fallback
-const speakWithBrowser = (text: string, onEnd?: () => void) => {
-  if (typeof window === 'undefined' || !window.speechSynthesis) {
-    onEnd?.();
-    return;
-  }
-  
-  window.speechSynthesis.cancel();
-  
-  const cleanText = text
-    .replace(/[\u{1F600}-\u{1F64F}]/gu, '') // Remove emojis
-    .replace(/[\u{1F300}-\u{1F5FF}]/gu, '')
-    .replace(/[\u{1F680}-\u{1F6FF}]/gu, '')
-    .replace(/[\u{2600}-\u{26FF}]/gu, '')
-    .replace(/[\u{2700}-\u{27BF}]/gu, '')
-    .replace(/\*\*/g, '') // Remove markdown
-    .replace(/\*/g, '')
-    .trim();
-  
-  if (!cleanText) {
-    onEnd?.();
-    return;
-  }
-  
-  const utterance = new SpeechSynthesisUtterance(cleanText);
-  
-  const maleVoice = getMaleVoice();
-  if (maleVoice) {
-    utterance.voice = maleVoice;
-  }
-  
-  utterance.rate = 1.0;
-  utterance.pitch = 0.7; // Low pitch — force male sound even if voice list not loaded
-  utterance.volume = 1.0;
-  
-  utterance.onend = () => {
-    onEnd?.();
-  };
-  
-  utterance.onerror = () => {
-    console.error('[Mark TTS] Browser speech error');
-    onEnd?.();
-  };
-  
-  window.speechSynthesis.speak(utterance);
-};
+// (TTS functions moved to lib/mark-tts.ts)
 
 export function MarkChatPanel({ isOpen, onClose, context, initialMessage, onOpenBrainstorm }: MarkChatPanelProps) {
   // Refresh voice cache when browser voice list loads
   useEffect(() => {
-    const refresh = () => { cachedMaleVoice = undefined; };
+    const refresh = () => { resetMaleVoiceCache(); };
     window.speechSynthesis?.addEventListener('voiceschanged', refresh);
     return () => window.speechSynthesis?.removeEventListener('voiceschanged', refresh);
   }, []);
@@ -249,15 +113,7 @@ export function MarkChatPanel({ isOpen, onClose, context, initialMessage, onOpen
 
   // Clean up audio on unmount
   useEffect(() => {
-    return () => {
-      if (currentAudio) {
-        currentAudio.pause();
-        currentAudio = null;
-      }
-      if (window.speechSynthesis) {
-        window.speechSynthesis.cancel();
-      }
-    };
+    return () => { stopMarkSpeech(); };
   }, []);
 
   const speak = (text: string) => {
@@ -356,13 +212,7 @@ export function MarkChatPanel({ isOpen, onClose, context, initialMessage, onOpen
     
     // Stop any current speech
     if (!newState) {
-      if (currentAudio) {
-        currentAudio.pause();
-        currentAudio = null;
-      }
-      if (window.speechSynthesis) {
-        window.speechSynthesis.cancel();
-      }
+      stopMarkSpeech();
       setIsSpeaking(false);
     }
   };

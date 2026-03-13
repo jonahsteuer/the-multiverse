@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { HexColorPicker } from 'react-colorful';
 import type { World, VisualLandscape, SnapshotStrategy } from '@/types';
@@ -10,6 +9,14 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+
+const SONG_STAGES = [
+  { value: 'writing', label: '✏️ Writing' },
+  { value: 'recorded', label: '🎙️ Recorded' },
+  { value: 'mixed', label: '🎚️ Mixed' },
+  { value: 'mastered', label: '💿 Mastered' },
+  { value: 'ready', label: '🚀 Ready to release' },
+];
 
 const worldCreationSchema = z.object({
   name: z.string().min(1, 'World name is required').max(100),
@@ -33,8 +40,12 @@ export function WorldCreationForm({
 }: WorldCreationFormProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('Creating World...');
-  const [selectedColor, setSelectedColor] = useState<string>('#FFD700'); // Default to gold
+  const [selectedColor, setSelectedColor] = useState<string>('#FFD700');
   const [selectedImages, setSelectedImages] = useState<string[]>([]);
+  // C, D, D+ — per-song context
+  const [songEmotion, setSongEmotion] = useState('');
+  const [songStage, setSongStage] = useState('');
+  const [listeningContext, setListeningContext] = useState('');
 
   const {
     register,
@@ -74,11 +85,15 @@ export function WorldCreationForm({
         name: data.name,
         galaxyId,
         releaseDate: data.releaseDate,
-        color: selectedColor, // Ensure color is always set from selectedColor
+        color: selectedColor,
         visualLandscape,
         snapshotStrategy: strategy || undefined,
         isPublic: false,
         isReleased: false,
+        // Stafford: per-song context (C, D, D+)
+        songEmotion: songEmotion.trim() || undefined,
+        songStage: songStage || undefined,
+        listeningContext: listeningContext.trim() || undefined,
       };
       
       // Debug: Log to ensure snapshots are included
@@ -237,14 +252,62 @@ export function WorldCreationForm({
               </p>
             </div>
 
-            {/* Snapshot Schedule Info */}
-            <div className="space-y-2">
-              <Label className="font-star-wars text-yellow-400">
-                Snapshot Schedule
-              </Label>
-              <p className="text-sm text-gray-400">
-                Snapshots will be automatically generated when you create the world. They will be scheduled around your release date (2 weeks before and 8 weeks after).
-              </p>
+            {/* Divider */}
+            <div className="border-t border-yellow-500/20 pt-4">
+              <p className="text-sm text-yellow-400/70 font-star-wars mb-4">Song Context — helps Mark plan your content</p>
+
+              {/* C: Song Emotion */}
+              <div className="space-y-2 mb-4">
+                <Label htmlFor="songEmotion" className="font-star-wars text-yellow-400 text-sm">
+                  In 1-2 words, what does this song feel like?
+                </Label>
+                <Input
+                  id="songEmotion"
+                  value={songEmotion}
+                  onChange={e => setSongEmotion(e.target.value)}
+                  placeholder="e.g. heartbreak, confidence, nostalgia, rage"
+                  className="bg-black/50 border-yellow-500/30 text-white placeholder:text-gray-600 focus:border-yellow-500"
+                />
+                <p className="text-xs text-gray-500">This becomes the filter for all content ideas</p>
+              </div>
+
+              {/* D: Song Stage */}
+              <div className="space-y-2 mb-4">
+                <Label className="font-star-wars text-yellow-400 text-sm">
+                  What stage is the song at?
+                </Label>
+                <div className="flex flex-wrap gap-2">
+                  {SONG_STAGES.map(s => (
+                    <button
+                      key={s.value}
+                      type="button"
+                      onClick={() => setSongStage(s.value)}
+                      className={`px-3 py-1.5 rounded-lg text-sm border transition-all ${
+                        songStage === s.value
+                          ? 'bg-yellow-500/20 border-yellow-500 text-yellow-300'
+                          : 'bg-black/30 border-gray-700 text-gray-400 hover:border-yellow-500/50'
+                      }`}
+                    >
+                      {s.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* D+: Listening Context */}
+              <div className="space-y-2">
+                <Label htmlFor="listeningContext" className="font-star-wars text-yellow-400 text-sm">
+                  Where do you imagine someone listening to this song?
+                </Label>
+                <Input
+                  id="listeningContext"
+                  value={listeningContext}
+                  onChange={e => setListeningContext(e.target.value)}
+                  placeholder="e.g. late-night drive, gym, bedroom, party, walking alone"
+                  className="bg-black/50 border-yellow-500/30 text-white placeholder:text-gray-600 focus:border-yellow-500"
+                />
+                <p className="text-xs text-gray-500">Used to find the right shooting location for your content</p>
+              </div>
             </div>
 
             {/* Buttons */}

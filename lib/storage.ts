@@ -439,7 +439,7 @@ export async function loadGalaxy(galaxyId: string): Promise<Galaxy | null> {
         // Load worlds directly from database (don't call loadWorld to avoid recursion)
         const { data: worldsData, error: worldsError } = await supabase
           .from('worlds')
-          .select('id, name, galaxy_id, release_date, color, visual_landscape, snapshot_strategy, is_public, is_released, created_at')
+          .select('*')
           .eq('galaxy_id', galaxyId)
           .order('created_at', { ascending: true });
         
@@ -460,6 +460,9 @@ export async function loadGalaxy(galaxyId: string): Promise<Galaxy | null> {
               snapshotStrategy: worldData.snapshot_strategy as World['snapshotStrategy'] || undefined,
               isPublic: worldData.is_public,
               isReleased: worldData.is_released,
+              songEmotion: worldData.song_emotion || undefined,
+              songStage: worldData.song_stage || undefined,
+              listeningContext: worldData.listening_context || undefined,
               createdAt: worldData.created_at,
             });
           }
@@ -540,6 +543,10 @@ export async function saveWorld(world: World, galaxyId: string): Promise<void> {
             snapshot_strategy: world.snapshotStrategy || null,
             is_public: world.isPublic,
             is_released: world.isReleased,
+            // Stafford: per-song context (C, D, D+)
+            song_emotion: world.songEmotion || null,
+            song_stage: world.songStage || null,
+            listening_context: world.listeningContext || null,
             created_at: world.createdAt,
             updated_at: new Date().toISOString(),
           });
@@ -615,6 +622,9 @@ export async function loadWorld(worldId: string): Promise<World | null> {
           snapshotStrategy: worldData.snapshot_strategy as World['snapshotStrategy'] || undefined,
           isPublic: worldData.is_public,
           isReleased: worldData.is_released,
+          songEmotion: (worldData as any).song_emotion || undefined,
+          songStage: (worldData as any).song_stage || undefined,
+          listeningContext: (worldData as any).listening_context || undefined,
           createdAt: worldData.created_at,
         };
       }
