@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 
 import { NotificationBell, showToast } from './NotificationBell';
 import { TeamChat } from './TeamChat';
+import { ProfileEditPanel } from './ProfileEditPanel';
 import { InviteModal } from './InviteModal';
 import { TaskAssignmentDropdown } from './TaskAssignmentDropdown';
 import { BrainstormReview } from './BrainstormReview';
@@ -120,7 +121,7 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
   const [showBrainstormReview, setShowBrainstormReview] = useState(false);
   const [pendingBrainstormReview, setPendingBrainstormReview] = useState<BrainstormResult | null>(null);
   const [showProfilePanel, setShowProfilePanel] = useState(false);
-  const [profileTab, setProfileTab] = useState<'profile' | 'chat'>('profile');
+  const [profileTab, setProfileTab] = useState<'profile' | 'chat' | 'edit'>('profile');
   const [homeCityInput, setHomeCityInput] = useState((artistProfile as any)?.homeCity || '');
   const [chatUnread, setChatUnread] = useState(0);
   const [showMarkChat, setShowMarkChat] = useState(false);
@@ -1369,6 +1370,12 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
                     Profile
                   </button>
                   <button
+                    onClick={() => setProfileTab('edit')}
+                    className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${profileTab === 'edit' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white'}`}
+                  >
+                    Edit
+                  </button>
+                  <button
                     onClick={() => { setProfileTab('chat'); setChatUnread(0); }}
                     className={`relative px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${profileTab === 'chat' ? 'bg-purple-600 text-white' : 'text-gray-400 hover:text-white'}`}
                   >
@@ -1421,7 +1428,20 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
             </div>
 
             {/* Panel Body */}
-            {profileTab === 'chat' && team && currentUserId ? (
+            {profileTab === 'edit' ? (
+              <div className="flex-1 p-5 overflow-y-auto">
+                <ProfileEditPanel
+                  userId={currentUserId || ''}
+                  currentEmail={currentUserEmail || ''}
+                  displayName={currentUserName || teamMembers.find(m => m.userId === currentUserId)?.displayName || ''}
+                  artistProfile={artistProfile as Partial<ArtistProfile>}
+                  onProfileUpdated={(updated) => {
+                    // Refresh the homeCityInput if homeCity changed
+                    if ((updated as any).homeCity !== undefined) setHomeCityInput((updated as any).homeCity || '');
+                  }}
+                />
+              </div>
+            ) : profileTab === 'chat' && team && currentUserId ? (
               <div className="flex-1 overflow-hidden flex flex-col px-2 pt-2 min-h-0">
                 <TeamChat
                   teamId={team.id}
@@ -1611,8 +1631,8 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
             </div>
             )}
 
-            {/* Panel Footer — Actions (profile tab only) */}
-            {profileTab === 'profile' && <div className="p-6 border-t border-gray-700/50 space-y-3">
+            {/* Panel Footer — Actions (profile and edit tabs) */}
+            {(profileTab === 'profile' || profileTab === 'edit') && <div className="p-6 border-t border-gray-700/50 space-y-3">
               {onSignOut && (
                 <button
                   onClick={() => {

@@ -15,6 +15,8 @@ import type {
 } from '@/types';
 import type { ContentIdea } from '@/app/api/tiktok-insights/route';
 import { VoiceInput } from './VoiceInput';
+import { SoundbytePicker } from './SoundbytePicker';
+import type { SoundbyteDef } from './SoundbytePicker';
 
 interface BrainstormIntakeData {
   songStory: string;
@@ -451,6 +453,13 @@ export function BrainstormContent({
     if (Array.isArray(draft.allLikedIdeas)) setAllLikedIdeas(draft.allLikedIdeas as ContentIdea[]);
     if (draft.userPitchedScene) setUserPitchedScene(draft.userPitchedScene as string);
     if (draft.feedbackRound) setFeedbackRound(draft.feedbackRound as number);
+    // Restore in-memory API results so show_ideas / show_locations don't render blank
+    if (Array.isArray(draft.contentIdeas) && (draft.contentIdeas as ContentIdea[]).length > 0) {
+      setContentIdeas(draft.contentIdeas as ContentIdea[]);
+    }
+    if (Array.isArray(draft.locationOptions) && (draft.locationOptions as LocationOption[]).length > 0) {
+      setLocationOptions(draft.locationOptions as LocationOption[]);
+    }
   };
 
   // F6: Load draft from Supabase on mount
@@ -504,6 +513,61 @@ export function BrainstormContent({
       }
     })();
   }, [galaxyId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Post-resume safety net: detect and recover from steps that need in-memory data
+  // that may not have been persisted (e.g. locationOptions, contentIdeas).
+  // Runs once after the draft has been loaded and applied.
+  useEffect(() => {
+    if (!draftLoaded) return;
+
+    // show_locations with no options → re-run location fetch using saved area
+    if (step === 'show_locations' && locationOptions.length === 0) {
+      if (locationAreaInput) {
+        addBotMessage(`Welcome back! Let me reload location options for "${locationAreaInput}"…`, 300);
+        fetchLocations(locationAreaInput);
+      } else {
+        setStep('ask_location_area');
+        addBotMessage(`Welcome back! Let's pick up the location search — where are you based?`, 300);
+      }
+      return;
+    }
+
+    // loading_locations stuck (draft was somehow saved at this transient step)
+    if (step === 'loading_locations') {
+      if (locationAreaInput) {
+        fetchLocations(locationAreaInput);
+      } else {
+        setStep('ask_location_area');
+      }
+      return;
+    }
+
+    // show_ideas with no ideas → re-fetch, or advance if enough are already liked
+    if (step === 'show_ideas' && contentIdeas.length === 0) {
+      if (allLikedIdeas.length >= 3) {
+        // Enough liked already — skip straight to soundbytes
+        addBotMessage(`Welcome back! You already locked ${allLikedIdeas.length} scenes — let's move to soundbytes.`, 400);
+        enterSoundbytes();
+      } else {
+        addBotMessage(`Welcome back! Let me regenerate your content ideas…`, 400);
+        setStep('loading_ideas');
+        fetchIdeas(songStory, artistVibe, comfortLevel);
+      }
+      return;
+    }
+
+    // loading_ideas stuck (shouldn't persist but guard anyway)
+    if (step === 'loading_ideas' && !loadingIdeas) {
+      if (allLikedIdeas.length >= 3) {
+        addBotMessage(`Welcome back! You already locked ${allLikedIdeas.length} scenes — let's move to soundbytes.`, 400);
+        enterSoundbytes();
+      } else {
+        fetchIdeas(songStory, artistVibe, comfortLevel);
+      }
+      return;
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftLoaded]);
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -1077,18 +1141,29 @@ export function BrainstormContent({
   };
 
   const enterSoundbytes = () => {
-    // L7: Use lyrics-aware soundbytes if we have them, else fallback to generic
-    const base = lyricsSegments.length ? buildLyricsSoundbytes() : ALL_SOUNDBYTES;
-    const available = base.filter(s => !rejectedSoundbytes.has(s.id));
-    setSoundbyteOptions(available.slice(0, 5));
-    // Song is always uploaded by this point (L1) — skip the upload prompt
     setStep('ask_soundbytes');
     addBotMessage(
-      `Now pick your 5 soundbytes — these are the sections of your song each post will use. ${lyricsSegments.length ? "I've labeled each one with a lyric line so you know exactly what you're picking." : ''} Tap ❌ on any you want to swap out.`,
+      `Now let's pick your soundbytes — the sections of your song each post will be cut to. ${lyricsSegments.length ? "I've pre-selected 5 regions based on your lyrics structure." : "I've pre-selected 5 regions across the track."} Drag the edges to resize, rename any section, and hit Confirm when you're happy.`,
       400
     );
   };
 
+  // Handles confirmation from the new SoundbytePicker component
+  const handleSoundbytePickerConfirm = (picked: SoundbyteDef[]) => {
+    const fmtTime = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+    const confirmed: Soundbyte[] = picked.map(sb => ({
+      id: sb.id,
+      section: sb.label,
+      timeRange: `${fmtTime(sb.startSec)}–${fmtTime(sb.endSec)}`,
+      duration: `~${Math.round(sb.endSec - sb.startSec)}s`,
+      rationale: '',
+    }));
+    setConfirmedSoundbytes(confirmed);
+    addUserMessage(`Confirmed ${confirmed.length} soundbytes`);
+    enterPhase2();
+  };
+
+  // Legacy helpers kept for backward compat (no longer used in main flow)
   const handleSoundbyteToggle = (id: string, accept: boolean) => {
     if (accept) {
       setLikedSoundbytes(prev => { const n = new Set(prev); n.add(id); return n; });
@@ -1096,17 +1171,10 @@ export function BrainstormContent({
     } else {
       setRejectedSoundbytes(prev => { const n = new Set(prev); n.add(id); return n; });
       setLikedSoundbytes(prev => { const n = new Set(prev); n.delete(id); return n; });
-      // Replace with the next available soundbyte
-      const used = new Set([...soundbyteOptions.map(s => s.id)]);
-      const nextSb = ALL_SOUNDBYTES.find(s => !used.has(s.id) && !rejectedSoundbytes.has(s.id) && s.id !== id);
-      if (nextSb) {
-        setSoundbyteOptions(prev => prev.map(s => s.id === id ? nextSb : s));
-      }
     }
   };
 
   const handleSoundbytesConfirm = () => {
-    // All shown soundbytes that aren't rejected are confirmed
     const confirmed = soundbyteOptions.filter(s => !rejectedSoundbytes.has(s.id));
     setConfirmedSoundbytes(confirmed);
     addUserMessage(`Confirmed ${confirmed.length} soundbytes`);
@@ -1270,7 +1338,7 @@ export function BrainstormContent({
     // F6: Stafford scientific schedule
     // Use confirmed soundbytes (5) and confirmed scenes (up to 3)
     const scenes = allLikedIdeas.slice(0, 3);
-    const soundbytes = confirmedSoundbytes.length >= 5 ? confirmedSoundbytes : ALL_SOUNDBYTES.slice(0, 5);
+    const soundbytes = confirmedSoundbytes.length >= 3 ? confirmedSoundbytes : ALL_SOUNDBYTES.slice(0, 5);
     // Generate 5 looks — one per scene + 2 extra camera angles
     const looks = generateLooks(Math.max(5, scenes.length + 2));
 
@@ -1295,10 +1363,10 @@ export function BrainstormContent({
     // F6: Content starts 4 days after shoot (editing buffer)
     const contentStart = addDays(shootDate, 4);
 
-    // Week 1: 5 FILLED posts, each with a distinct soundbyte + scene
-    // Posting days: Day 0, 2, 4, 6, 8 from contentStart
-    const week1PostDays = [0, 2, 4, 6, 8];
-    const filledAssignments: ContentFormatAssignment[] = soundbytes.slice(0, 5).map((sb, i) => {
+    // Week 1: FILLED posts — one per confirmed soundbyte (3–5)
+    const sbCount = soundbytes.length;
+    const week1PostDays = Array.from({ length: sbCount }, (_, i) => i * 2); // Day 0, 2, 4, (6, 8)
+    const filledAssignments: ContentFormatAssignment[] = soundbytes.slice(0, sbCount).map((sb, i) => {
       const scene = scenes[i % Math.max(scenes.length, 1)];
       const look = looks[i % looks.length];
       const postDate = addDays(contentStart, week1PostDays[i]);
@@ -1508,9 +1576,12 @@ export function BrainstormContent({
       allLikedIdeas: [...allLikedIdeas], // ensure serializable
       userPitchedScene,
       feedbackRound,
+      // Persist in-memory API results so resume can restore them without re-fetching
+      contentIdeas: [...contentIdeas],
+      locationOptions: [...locationOptions],
       savedAt: new Date().toISOString(),
     });
-  }, [step, confirmedLocation, allLikedIdeas, likedIdeas.size]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [step, confirmedLocation, allLikedIdeas, likedIdeas.size, contentIdeas.length, locationOptions.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Variations state
   const [ideasForVariationPrompt, setIdeasForVariationPrompt] = useState<ContentIdea[]>([]);
@@ -2941,62 +3012,63 @@ export function BrainstormContent({
             </div>
           )}
 
-          {/* F5: SOUNDBYTE SELECTION — like/dislike until 5 confirmed */}
-          {step === 'ask_soundbytes' && !isTyping && soundbyteOptions.length > 0 && (
-            <div className="space-y-3">
-              <div className="space-y-2">
-                {soundbyteOptions.map(sb => {
-                  const isRejected = rejectedSoundbytes.has(sb.id);
-                  return (
-                    <div
-                      key={sb.id}
-                      className={`rounded-xl border p-3 transition-all ${
-                        isRejected
-                          ? 'border-gray-700 bg-gray-800/20 opacity-40'
-                          : 'border-purple-500/30 bg-gray-800/50'
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-0.5">
-                            <span className="text-white font-semibold text-sm">{sb.section}</span>
-                            <span className="text-[10px] text-gray-500 bg-gray-700/60 px-1.5 py-0.5 rounded">{sb.timeRange}</span>
-                            <span className="text-[10px] text-purple-400">{sb.duration}</span>
-                          </div>
-                          <p className="text-xs text-gray-400">{sb.rationale}</p>
-                        </div>
-                        <div className="flex flex-col gap-1 flex-shrink-0">
-                          {worldHasSong && (
-                            <button
-                              className="w-7 h-7 rounded-lg bg-gray-700 hover:bg-green-500/30 text-gray-300 text-xs flex items-center justify-center transition-all"
-                              title="Play section"
-                            >
-                              ▶
-                            </button>
-                          )}
-                          <button
-                            onClick={() => handleSoundbyteToggle(sb.id, false)}
-                            className="w-7 h-7 rounded-lg bg-gray-700 hover:bg-red-500/30 text-gray-400 text-xs flex items-center justify-center transition-all"
-                            title="Swap this soundbyte"
-                          >
-                            ✕
-                          </button>
-                        </div>
-                      </div>
+          {/* F5: SOUNDBYTE SELECTION — waveform timeline editor */}
+          {step === 'ask_soundbytes' && !isTyping && (
+            <div>
+              {uploadedTrackUrl ? (
+                <SoundbytePicker
+                  trackUrl={uploadedTrackUrl}
+                  lyricsSegments={lyricsSegments}
+                  onConfirm={handleSoundbytePickerConfirm}
+                />
+              ) : (
+                /* No track uploaded yet — prompt upload then show picker */
+                <div className="space-y-3">
+                  <div className="rounded-xl border border-blue-500/30 bg-blue-500/10 p-3">
+                    <p className="text-xs text-blue-300">Upload your track to use the waveform editor. MP3, WAV, or M4A.</p>
+                  </div>
+                  <label className="block w-full cursor-pointer">
+                    <div className="w-full rounded-xl border-2 border-dashed border-blue-500/40 bg-blue-600/10 hover:bg-blue-600/20 transition-all p-5 text-center">
+                      <p className="text-blue-300 text-sm font-semibold">Click to upload track</p>
+                      <p className="text-gray-500 text-xs mt-1">MP3 · WAV · M4A</p>
                     </div>
-                  );
-                })}
-              </div>
-              <p className="text-xs text-gray-500 text-center">
-                {soundbyteOptions.filter(s => !rejectedSoundbytes.has(s.id)).length}/5 soundbytes confirmed — tap ✕ to swap
-              </p>
-              <Button
-                onClick={handleSoundbytesConfirm}
-                disabled={soundbyteOptions.filter(s => !rejectedSoundbytes.has(s.id)).length < 3}
-                className="w-full bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-semibold disabled:opacity-50"
-              >
-                Confirm {soundbyteOptions.filter(s => !rejectedSoundbytes.has(s.id)).length} Soundbytes →
-              </Button>
+                    <input
+                      type="file"
+                      accept=".mp3,.wav,.m4a,audio/mpeg,audio/wav,audio/mp4,audio/x-m4a"
+                      className="hidden"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        addUserMessage(`Uploading ${file.name}…`);
+                        try {
+                          const { supabase } = await import('@/lib/supabase');
+                          const filePath = `galaxies/${galaxyId}/track.mp3`;
+                          const { error: uploadErr } = await supabase.storage.from('uploads').upload(filePath, file, { upsert: true, contentType: 'audio/mpeg' });
+                          if (uploadErr) throw uploadErr;
+                          const { data: urlData } = supabase.storage.from('uploads').getPublicUrl(filePath);
+                          await supabase.from('galaxies').update({ track_url: urlData.publicUrl }).eq('id', galaxyId);
+                          setUploadedTrackUrl(urlData.publicUrl);
+                        } catch (err: unknown) {
+                          console.error('[ask_soundbytes] upload error:', err);
+                          addBotMessage('Upload failed — try again or continue without a track.', 300);
+                        }
+                      }}
+                    />
+                  </label>
+                  <button
+                    onClick={() => handleSoundbytePickerConfirm([
+                      { id: 'sb1', label: 'Chorus', startSec: 35, endSec: 55 },
+                      { id: 'sb2', label: 'Verse 1', startSec: 10, endSec: 35 },
+                      { id: 'sb3', label: 'Intro', startSec: 0, endSec: 15 },
+                      { id: 'sb4', label: 'Bridge', startSec: 65, endSec: 85 },
+                      { id: 'sb5', label: 'Outro', startSec: 145, endSec: 180 },
+                    ])}
+                    className="w-full py-2 text-sm text-gray-500 hover:text-gray-300 transition-colors"
+                  >
+                    Continue with default soundbytes (no upload)
+                  </button>
+                </div>
+              )}
             </div>
           )}
 

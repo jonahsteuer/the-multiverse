@@ -9,6 +9,8 @@ import { deleteTask, getPostEvents } from '@/lib/team';
 import { supabase } from '@/lib/supabase';
 import { PostCardModal } from './PostCardModal';
 import { SendWithNotesModal } from './SendWithNotesModal';
+import { SoundbytePicker } from './SoundbytePicker';
+import type { SoundbyteDef } from './SoundbytePicker';
 
 // ─────────────────────────────────────────────
 // Helpers
@@ -278,7 +280,7 @@ interface WorldDetailViewProps {
   onRefreshTasks?: () => void;
   onStartBrainstorm?: (mode?: 'mark_generates' | 'user_idea', songCtx?: { songEmotion?: string; listeningContext?: string }, resume?: boolean) => void;
   brainstormResult?: BrainstormResult | null;
-  initialTab?: 'footage' | 'all-posts' | 'snapshot-starter' | 'settings';
+  initialTab?: 'footage' | 'all-posts' | 'snapshot-starter' | 'song-data' | 'settings';
 }
 
 // ─────────────────────────────────────────────
@@ -946,6 +948,220 @@ function TrackSection({ world, onUpdate }: { world: World; onUpdate: (w: World) 
 }
 
 // ─────────────────────────────────────────────
+// Song Data Tab
+// ─────────────────────────────────────────────
+
+function SongDataTab({ world, onUpdate }: { world: World; onUpdate: (w: World) => void }) {
+  const [songEmotion, setSongEmotion] = useState(world.songEmotion || '');
+  const [listeningContext, setListeningContext] = useState(world.listeningContext || '');
+  const [lyrics, setLyrics] = useState('');
+  const [trackUrl, setTrackUrl] = useState('');
+  const [soundbytes, setSoundbytes] = useState<SoundbyteDef[] | null>(null);
+  const [lyricsSegments, setLyricsSegments] = useState<Array<{ start: number; end: number; text: string }>>([]);
+  const [savedSections, setSavedSections] = useState<Record<string, boolean>>({});
+  const [showSoundbyteEditor, setShowSoundbyteEditor] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  // Load lyrics, track URL, and soundbytes from galaxy/world records
+  useEffect(() => {
+    async function load() {
+      // Lyrics + track_url stored on galaxies row
+      const { data: gal } = await supabase
+        .from('galaxies')
+        .select('lyrics, track_url, lyrics_segments, brainstorm_draft')
+        .eq('id', world.galaxyId)
+        .single();
+      if (gal) {
+        setLyrics(gal.lyrics || '');
+        setTrackUrl(gal.track_url || '');
+        if (gal.lyrics_segments) setLyricsSegments(gal.lyrics_segments);
+        // Load saved soundbytes from brainstorm_draft if present
+        const draft = gal.brainstorm_draft as any;
+        if (draft?.confirmedSoundbytes?.length) {
+          setSoundbytes(draft.confirmedSoundbytes.map((sb: any) => ({
+            id: sb.id,
+            label: sb.section || sb.label || `Section`,
+            startSec: parseTimeToSec(sb.timeRange?.split('–')[0] || '0:00'),
+            endSec: parseTimeToSec(sb.timeRange?.split('–')[1] || '0:30'),
+          })));
+        }
+      }
+    }
+    load();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [world.id, world.galaxyId]);
+
+  function parseTimeToSec(t: string): number {
+    const [m, s] = (t || '0:00').split(':').map(Number);
+    return (m || 0) * 60 + (s || 0);
+  }
+
+  function markSaved(key: string) {
+    setSavedSections(prev => ({ ...prev, [key]: true }));
+    setTimeout(() => setSavedSections(prev => ({ ...prev, [key]: false })), 2000);
+  }
+
+  async function saveSongMeta() {
+    setSaving(true);
+    try {
+      await supabase.from('worlds').update({ song_emotion: songEmotion, listening_context: listeningContext }).eq('id', world.id);
+      onUpdate({ ...world, songEmotion, listeningContext });
+      markSaved('meta');
+    } catch (e) { console.error(e); }
+    setSaving(false);
+  }
+
+  async function saveLyrics() {
+    setSaving(true);
+    try {
+      await supabase.from('galaxies').update({ lyrics }).eq('id', world.galaxyId);
+      markSaved('lyrics');
+    } catch (e) { console.error(e); }
+    setSaving(false);
+  }
+
+  async function handleSoundbyteConfirm(picked: SoundbyteDef[]) {
+    setSoundbytes(picked);
+    setShowSoundbyteEditor(false);
+    // Persist to brainstorm_draft (merge into existing)
+    const { data: gal } = await supabase.from('galaxies').select('brainstorm_draft').eq('id', world.galaxyId).single();
+    const existing = (gal?.brainstorm_draft as any) || {};
+    const fmtTime = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+    const converted = picked.map(sb => ({
+      id: sb.id,
+      section: sb.label,
+      timeRange: `${fmtTime(sb.startSec)}–${fmtTime(sb.endSec)}`,
+      duration: `~${Math.round(sb.endSec - sb.startSec)}s`,
+      rationale: '',
+    }));
+    await supabase.from('galaxies').update({
+      brainstorm_draft: { ...existing, confirmedSoundbytes: converted },
+    }).eq('id', world.galaxyId);
+    markSaved('soundbytes');
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Song Emotion + Listening Context */}
+      <Card className="border-yellow-500/30 bg-black/50">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm font-star-wars text-yellow-400">Song Context</CardTitle>
+            {savedSections['meta'] && <span className="text-[11px] text-green-400">✓ Saved</span>}
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div>
+            <label className="block text-xs text-gray-400 mb-1.5">Vibe / emotion (1-2 words)</label>
+            <input
+              value={songEmotion}
+              onChange={e => setSongEmotion(e.target.value)}
+              placeholder="e.g. heartbreak, confidence, nostalgia"
+              className="w-full bg-gray-800/60 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-yellow-500/60"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-400 mb-1.5">Where do you imagine someone listening?</label>
+            <input
+              value={listeningContext}
+              onChange={e => setListeningContext(e.target.value)}
+              placeholder="e.g. late-night drive, gym, morning routine"
+              className="w-full bg-gray-800/60 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-yellow-500/60"
+            />
+          </div>
+          <button
+            onClick={saveSongMeta}
+            disabled={saving}
+            className="px-4 py-1.5 bg-yellow-500/20 hover:bg-yellow-500/30 border border-yellow-500/40 text-yellow-400 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+          >
+            Save
+          </button>
+        </CardContent>
+      </Card>
+
+      {/* Lyrics */}
+      <Card className="border-yellow-500/30 bg-black/50">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm font-star-wars text-yellow-400">Lyrics</CardTitle>
+            {savedSections['lyrics'] && <span className="text-[11px] text-green-400">✓ Saved</span>}
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <textarea
+            value={lyrics}
+            onChange={e => setLyrics(e.target.value)}
+            placeholder="Paste your lyrics here…"
+            rows={8}
+            className="w-full bg-gray-800/60 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-yellow-500/60 resize-none font-mono"
+          />
+          <button
+            onClick={saveLyrics}
+            disabled={saving}
+            className="px-4 py-1.5 bg-yellow-500/20 hover:bg-yellow-500/30 border border-yellow-500/40 text-yellow-400 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+          >
+            Save lyrics
+          </button>
+        </CardContent>
+      </Card>
+
+      {/* Soundbytes */}
+      <Card className="border-yellow-500/30 bg-black/50">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm font-star-wars text-yellow-400">Soundbytes</CardTitle>
+            {savedSections['soundbytes'] && <span className="text-[11px] text-green-400">✓ Saved</span>}
+          </div>
+        </CardHeader>
+        <CardContent>
+          {!showSoundbyteEditor ? (
+            <div className="space-y-3">
+              {soundbytes && soundbytes.length > 0 ? (
+                <div className="space-y-2">
+                  {soundbytes.map((sb, i) => {
+                    const fmtTime = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+                    const COLORS = ['#8B5CF6','#3B82F6','#10B981','#F59E0B','#EF4444'];
+                    return (
+                      <div key={sb.id} className="flex items-center gap-2 bg-gray-800/50 rounded-lg px-3 py-2">
+                        <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: COLORS[i % COLORS.length] }} />
+                        <span className="text-sm text-white font-medium flex-1">{sb.label}</span>
+                        <span className="text-xs text-gray-400">{fmtTime(sb.startSec)}–{fmtTime(sb.endSec)}</span>
+                        <span className="text-xs text-purple-400">~{Math.round(sb.endSec - sb.startSec)}s</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-500">No soundbytes set yet. Run a brainstorm session or edit below.</p>
+              )}
+              {trackUrl ? (
+                <button
+                  onClick={() => setShowSoundbyteEditor(true)}
+                  className="w-full py-2 rounded-lg bg-yellow-500/20 hover:bg-yellow-500/30 border border-yellow-500/40 text-yellow-400 text-sm font-medium transition-colors"
+                >
+                  {soundbytes?.length ? 'Edit soundbytes' : 'Add soundbytes'} with waveform editor
+                </button>
+              ) : (
+                <p className="text-xs text-gray-600">Upload your track in Settings to enable the waveform editor.</p>
+              )}
+            </div>
+          ) : (
+            <SoundbytePicker
+              trackUrl={trackUrl}
+              lyricsSegments={lyricsSegments}
+              initialSoundbytes={soundbytes ?? undefined}
+              onConfirm={handleSoundbyteConfirm}
+              onCancel={() => setShowSoundbyteEditor(false)}
+              standalone
+            />
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
 // Main component
 // ─────────────────────────────────────────────
 
@@ -967,7 +1183,7 @@ export function WorldDetailView({
   brainstormResult,
   initialTab = 'footage',
 }: WorldDetailViewProps) {
-  const [activeTab, setActiveTab] = useState<'footage' | 'all-posts' | 'snapshot-starter' | 'settings'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'footage' | 'all-posts' | 'snapshot-starter' | 'song-data' | 'settings'>(initialTab);
   const [currentWorld, setCurrentWorld] = useState<World>(world);
 
   const releaseDateDisplay = (() => {
@@ -977,10 +1193,11 @@ export function WorldDetailView({
     return d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
   })();
 
-  const tabs: { id: 'footage' | 'all-posts' | 'snapshot-starter' | 'settings'; label: string; icon: string }[] = [
+  const tabs: { id: 'footage' | 'all-posts' | 'snapshot-starter' | 'song-data' | 'settings'; label: string; icon: string }[] = [
     { id: 'footage', label: 'Footage', icon: '🎬' },
     { id: 'all-posts', label: 'All Posts', icon: '📋' },
     { id: 'snapshot-starter', label: 'Snapshot Starter', icon: '✨' },
+    { id: 'song-data', label: 'Song Data', icon: '🎵' },
     { id: 'settings', label: 'Settings', icon: '⚙️' },
   ];
 
@@ -1061,6 +1278,13 @@ export function WorldDetailView({
                 onClose();
                 onStartBrainstorm?.(mode, songCtx, resume);
               }}
+            />
+          )}
+
+          {activeTab === 'song-data' && (
+            <SongDataTab
+              world={currentWorld}
+              onUpdate={(updated) => { setCurrentWorld(updated); onUpdate?.(updated); }}
             />
           )}
 

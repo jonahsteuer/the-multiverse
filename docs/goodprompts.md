@@ -54,6 +54,20 @@ A collection of useful prompts to use in future sessions.
 
 ---
 
+## Bug Diagnosis Before Fix
+
+> "Please tell me what you perceive as wrong here and how you are going to fix it, wait for my confirmation, then fix it."
+
+**When to use:** Any time a bug is reported with a screenshot, log, or description — especially when the root cause isn't immediately obvious. Forces a clear diagnosis and proposed solution before any code changes, so the user can redirect if the assessment is wrong.
+
+**How to run it correctly:**
+1. Read the relevant code paths before forming a hypothesis — don't guess from the symptom alone
+2. State the root cause in plain language: what data is missing, what state is wrong, what code path breaks
+3. List the specific files and changes you plan to make — no vague "fix the logic"
+4. Wait for explicit confirmation before touching any code
+
+---
+
 ## Playwright Testing with Pre-Verification
 
 > "Do comprehensive playwright testing to confirm everything is functioning how it should without creating any new bugs. Please verify what you're aiming for in the playwright test and how you will test this accurately before you do it."
