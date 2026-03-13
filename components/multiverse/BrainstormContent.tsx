@@ -461,14 +461,15 @@ export function BrainstormContent({
         const { supabase } = await import('@/lib/supabase');
 
         // Try to load both columns; fall back to just brainstorm_draft if liked_scenes column missing
-        let draftData: { brainstorm_draft: unknown; brainstorm_liked_scenes?: unknown } | null = null;
+        type GalaxyDraftData = { brainstorm_draft: unknown; brainstorm_liked_scenes?: unknown } | null;
+        let draftData: GalaxyDraftData = null;
         const full = await supabase.from('galaxies').select('brainstorm_draft, brainstorm_liked_scenes').eq('id', galaxyId).single();
         if (!full.error) {
-          draftData = full.data as typeof draftData;
+          draftData = full.data as GalaxyDraftData;
         } else {
           // Column may not exist yet — retry with just brainstorm_draft
           const slim = await supabase.from('galaxies').select('brainstorm_draft').eq('id', galaxyId).single();
-          if (!slim.error) draftData = slim.data as typeof draftData;
+          if (!slim.error) draftData = slim.data as GalaxyDraftData;
         }
 
         // E: Seed allLikedIdeas from the permanent liked-scenes bank on mount
