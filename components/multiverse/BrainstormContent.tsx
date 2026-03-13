@@ -18,6 +18,11 @@ import { VoiceInput } from './VoiceInput';
 import { SoundbytePicker } from './SoundbytePicker';
 import type { SoundbyteDef } from './SoundbytePicker';
 
+// Supabase Storage default max per-file upload size (50 MB).
+// Files larger than this will be rejected by the bucket before the upload completes.
+const UPLOAD_MAX_MB = 50;
+const UPLOAD_SIZE_MSG = `File too large. Please export your song as MP3 first — most songs are 3–8 MB as MP3 vs 80–200 MB as WAV/AIFF.`;
+
 interface BrainstormIntakeData {
   songStory: string;
   artistVibe: string;
@@ -2563,6 +2568,11 @@ export function BrainstormContent({
                       return;
                     }
                     const fileSizeMB = file.size / (1024 * 1024);
+                    // Hard cap: reject non-WAV files over the Supabase bucket limit
+                    if (ext !== 'wav' && fileSizeMB > UPLOAD_MAX_MB) {
+                      addBotMessage(`${UPLOAD_SIZE_MSG} (your file is ${fileSizeMB.toFixed(0)} MB)`, 300);
+                      return;
+                    }
                     // WAV files over 20MB: downsample to 16kHz mono using Web Audio API
                     // This keeps files well under Whisper's 25MB limit
                     let fileToUpload: File | null = file;
@@ -2977,7 +2987,12 @@ export function BrainstormContent({
                       addBotMessage(`Please upload an MP3, WAV, or M4A file.`, 300);
                       return;
                     }
-                    addUserMessage(`Uploading ${file.name}...`);
+                    const fileSizeMB = file.size / (1024 * 1024);
+                    if (fileSizeMB > UPLOAD_MAX_MB) {
+                      addBotMessage(`${UPLOAD_SIZE_MSG} (your file is ${fileSizeMB.toFixed(0)} MB)`, 300);
+                      return;
+                    }
+                    addUserMessage(`Uploading ${file.name} (${fileSizeMB.toFixed(1)} MB)…`);
                     try {
                       // Import supabase dynamically to avoid SSR issues
                       const { supabase } = await import('@/lib/supabase');
@@ -3039,7 +3054,12 @@ export function BrainstormContent({
                       onChange={async (e) => {
                         const file = e.target.files?.[0];
                         if (!file) return;
-                        addUserMessage(`Uploading ${file.name}…`);
+                        const fileSizeMB = file.size / (1024 * 1024);
+                        if (fileSizeMB > UPLOAD_MAX_MB) {
+                          addBotMessage(`${UPLOAD_SIZE_MSG} (your file is ${fileSizeMB.toFixed(0)} MB)`, 300);
+                          return;
+                        }
+                        addUserMessage(`Uploading ${file.name} (${fileSizeMB.toFixed(1)} MB)…`);
                         try {
                           const { supabase } = await import('@/lib/supabase');
                           const filePath = `galaxies/${galaxyId}/track.mp3`;
