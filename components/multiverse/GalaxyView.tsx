@@ -853,68 +853,13 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
     });
 
     if (realTasks.length > 0) {
-      // Show only today's tasks — matching what's on the calendar for today.
-      // Overdue tasks are intentionally excluded; they show on the calendar on their scheduled date.
+      // Show only today's DB-backed tasks — exactly matching what's on today's calendar column.
+      // No local generation here: if a task isn't in Supabase it shouldn't appear in the todo list.
       const today = new Date().toISOString().split('T')[0];
       const todayTasks = realTasks.filter(t => t.date === today && t.status !== 'completed');
       const recentlyCompleted = realTasks.filter(t => t.status === 'completed');
-      const supabaseTitles = new Set(todayTasks.map(t => t.title.toLowerCase()));
 
-      // Also include locally-computed prep tasks for TODAY that aren't already covered by a Supabase task
-      // This ensures "Upload footage", "Upload rough edit", etc. appear when the calendar shows them
-      const localPrepToday = (() => {
-        if (!effectiveIsAdmin) return [];
-        const now = new Date();
-        const pad = (n: number) => n.toString().padStart(2, '0');
-        const h = now.getHours();
-        const anchorH = Math.max(10, Math.ceil((h + 0.5) * 2) / 2);
-        const anchorMin = Math.round((anchorH % 1) * 60);
-        const anchorHFloor = Math.floor(anchorH);
-        const makeTime = (off: number) => {
-          const total = anchorHFloor * 60 + anchorMin + off;
-          return `${pad(Math.floor(total / 60) % 24)}:${pad(total % 60)}`;
-        };
-        const editedClipCount = (artistProfile as any)?.editedClipCount ?? 0;
-        const rawFootageDesc: string = (artistProfile as any)?.rawFootageDescription || '';
-        const hasRawFootage = rawFootageDesc.length > 0;
-        const isContentReady = editedClipCount >= 10;
-        const hasRawButNoEdited = !isContentReady && hasRawFootage;
-        const roughMatch = rawFootageDesc.match(/\b(\d+)\b/);
-        const roughCount = roughMatch ? parseInt(roughMatch[1]) : 10;
-        const editorMember = teamMembers.find(m =>
-          m.role?.toLowerCase().includes('edit') || m.role?.toLowerCase().includes('videograph')
-        );
-        const editorName = editorMember?.displayName;
-
-        let week1: { title: string; description: string; duration: number }[] = [];
-        if (hasRawButNoEdited) {
-          if (hasRawFootage) week1.push({ title: 'Upload footage', description: `Upload your raw footage (${rawFootageDesc}) so your team can access and edit it.`, duration: 15 });
-          if (editedClipCount > 0) week1.push({ title: editedClipCount === 1 ? 'Upload rough edit' : `Upload ${editedClipCount} rough edits`, description: `Upload your rough ${editedClipCount === 1 ? 'edit' : 'edits'} for review.`, duration: 15 });
-          else if (!hasRawFootage) week1.push({ title: 'Upload footage', description: `Upload your ${roughCount} rough clips.`, duration: 15 });
-        } else if (!isContentReady && !hasRawButNoEdited) {
-          // Content-light: plan shoot day
-          week1.push({ title: 'Plan shoot day', description: 'Map out your shoot day: locations, outfits, shot list.', duration: 30 });
-        }
-
-        return week1.map((t, i): TeamTask => ({
-          id: `local-prep-${i}`,
-          teamId: team?.id || '',
-          galaxyId: galaxy.id,
-          title: t.title,
-          description: t.description,
-          type: 'prep' as any,
-          taskCategory: 'task' as const,
-          date: today,
-          startTime: makeTime(i * (t.duration + 5)),
-          endTime: makeTime(i * (t.duration + 5) + t.duration),
-          status: 'pending' as const,
-          assignedBy: currentUserId || '',
-          createdAt: now.toISOString(),
-          updatedAt: now.toISOString(),
-        })).filter(t => !supabaseTitles.has(t.title.toLowerCase()));
-      })();
-
-      return [...todayTasks, ...localPrepToday, ...recentlyCompleted];
+      return [...todayTasks, ...recentlyCompleted];
     }
     // If not admin (invited user) or still determining, show nothing
     if (!effectiveIsAdmin) return [];
