@@ -39,6 +39,8 @@ interface TeamChatProps {
   // Jump to a specific channel (e.g. from notification)
   initialChannelId?: string;
   onUnreadChange?: (count: number) => void;
+  /** Called when a task-card in chat is clicked — opens PostCardModal for that task */
+  onTaskCardClick?: (taskId: string) => void;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -71,6 +73,7 @@ export function TeamChat({
   isAdmin,
   initialChannelId,
   onUnreadChange,
+  onTaskCardClick,
 }: TeamChatProps) {
   const [channels, setChannels] = useState<TeamChannel[]>([]);
   const [activeChannelId, setActiveChannelId] = useState<string>(initialChannelId || '');
@@ -487,18 +490,37 @@ export function TeamChat({
 
                   // Task card
                   if (msg.message_type === 'task-card' && msg.metadata?.itemName) {
+                    const hasTaskLink = onTaskCardClick && msg.metadata?.sourceId;
+                    const hasEditUrl = msg.metadata?.editUrl;
                     return (
-                      <div key={msg.id} className="mx-2 rounded-xl border border-blue-500/30 bg-blue-900/20 p-3 space-y-1.5">
+                      <div
+                        key={msg.id}
+                        className={`mx-2 rounded-xl border border-blue-500/30 bg-blue-900/20 p-3 space-y-1.5 ${hasTaskLink ? 'cursor-pointer hover:bg-blue-900/30 transition-colors' : ''}`}
+                        onClick={hasTaskLink ? () => onTaskCardClick(msg.metadata.sourceId) : undefined}
+                      >
                         <div className="flex items-center gap-2">
                           <span className="text-xs font-semibold text-blue-300">{msg.sender_name}</span>
                           <span className="text-[10px] text-gray-500">shared</span>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-lg">📎</span>
-                          <div>
-                            <p className="text-sm font-medium text-white">{msg.metadata.itemName}</p>
-                            <p className="text-[11px] text-gray-400">{msg.metadata.sourceType}</p>
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-lg">📎</span>
+                            <div>
+                              <p className="text-sm font-medium text-white">{msg.metadata.itemName}</p>
+                              <p className="text-[11px] text-gray-400">{msg.metadata.sourceType}</p>
+                            </div>
                           </div>
+                          {hasEditUrl && (
+                            <a
+                              href={msg.metadata.editUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={e => e.stopPropagation()}
+                              className="text-[11px] text-blue-400 hover:text-blue-300 px-2 py-1 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 transition-colors flex-shrink-0"
+                            >
+                              View
+                            </a>
+                          )}
                         </div>
                         {msg.content && (
                           <p className="text-xs text-gray-300 border-t border-blue-500/20 pt-1.5">{msg.content}</p>

@@ -345,6 +345,8 @@ export function BrainstormContent({
   const [locationMicActive, setLocationMicActive] = useState(false);
   const [tiktokCount, setTiktokCount]   = useState(0);
   const [loadingIdeas, setLoadingIdeas] = useState(false);
+  const [sceneReferences, setSceneReferences] = useState<Record<string, string[]>>({});
+  const [isLoadingReferences, setIsLoadingReferences] = useState(false);
 
   // L1-L4: Lyrics state
   const [lyricsText, setLyricsText] = useState('');
@@ -423,6 +425,50 @@ export function BrainstormContent({
     }, 1500);
   };
 
+  // Fetch Instagram/TikTok reference links for each scene via Tavily
+  // Runs once when contentIdeas populate, skips if already loaded from draft
+  useEffect(() => {
+    if (contentIdeas.length === 0) return;
+    if (Object.keys(sceneReferences).length > 0) return; // already loaded from draft
+    setIsLoadingReferences(true);
+    const fetchAll = async () => {
+      const results: Record<string, string[]> = {};
+      await Promise.all(contentIdeas.map(async (idea) => {
+        try {
+          const res = await fetch('/api/references', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              sceneTitle: idea.title,
+              action: (idea as any).action,
+              location: confirmedLocation,
+              genre: songEmotionLocal,
+            }),
+          });
+          if (res.ok) {
+            const { urls } = await res.json();
+            if (urls?.length) results[idea.id] = urls;
+          }
+        } catch { /* non-blocking */ }
+      }));
+      setSceneReferences(results);
+      setIsLoadingReferences(false);
+      // Persist to brainstorm_draft so references survive session resume
+      if (galaxyId && Object.keys(results).length > 0) {
+        try {
+          const { supabase } = await import('@/lib/supabase');
+          const { data: gal } = await supabase.from('galaxies').select('brainstorm_draft').eq('id', galaxyId).single();
+          const existing = (gal?.brainstorm_draft as any) || {};
+          await supabase.from('galaxies').update({
+            brainstorm_draft: { ...existing, contentIdeaReferences: results },
+          }).eq('id', galaxyId);
+        } catch { /* non-blocking */ }
+      }
+    };
+    fetchAll();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contentIdeas.length]);
+
   // F6: Clear draft on complete or start fresh
   const clearDraft = async () => {
     if (!galaxyId) return;
@@ -464,6 +510,9 @@ export function BrainstormContent({
     }
     if (Array.isArray(draft.locationOptions) && (draft.locationOptions as LocationOption[]).length > 0) {
       setLocationOptions(draft.locationOptions as LocationOption[]);
+    }
+    if (draft.contentIdeaReferences && typeof draft.contentIdeaReferences === 'object') {
+      setSceneReferences(draft.contentIdeaReferences as Record<string, string[]>);
     }
   };
 
@@ -1260,7 +1309,7 @@ export function BrainstormContent({
 
   // Auto-generate looks — accepts either a count or an array length (J: shot list)
   const generateLooks = (countOrArray: number | ContentFormatAssignment[]): import('@/types').ShootLook[] => {
-    const count = Math.min(Math.max(typeof countOrArray === 'number' ? countOrArray : countOrArray.length + 2, 4), 8);
+    const count = Math.max(typeof countOrArray === 'number' ? countOrArray : (countOrArray.length + 2), 4);
     const lookTemplates = [
       { angle: 'wide', energy: 'mid-energy', descTpl: 'Wide, front-facing, standing' },
       { angle: 'close-up', energy: 'high-energy', descTpl: 'Close-up, front-facing, intense' },
@@ -1345,7 +1394,7 @@ export function BrainstormContent({
     const scenes = allLikedIdeas.slice(0, 3);
     const soundbytes = confirmedSoundbytes.length >= 3 ? confirmedSoundbytes : ALL_SOUNDBYTES.slice(0, 5);
     // Generate 5 looks — one per scene + 2 extra camera angles
-    const looks = generateLooks(Math.max(5, scenes.length + 2));
+    const looks = generateLooks(Math.max(scenes.length * 3, 9));
 
     // Shoot day
     const shootDay: BrainstormShootDay = {
@@ -3420,17 +3469,38 @@ export function BrainstormContent({
                                   <p className="text-[11px] text-gray-400 leading-snug">{(idea as any).firstFrame}</p>
                                 </div>
                               )}
-                              {/* Time of day + location pin */}
-                              <div className="flex items-center gap-3 mt-1">
-                                <span className="text-[10px] text-gray-500">
-                                  🕐 {(idea as any).timeOfDay || 'Flexible timing'}
-                                </span>
-                                {confirmedLocation && (
-                                  <span className="text-[10px] text-gray-600">
-                                    📍 {confirmedLocation}
-                                  </span>
-                                )}
-                              </div>
+                             {/* Time of day + location pin */}
+                             <div className="flex items-center gap-3 mt-1">
+                               <span className="text-[10px] text-gray-500">
+                                 🕐 {(idea as any).timeOfDay || 'Flexible timing'}
+                               </span>
+                               {confirmedLocation && (
+                                 <span className="text-[10px] text-gray-600">
+                                   📍 {confirmedLocation}
+                                 </span>
+                               )}
+                             </div>
+
+                             {/* Reference links (Tavily) */}
+                             {isLoadingReferences && !sceneReferences[idea.id] ? (
+                               <p className="text-[10px] text-gray-600 mt-1.5 animate-pulse">finding references...</p>
+                             ) : sceneReferences[idea.id]?.length > 0 ? (
+                               <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                                 <span className="text-[10px] text-gray-500 uppercase tracking-wide flex-shrink-0">Refs</span>
+                                 {sceneReferences[idea.id].map((url, ri) => (
+                                   <a
+                                     key={ri}
+                                     href={url}
+                                     target="_blank"
+                                     rel="noopener noreferrer"
+                                     onClick={e => e.stopPropagation()}
+                                     className="text-[10px] text-blue-400 hover:text-blue-300 underline flex items-center gap-0.5"
+                                   >
+                                     {url.includes('instagram') ? '📸' : '🎵'} {ri + 1}
+                                   </a>
+                                 ))}
+                               </div>
+                             ) : null}
                             </div>
                             <div className="flex flex-col gap-1 flex-shrink-0">
                               <button

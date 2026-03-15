@@ -839,9 +839,9 @@ export async function createTasksFromBrainstorm(
     // Build timed scene schedule (E2: logical shoot order, E3: per-scene and per-look times)
     // Order: setup-heavy / directional-light scenes first, golden-hour scenes last
     const scenes = result.confirmedScenes || [];
-    const looksPerScene = result.looks ? Math.ceil(result.looks.length / Math.max(scenes.length, 1)) : 5;
+    const LOOKS_PER_SCENE = 3;
     const minutesPerLook = 12; // ~12 min per look including takes
-    const minutesPerScene = looksPerScene * minutesPerLook + 10; // +10 min travel/setup between scenes
+    const minutesPerScene = LOOKS_PER_SCENE * minutesPerLook + 10; // +10 min travel/setup between scenes
 
     // Sort scenes: golden hour scenes last, others by complexity (easy first)
     const sortedScenes = [...scenes].sort((a: any, b: any) => {
@@ -865,22 +865,51 @@ export async function createTasksFromBrainstorm(
     const pad = (n: number) => String(n).padStart(2, '0');
     const toTime = (minutes: number) => `${pad(Math.floor(minutes / 60) % 24)}:${pad(minutes % 60)}`;
 
+    // Look templates — used when stored looks don't cover 3 per scene
+    const LOOK_TEMPLATES = [
+      { angle: 'wide', energy: 'mid-energy', desc: 'Wide, front-facing, standing' },
+      { angle: 'close-up', energy: 'high-energy', desc: 'Close-up, front-facing, intense' },
+      { angle: 'medium', energy: 'calm', desc: 'Medium, slight side angle, relaxed' },
+      { angle: 'wide', energy: 'high-energy', desc: 'Wide, side profile, dynamic' },
+      { angle: 'close-up', energy: 'calm', desc: 'Close-up, looking away from camera' },
+      { angle: 'medium', energy: 'mid-energy', desc: 'Medium, overhead angle' },
+      { angle: 'wide', energy: 'calm', desc: 'Wide, back-of-subject facing away' },
+      { angle: 'close-up', energy: 'high-energy', desc: 'Close-up, handheld movement' },
+    ];
+
+    const storedLooks = result.looks || [];
+    const location = result.confirmedLocation || '';
+
     if (sortedScenes.length > 0) {
       shotListDesc += `\n📋 TIMED SHOOT SCHEDULE\n`;
       sortedScenes.forEach((scene: any, si: number) => {
         const sceneStart = currentMinute;
-        const sceneLooks = result.looks
-          ? result.looks.filter((_: any, li: number) => Math.floor(li / looksPerScene) === si)
-          : Array.from({ length: looksPerScene }, (_: any, li: number) => ({ number: si * looksPerScene + li + 1, description: 'Full take', angle: 'varies', energy: 'match the song' }));
+
+        // Assign exactly 3 looks per scene — use stored looks cycling with modulo,
+        // or fall back to templates if no stored looks
+        const sceneLooks = Array.from({ length: LOOKS_PER_SCENE }, (_, j) => {
+          const globalIdx = si * LOOKS_PER_SCENE + j;
+          if (storedLooks.length > 0) {
+            return storedLooks[globalIdx % storedLooks.length];
+          }
+          const tpl = LOOK_TEMPLATES[(globalIdx) % LOOK_TEMPLATES.length];
+          return {
+            number: globalIdx + 1,
+            description: `${tpl.desc}${location ? ` — ${location}` : ''}`,
+            angle: tpl.angle,
+            energy: tpl.energy,
+          };
+        });
 
         shotListDesc += `\n[${toTime(sceneStart)}] SCENE ${si + 1}: ${scene.title || scene}`;
+        if (scene.action) shotListDesc += `\n  💡 ${scene.action}`;
         if (scene.setting) shotListDesc += `\n  📌 ${scene.setting}`;
         if (scene.timeOfDay) shotListDesc += `\n  🕐 Best light: ${scene.timeOfDay}`;
 
         sceneLooks.forEach((look: any, li: number) => {
           const lookStart = sceneStart + li * minutesPerLook;
           const lookEnd = lookStart + minutesPerLook;
-          shotListDesc += `\n  ${toTime(lookStart)}–${toTime(lookEnd)}  Look ${look.number || li + 1}: ${look.description} (${look.angle}, ${look.energy})`;
+          shotListDesc += `\n  ${toTime(lookStart)}–${toTime(lookEnd)}  Look ${look.number || (si * LOOKS_PER_SCENE + li + 1)}: ${look.description} (${look.angle}, ${look.energy})`;
         });
 
         currentMinute = sceneStart + minutesPerScene;
@@ -888,10 +917,10 @@ export async function createTasksFromBrainstorm(
           shotListDesc += `\n  ↓ Travel to next scene`;
         }
       });
-    } else if (result.looks && result.looks.length > 0) {
+    } else if (storedLooks.length > 0) {
       // Fallback: no scene objects, just looks
       shotListDesc += `\n🎬 SHOT LIST\n`;
-      result.looks.forEach((l: any) => {
+      storedLooks.forEach((l: any) => {
         const lookStart = currentMinute;
         currentMinute += minutesPerLook;
         shotListDesc += `\n  ${toTime(lookStart)}–${toTime(currentMinute)}  Look ${l.number}: ${l.description} (${l.angle}, ${l.energy})`;

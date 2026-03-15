@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
         title: label,
         description: 'Empty post slot — add content when ready.',
         type: taskType,
-        task_category: 'task',
+        task_category: 'event',
         date: slot.date,
         start_time: '12:00',
         end_time: '13:00',

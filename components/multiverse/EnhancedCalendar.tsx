@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import type { ArtistProfile, BrainstormResult, TeamTask, TeamMemberRecord, TeamPermission } from '@/types';
 import {
@@ -66,6 +66,9 @@ interface EnhancedCalendarProps {
   songName: string;
   releaseDate: string;
   onTaskComplete?: (taskId: string) => void;
+  onTaskDelete?: (taskId: string) => void;
+  // Fired once when the admin calendar generates local prep/edit tasks and none exist in DB yet
+  onSaveGeneratedTasks?: (tasks: ScheduledTask[]) => void;
   onClose?: () => void;
   showGoogleSync?: boolean;
   artistProfile?: ArtistProfile;
@@ -380,6 +383,8 @@ function DraggableTask({
   onPostClick,
   onNonPostClick,
   onContextMenuAssign,
+  onOpenPopover,
+  compact = true,
 }: {
   task: ScheduledTask;
   isExpanded: boolean;
@@ -391,6 +396,8 @@ function DraggableTask({
   onPostClick?: () => void;
   onNonPostClick?: () => void;
   onContextMenuAssign?: (taskId: string, x: number, y: number) => void;
+  onOpenPopover?: (task: ScheduledTask, x: number, y: number) => void;
+  compact?: boolean;
 }) {
   const [isEditingTime, setIsEditingTime] = useState(false);
   const [editedStartTime, setEditedStartTime] = useState(task.startTime);
@@ -468,7 +475,7 @@ function DraggableTask({
   return (
     <div
       ref={setNodeRef}
-      style={isExpanded ? style : { ...style, minHeight: '52px', maxHeight: '52px', overflow: 'hidden' }}
+      style={isExpanded ? style : { ...style, overflow: 'hidden' }}
       {...attributes}
       {...listeners}
       onClick={(e) => {
@@ -490,7 +497,7 @@ function DraggableTask({
           onContextMenuAssign(task.id, e.clientX, e.clientY);
         }
       }}
-      className={`text-[10px] p-1.5 mb-1 rounded transition-all ${
+      className={`text-[10px] p-1 rounded transition-all flex flex-col justify-center overflow-hidden ${compact ? 'h-9 flex-shrink-0' : 'flex-1 min-h-0'} ${
         task.isPostEvent ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing'
       } ${
         // F7: ambiguous (unfilled) post slots get dashed border + dimmed
@@ -504,92 +511,21 @@ function DraggableTask({
       <div className="flex items-center justify-between gap-1">
         <span className="font-medium truncate flex-1">{task.title}</span>
         <button
-          onClick={(e) => { e.stopPropagation(); onToggle(); }}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (onOpenPopover) {
+              onOpenPopover(task, e.clientX, e.clientY);
+            }
+          }}
           className="text-[9px] opacity-50 hover:opacity-100 flex-shrink-0 px-0.5 rounded hover:bg-white/10 transition-all"
           title="Options"
         >
           ⋯
         </button>
       </div>
-      
-      {/* Time display/edit */}
-      {!isEditingTime ? (
-        <div 
-          className="text-[8px] opacity-70 hover:opacity-100 cursor-pointer"
-          onClick={(e) => {
-            e.stopPropagation();
-            setIsEditingTime(true);
-          }}
-          title="Click to edit time"
-        >
-          {formatTime(task.startTime)} - {formatTime(task.endTime)}
-        </div>
-      ) : (
-        <div className="time-edit-area flex gap-1 items-center mt-1" onClick={(e) => e.stopPropagation()}>
-          <input
-            type="time"
-            value={editedStartTime}
-            onChange={(e) => handleStartTimeChange(e.target.value)}
-            className="w-16 text-[8px] px-1 py-0.5 bg-gray-800 border border-gray-600 rounded text-white"
-          />
-          <span className="text-[8px]">-</span>
-          <input
-            type="time"
-            value={editedEndTime}
-            onChange={(e) => handleEndTimeChange(e.target.value)}
-            className="w-16 text-[8px] px-1 py-0.5 bg-gray-800 border border-gray-600 rounded text-white"
-          />
-          <button
-            onClick={handleSaveTime}
-            className="text-[8px] px-1 py-0.5 bg-green-500 hover:bg-green-600 rounded text-white"
-          >
-            ✓
-          </button>
-          <button
-            onClick={() => {
-              setEditedStartTime(task.startTime);
-              setEditedEndTime(task.endTime);
-              setIsEditingTime(false);
-            }}
-            className="text-[8px] px-1 py-0.5 bg-gray-600 hover:bg-gray-700 rounded text-white"
-          >
-            ✕
-          </button>
-        </div>
-      )}
-      
-      {/* ⋯ Expanded — context menu actions */}
-      {isExpanded && (
-        <div className="mt-1.5 pt-1.5 border-t border-white/20 space-y-1">
-          <p className="text-[9px] opacity-70 leading-relaxed truncate">{task.description?.slice(0, 80)}</p>
-          <div className="flex flex-wrap gap-1 pt-0.5">
-            {task.type === 'shoot' && (
-              <>
-                <button className="text-[8px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 hover:bg-blue-500/40 transition-all" onClick={(e) => { e.stopPropagation(); onNonPostClick?.(); }}>📋 Shot List</button>
-                <button className="text-[8px] px-1.5 py-0.5 rounded bg-red-500/20 text-red-300 hover:bg-red-500/40 transition-all" onClick={(e) => { e.stopPropagation(); onComplete?.(task.id); }}>🗑 Delete</button>
-              </>
-            )}
-            {task.type === 'edit' && (
-              <>
-                <button className="text-[8px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 hover:bg-purple-500/40 transition-all" onClick={(e) => { e.stopPropagation(); onNonPostClick?.(); }}>👤 Assign</button>
-                <button className="text-[8px] px-1.5 py-0.5 rounded bg-red-500/20 text-red-300 hover:bg-red-500/40 transition-all" onClick={(e) => { e.stopPropagation(); onComplete?.(task.id); }}>🗑 Delete</button>
-              </>
-            )}
-            {(task.type === 'promo' || task.type === 'teaser' || task.type === 'audience-builder' || task.type === 'prep') && (
-              <>
-                <button className="text-[8px] px-1.5 py-0.5 rounded bg-green-500/20 text-green-300 hover:bg-green-500/40 transition-all" onClick={(e) => { e.stopPropagation(); onNonPostClick?.(); }}>✏️ Edit</button>
-                <button className="text-[8px] px-1.5 py-0.5 rounded bg-red-500/20 text-red-300 hover:bg-red-500/40 transition-all" onClick={(e) => { e.stopPropagation(); onComplete?.(task.id); }}>🗑 Delete</button>
-              </>
-            )}
-            {!['shoot','edit','promo','teaser','audience-builder','prep'].includes(task.type) && (
-              <>
-                <button className="text-[8px] px-1.5 py-0.5 rounded bg-green-500/20 text-green-300 hover:bg-green-500/40 transition-all" onClick={(e) => { e.stopPropagation(); onComplete?.(task.id); }}>✓ Complete</button>
-                <button className="text-[8px] px-1.5 py-0.5 rounded bg-red-500/20 text-red-300 hover:bg-red-500/40 transition-all" onClick={(e) => { e.stopPropagation(); }}>🗑 Delete</button>
-              </>
-            )}
-          </div>
-        </div>
-      )}
+      <div className="text-[8px] opacity-70">
+        {formatTime(task.startTime)} – {formatTime(task.endTime)}
+      </div>
     </div>
   );
 }
@@ -832,6 +768,7 @@ function DroppableDay({
   onNonPostTaskClick,
   onTaskContextMenu,
   onDayContextMenu,
+  onOpenPopover,
 }: {
   dateStr: string;
   day: CalendarDay;
@@ -849,6 +786,7 @@ function DroppableDay({
   onNonPostTaskClick?: (taskId: string, title: string, description: string) => void;
   onTaskContextMenu?: (taskId: string, x: number, y: number) => void;
   onDayContextMenu?: (date: string, x: number, y: number) => void;
+  onOpenPopover?: (task: ScheduledTask, x: number, y: number) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({
     id: dateStr,
@@ -864,7 +802,7 @@ function DroppableDay({
           onDayContextMenu(dateStr, e.clientX, e.clientY);
         }
       }}
-      className={`flex-1 min-h-[100px] p-2 rounded-lg border transition-all ${
+      className={`flex-1 h-full flex flex-col p-2 rounded-lg border transition-all overflow-hidden min-h-0 ${
         isOver ? 'border-blue-400 bg-blue-500/20 ring-2 ring-blue-400' : ''
       } ${
         day.isToday 
@@ -875,64 +813,70 @@ function DroppableDay({
       }`}
     >
       {/* Date Header */}
-      <div className={`text-[10px] mb-2 ${day.isToday ? 'text-yellow-400 font-bold' : 'text-gray-500'}`}>
+      <div className={`text-[10px] mb-1 flex-shrink-0 ${day.isToday ? 'text-yellow-400 font-bold' : 'text-gray-500'}`}>
         {day.date.toLocaleDateString('en-US', { weekday: 'short' })}
         <span className="ml-1">{day.date.getMonth() + 1}/{day.date.getDate()}</span>
         {day.isToday && <span className="ml-1">• Today</span>}
       </div>
       
-      {/* All items (Google Events + Tasks) sorted chronologically */}
+      {/* All items (Google Events + Tasks) */}
       {(() => {
-        // Combine Google events and tasks into a single sorted array
         const googleEventItems = dayGoogleEvents.map(event => ({
           type: 'google' as const,
           time: new Date(event.start).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }),
           event
         }));
-        
         const taskItems = dayTasks.map(task => ({
           type: 'task' as const,
           time: task.startTime,
           task
         }));
-        
         const allItems = [...googleEventItems, ...taskItems].sort((a, b) => a.time.localeCompare(b.time));
-        
-        return allItems.map((item, index) => {
-          if (item.type === 'google' && item.event) {
-            return (
-              <div
-                key={`google-${item.event.id}`}
-                className="text-[9px] p-1.5 mb-1 bg-gray-700/50 border border-gray-600 rounded text-gray-400 overflow-hidden"
-                style={{ minHeight: '52px', maxHeight: '52px' }}
-                title={item.event.title}
-              >
-                <div className="font-medium truncate">{item.event.title}</div>
-                <div className="opacity-60 mt-0.5">
-                  {new Date(item.event.start).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
-                  {item.event.end && ` - ${new Date(item.event.end).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`}
-                </div>
-              </div>
-            );
-          } else if (item.type === 'task' && item.task) {
-            return (
-              <DraggableTask
-                key={item.task.id}
-                task={item.task}
-                isExpanded={expandedTaskId === item.task.id}
-                onToggle={() => setExpandedTaskId(expandedTaskId === item.task.id ? null : item.task.id)}
-                onComplete={onTaskComplete}
-                onTimeChange={onTimeChange}
-                formatTime={formatTime}
-                getTaskColor={getTaskColor}
-                onPostClick={item.task.isPostEvent ? () => onPostCardClick?.(item.task.id) : undefined}
-                onNonPostClick={!item.task.isPostEvent ? () => onNonPostTaskClick?.(item.task.id, item.task.title, item.task.description) : undefined}
-                onContextMenuAssign={onTaskContextMenu ?? undefined}
-              />
-            );
-          }
-          return null;
-        });
+        // Days with 1-2 items: fixed h-9 cards (compact, space below)
+        // Days with 3+ items: flex-1 cards so they all fill the fixed row height
+        const compact = allItems.length <= 2;
+        const containerClass = compact ? 'flex flex-col gap-1' : 'flex flex-col gap-1 flex-1 min-h-0';
+
+        return (
+          <div className={containerClass}>
+            {allItems.map((item) => {
+              if (item.type === 'google' && item.event) {
+                return (
+                  <div
+                    key={`google-${item.event.id}`}
+                    className={`text-[9px] p-1 bg-gray-700/50 border border-gray-600 rounded text-gray-400 overflow-hidden flex flex-col justify-center ${compact ? 'h-9 flex-shrink-0' : 'flex-1 min-h-0'}`}
+                    title={item.event.title}
+                  >
+                    <div className="font-medium truncate">{item.event.title}</div>
+                    <div className="opacity-60">
+                      {new Date(item.event.start).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                      {item.event.end && ` - ${new Date(item.event.end).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`}
+                    </div>
+                  </div>
+                );
+              } else if (item.type === 'task' && item.task) {
+                return (
+                  <DraggableTask
+                    key={item.task.id}
+                    task={item.task}
+                    isExpanded={expandedTaskId === item.task.id}
+                    onToggle={() => setExpandedTaskId(expandedTaskId === item.task.id ? null : item.task.id)}
+                    onComplete={onTaskComplete}
+                    onTimeChange={onTimeChange}
+                    formatTime={formatTime}
+                    getTaskColor={getTaskColor}
+                    onPostClick={item.task.isPostEvent ? () => onPostCardClick?.(item.task.id) : undefined}
+                    onNonPostClick={!item.task.isPostEvent ? () => onNonPostTaskClick?.(item.task.id, item.task.title, item.task.description) : undefined}
+                    onContextMenuAssign={onTaskContextMenu ?? undefined}
+                    onOpenPopover={onOpenPopover}
+                    compact={compact}
+                  />
+                );
+              }
+              return null;
+            })}
+          </div>
+        );
       })()}
     </div>
   );
@@ -942,6 +886,8 @@ export function EnhancedCalendar({
   songName,
   releaseDate,
   onTaskComplete,
+  onTaskDelete,
+  onSaveGeneratedTasks,
   onClose,
   showGoogleSync = true,
   artistProfile,
@@ -982,9 +928,15 @@ export function EnhancedCalendar({
   const [isFetchingEvents, setIsFetchingEvents] = useState(false);
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
   const [scheduledTasks, setScheduledTasks] = useState<ScheduledTask[]>([]);
-  const [calendarPage, setCalendarPage] = useState(0); // 0 = weeks 1-4, 1 = weeks 5-8
+  const [calendarPage, setCalendarPage] = useState(1); // 1 = current weeks (0 = 4 past weeks)
   const [viewMode, setViewMode] = useState<'calendar' | 'posts' | 'list' | 'settings'>('calendar');
   const [clearConfirmStep, setClearConfirmStep] = useState<'idle' | 'confirm' | 'clearing'>('idle');
+
+  // Floating task popover (opened via ⋯ button)
+  const [taskPopover, setTaskPopover] = useState<{ task: ScheduledTask; x: number; y: number } | null>(null);
+  // Guard: only save generated tasks to DB once per mount
+  const hasSavedGeneratedTasksRef = useRef(false);
+  const hasNotifiedSharedEventsRef = useRef(false);
 
   // CAL2: right-click day context menu
   const [dayCtxMenu, setDayCtxMenu] = useState<{ date: string; x: number; y: number } | null>(null);
@@ -1289,14 +1241,15 @@ export function EnhancedCalendar({
     // No local schedule generation — all events come from admin's saved shared events
     // ================================================================
     if (isMember) {
-      // Generate 56 days of calendar grid
+      // Generate 84 days of calendar grid: 4 past weeks + 8 future weeks
+      const PAST_DAYS = 28;
       const allDays: { date: Date; dateStr: string; weekNum: number }[] = [];
-      for (let i = 0; i < 56; i++) {
+      for (let i = -PAST_DAYS; i < 56; i++) {
         const date = new Date(today.getTime() + i * 24 * 60 * 60 * 1000);
         allDays.push({
           date,
           dateStr: `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`,
-          weekNum: Math.floor(i / 7),
+          weekNum: Math.floor((i + PAST_DAYS) / 7),
         });
       }
 
@@ -1349,8 +1302,8 @@ export function EnhancedCalendar({
             const eventDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
             return eventDate === day.dateStr;
           }),
-          isToday: day.weekNum === 0 && day.date.getTime() === today.getTime(),
-          isPast: false,
+          isToday: day.date.getTime() === today.getTime(),
+          isPast: day.date.getTime() < today.getTime(),
         });
       }
 
@@ -1401,6 +1354,7 @@ export function EnhancedCalendar({
     const timeSpentPerWeek = [0, 0, 0, 0, 0, 0, 0, 0]; // 8 weeks
     
     // First pass: generate all days (8 weeks = 56 days for calendar navigation)
+    // weekNum is relative to today (0 = current week) for schedule-generation purposes
     const allDays: { date: Date; dateStr: string; weekNum: number; isPrep: boolean; dayOfWeek: number }[] = [];
     for (let i = 0; i < 56; i++) {
       const date = new Date(today.getTime() + i * 24 * 60 * 60 * 1000);
@@ -1660,30 +1614,7 @@ export function EnhancedCalendar({
           }
         }
         
-        // Fill remaining time with prep tasks for future content
-        if (timeSpentPerWeek[weekNum] < weeklyBudgetMinutes && prepTaskIndex < postingTaskSet.length) {
-          const prepTask = postingTaskSet[prepTaskIndex];
-          const adjustedDuration = Math.min(prepTask.duration, weeklyBudgetMinutes - timeSpentPerWeek[weekNum]);
-          
-          if (adjustedDuration >= 30) { // Only schedule if at least 30 min
-            const timeSlot = findFreeTimeSlot(day.date, adjustedDuration, tasks);
-            if (timeSlot) {
-              tasks.push({
-                id: `prep-w${weekNum + 1}-${prepTaskIndex}`,
-                title: prepTask.title,
-                description: prepTask.description,
-                type: 'prep',
-                date: day.dateStr,
-                startTime: timeSlot.start,
-                endTime: timeSlot.end,
-                completed: false,
-              });
-              timeSpentPerWeek[weekNum] += adjustedDuration;
-              tasksScheduledThisWeek++;
-              prepTaskIndex++;
-            }
-          }
-        }
+        // (Filler prep tasks removed — Mark creates specific tasks via brainstorm flow)
       }
     }
     
@@ -1768,14 +1699,17 @@ export function EnhancedCalendar({
     // ADD ADMIN'S TEAM TASKS FROM SUPABASE
     // ================================================================
     if (teamTasks && teamTasks.length > 0) {
+      console.log('[EnhancedCalendar] teamTasks count:', teamTasks.length, '— event tasks:', teamTasks.filter(t => t.taskCategory === 'event').length);
+      const shootTasks = teamTasks.filter(t => t.type === 'shoot');
+      console.log('[EnhancedCalendar] shoot tasks in teamTasks:', shootTasks.length, shootTasks.map(t => t.date + ':' + t.title.slice(0,30)));
       // Separate DB events from non-event tasks
       const dbEvents = teamTasks.filter(t => t.taskCategory === 'event');
 
       if (dbEvents.length > 0) {
-        // DB post/release events exist → remove ALL locally-generated post tasks
-        // (they have fake IDs like 'post-w*' or 'release-*') and use DB-backed ones only.
+        // DB post/release events exist → remove ALL locally-generated post + shoot tasks
+        // (they have fake IDs like 'post-w*' or 'release-*' or 'shoot-*') and use DB-backed ones only.
         // This prevents duplicate events when the calendar has been generated before.
-        const POST_TYPES_SET = new Set(['teaser', 'promo', 'audience-builder', 'release']);
+        const POST_TYPES_SET = new Set(['teaser', 'promo', 'audience-builder', 'release', 'shoot']);
         for (let i = tasks.length - 1; i >= 0; i--) {
           if (POST_TYPES_SET.has(tasks[i].type)) {
             tasks.splice(i, 1);
@@ -1795,8 +1729,10 @@ export function EnhancedCalendar({
           seenIds.add(tt.id);
           seenDates.add(tt.date);
 
+          const isShootTask = tt.type === 'shoot';
           let calType: ScheduledTask['type'] = 'audience-builder';
-          if (tt.title.toLowerCase().includes('release')) calType = 'release';
+          if (isShootTask) calType = 'shoot';
+          else if (tt.title.toLowerCase().includes('release')) calType = 'release';
           else if (tt.title.toLowerCase().includes('teaser')) calType = 'teaser';
           else if (tt.title.toLowerCase().includes('promo')) calType = 'promo';
 
@@ -1809,8 +1745,11 @@ export function EnhancedCalendar({
             startTime: tt.startTime || '10:00',
             endTime: tt.endTime || '11:00',
             completed: tt.status === 'completed',
+            // All events use isPostEvent: true so they render as colored cards in the calendar.
+            // Shoot day routing (→ ShootDayModal) is handled in GalaxyView's onPostCardClick.
             isPostEvent: true,
           });
+          if (isShootTask) console.log('[EnhancedCalendar] Added shoot day to calendar:', tt.date, tt.title);
         }
       }
 
@@ -1840,7 +1779,25 @@ export function EnhancedCalendar({
       }
     }
     
-    // Build calendar days with tasks
+    // Build past calendar days (4 weeks = 28 days before today)
+    const pastCalendarDays: CalendarDay[] = [];
+    for (let i = 28; i >= 1; i--) {
+      const date = new Date(today.getTime() - i * 24 * 60 * 60 * 1000);
+      const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+      pastCalendarDays.push({
+        date,
+        tasks: tasks.filter(t => t.date === dateStr),
+        googleEvents: googleEvents.filter(e => {
+          const d = new Date(e.start);
+          const eventDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+          return eventDate === dateStr;
+        }),
+        isToday: false,
+        isPast: true,
+      });
+    }
+
+    // Build calendar days with tasks (future weeks — past weeks are prepended below)
     for (const day of allDays) {
       days.push({
         date: day.date,
@@ -1850,19 +1807,47 @@ export function EnhancedCalendar({
           const eventDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
           return eventDate === day.dateStr;
         }),
-        isToday: day.weekNum === 0 && day.date.getTime() === today.getTime(),
+        isToday: day.date.getTime() === today.getTime(),
         isPast: false,
       });
     }
+
+    // Prepend the 4 past weeks
+    days.unshift(...pastCalendarDays);
     
     setScheduledTasks(tasks);
     setCalendar(days);
 
     // ================================================================
-    // SAVE SHARED EVENTS: Notify parent of the shared events (posts + release day)
-    // so they can be saved to Supabase for team members to see
+    // SAVE GENERATED TASKS TO DB (first time only)
+    // If there are no existing non-event prep/edit tasks in DB yet, persist
+    // all locally-generated prep/edit/shoot tasks so they get real UUIDs
+    // and can be deleted, edited, and retrieved like any other task.
     // ================================================================
-    if (onSharedEventsGenerated) {
+    if (onSaveGeneratedTasks && !hasSavedGeneratedTasksRef.current) {
+      const POST_TYPES = new Set(['audience-builder', 'teaser', 'promo', 'release']);
+      const hasExistingPrepTasks = (teamTasks || []).some(t =>
+        t.taskCategory !== 'event' &&
+        t.taskCategory !== 'footage' &&
+        t.type !== 'brainstorm' &&
+        t.type !== 'invite_team'
+      );
+      if (!hasExistingPrepTasks) {
+        const prepTasksToSave = tasks.filter(t => !POST_TYPES.has(t.type));
+        if (prepTasksToSave.length > 0) {
+          hasSavedGeneratedTasksRef.current = true;
+          onSaveGeneratedTasks(prepTasksToSave);
+        }
+      }
+    }
+
+    // ================================================================
+    // SAVE SHARED EVENTS: Notify parent of the shared events (posts + release day)
+    // so they can be saved to Supabase for team members to see.
+    // Guard with a ref so this only fires once per component mount, regardless
+    // of how many times the useEffect re-runs (e.g. when teamTasks reloads).
+    // ================================================================
+    if (onSharedEventsGenerated && !hasNotifiedSharedEventsRef.current) {
       const sharedEvents: SharedCalendarEvent[] = tasks
         .filter(t => t.type === 'audience-builder' || t.type === 'teaser' || t.type === 'promo' || t.type === 'release')
         .map(t => ({
@@ -1874,6 +1859,7 @@ export function EnhancedCalendar({
           endTime: t.endTime,
         }));
       if (sharedEvents.length > 0) {
+        hasNotifiedSharedEventsRef.current = true;
         onSharedEventsGenerated(sharedEvents);
       }
     }
@@ -1918,7 +1904,8 @@ export function EnhancedCalendar({
     today.setHours(0, 0, 0, 0);
     const release = new Date(releaseDate + 'T00:00:00');
     const daysToRelease = Math.round((release.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-    const weekStart = (calendarPage * 4 + weekOffset) * 7;
+    // Subtract 28 days (4 past weeks at front of calendar) to get days-from-today
+    const weekStart = (calendarPage * 4 + weekOffset) * 7 - 28;
     const weekEnd = weekStart + 6;
     if (weekEnd < daysToRelease) return { label: '📋 Pre-release', color: 'blue' };
     if (weekStart > daysToRelease) return { label: '🚀 Post-release', color: 'yellow' };
@@ -1932,6 +1919,48 @@ export function EnhancedCalendar({
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
     >
+      {/* Floating task popover — fixed position, rendered above all calendar content */}
+      {taskPopover && (
+        <div
+          className="fixed inset-0 z-50"
+          onClick={() => setTaskPopover(null)}
+        >
+          <div
+            className="absolute bg-gray-900 border border-gray-600 rounded-lg shadow-2xl p-2 min-w-[160px] z-50"
+            style={{ left: taskPopover.x, top: taskPopover.y, transform: 'translate(-50%, 8px)' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="text-[10px] text-white font-medium truncate mb-2 px-1">{taskPopover.task.title}</p>
+            <div className="space-y-1">
+              {/* Open / view action */}
+              {taskPopover.task.isPostEvent && (
+                <button
+                  className="w-full text-left text-[11px] px-2 py-1.5 rounded hover:bg-gray-700 text-blue-300 transition-all"
+                  onClick={() => { onPostCardClick?.(taskPopover.task.id); setTaskPopover(null); }}
+                >
+                  📋 Open Post
+                </button>
+              )}
+              {!taskPopover.task.isPostEvent && (
+                <button
+                  className="w-full text-left text-[11px] px-2 py-1.5 rounded hover:bg-gray-700 text-blue-300 transition-all"
+                  onClick={() => { onNonPostTaskClick?.(taskPopover.task.id, taskPopover.task.title, taskPopover.task.description); setTaskPopover(null); }}
+                >
+                  📋 Open Task
+                </button>
+              )}
+              {/* Delete */}
+              <button
+                className="w-full text-left text-[11px] px-2 py-1.5 rounded hover:bg-red-500/20 text-red-400 transition-all"
+                onClick={() => { onTaskDelete?.(taskPopover.task.id); setTaskPopover(null); }}
+              >
+                🗑 Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="w-full relative">
       {/* Google Calendar Sync Section */}
       {showGoogleSync && (
@@ -2022,7 +2051,15 @@ export function EnhancedCalendar({
               ← Previous
             </button>
             <span className="text-xs text-gray-500">
-              Weeks {calendarPage * 4 + 1}–{Math.min(calendarPage * 4 + 4, allWeeks.length)}
+              {(() => {
+                const firstWeek = allWeeks[calendarPage * 4];
+                const lastWeek = allWeeks[Math.min(calendarPage * 4 + 3, allWeeks.length - 1)];
+                const start = firstWeek?.[0]?.date;
+                const end = lastWeek?.[6]?.date;
+                if (!start || !end) return '';
+                const fmt = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                return `${fmt(start)} – ${fmt(end)}`;
+              })()}
             </span>
             <button
               onClick={() => setCalendarPage(p => Math.min(totalPages - 1, p + 1))}
@@ -2055,14 +2092,19 @@ export function EnhancedCalendar({
 
       {/* Calendar Grid View */}
       {viewMode === 'calendar' && (
-        <div className="space-y-2 max-h-[600px] overflow-y-auto pr-2">
+        <div className="space-y-2 max-h-[800px] overflow-y-auto pr-2">
           {weeks.map((week, weekIndex) => {
             const globalWeekIndex = calendarPage * 4 + weekIndex;
+            // Show the month/day of the week's first day as the label
+            const weekStartDate = week[0]?.date;
+            const weekLabel = weekStartDate
+              ? weekStartDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+              : `W${globalWeekIndex + 1}`;
             return (
-            <div key={weekIndex} className="flex gap-1">
+            <div key={weekIndex} className="flex gap-1 h-[155px]">
               {/* Week label */}
-              <div className="w-16 flex items-start pt-2 justify-center text-xs text-gray-500 flex-shrink-0">
-                Week {globalWeekIndex + 1}
+              <div className="w-16 flex items-start pt-2 justify-center text-[10px] text-gray-500 flex-shrink-0 text-center leading-tight">
+                {weekLabel}
               </div>
               
               {/* Days */}
@@ -2091,6 +2133,7 @@ export function EnhancedCalendar({
                     onNonPostTaskClick={onNonPostTaskClick}
                     onTaskContextMenu={onTaskContextMenu}
                     onDayContextMenu={isAdmin ? (date, x, y) => setDayCtxMenu({ date, x, y }) : undefined}
+                    onOpenPopover={(task, x, y) => setTaskPopover({ task, x, y })}
                   />
                 );
               })}

@@ -10,6 +10,8 @@ interface SendWithNotesModalProps {
   itemName: string;
   sourceType: 'post_edit' | 'footage';
   sourceId: string;
+  /** Direct link to the edit/footage being shared — included in DM and email */
+  editUrl?: string;
   senderName: string;
   senderUserId?: string;
   teamMembers: TeamMemberRecord[];
@@ -24,6 +26,7 @@ export function SendWithNotesModal({
   itemName,
   sourceType,
   sourceId,
+  editUrl,
   senderName,
   senderUserId,
   teamMembers,
@@ -49,10 +52,57 @@ export function SendWithNotesModal({
         sender_name: senderName,
         content: noteText,
         message_type: 'task-card',
-        metadata: { itemName, sourceType, sourceId },
+        metadata: { itemName, sourceType, sourceId, editUrl },
       });
     } catch (err) {
       console.warn('[SendWithNotes] Could not post to group chat:', err);
+    }
+  }
+
+  async function postToDM(noteText: string) {
+    if (!senderUserId || !selectedMemberId) return;
+    try {
+      const { supabase } = await import('@/lib/supabase');
+      const dmId = [senderUserId, selectedMemberId].sort().join('-dm-');
+
+      // Upsert DM channel (ignore conflict if already exists)
+      await supabase.from('team_channels').upsert({
+        id: dmId,
+        team_id: teamId,
+        name: null,
+        channel_type: 'dm',
+        member_ids: [senderUserId, selectedMemberId],
+      }, { onConflict: 'id', ignoreDuplicates: true });
+
+      await supabase.from('team_messages').insert({
+        channel_id: dmId,
+        team_id: teamId,
+        sender_id: senderUserId,
+        sender_name: senderName,
+        content: noteText,
+        message_type: 'task-card',
+        metadata: { itemName, sourceType, sourceId, editUrl },
+      });
+    } catch (err) {
+      console.warn('[SendWithNotes] Could not post DM:', err);
+    }
+  }
+
+  async function sendEmailNotification(recipientId: string, noteText: string) {
+    try {
+      await fetch('/api/team/send-edit-notification', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          recipientUserId: recipientId,
+          senderName,
+          itemName,
+          editUrl,
+          note: noteText,
+        }),
+      });
+    } catch (err) {
+      console.warn('[SendWithNotes] Email notification failed (non-blocking):', err);
     }
   }
 
@@ -73,8 +123,11 @@ export function SendWithNotesModal({
         note.trim(),
       );
       if (ok) {
-        // TC7: also post to group chat
-        await postToGroupChat(note.trim());
+        await Promise.all([
+          postToGroupChat(note.trim()),
+          postToDM(note.trim()),
+          sendEmailNotification(selectedMemberId, note.trim()),
+        ]);
         setSent(true);
         setTimeout(() => onSent(), 1200);
       } else {
@@ -104,7 +157,7 @@ export function SendWithNotesModal({
           <div className="text-center py-4">
             <div className="text-3xl mb-2">✅</div>
             <p className="text-white font-medium">Sent to {recipientName}</p>
-            <p className="text-xs text-gray-400 mt-1">Posted to team chat & their todo list</p>
+            <p className="text-xs text-gray-400 mt-1">Sent via DM, team chat & email</p>
           </div>
         ) : (
           <>

@@ -118,7 +118,10 @@ export function PostCardModal({
     editName: string;
     sourceType: 'post_edit';
     sourceId: string;
+    editUrl?: string;
   } | null>(null);
+  const [editingVersionId, setEditingVersionId] = useState<string | null>(null);
+  const [editingVersionName, setEditingVersionName] = useState('');
 
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -215,6 +218,19 @@ export function PostCardModal({
     onUpdated?.();
   }
 
+  async function handleRenameVersion(editId: string, newName: string) {
+    const trimmed = newName.trim();
+    if (!trimmed) { setEditingVersionId(null); return; }
+    setEdits(prev => prev.map(e => e.id === editId ? { ...e, uploaderName: trimmed } : e));
+    setEditingVersionId(null);
+    try {
+      const { supabase } = await import('@/lib/supabase');
+      await supabase.from('post_edits').update({ uploader_name: trimmed }).eq('id', editId);
+    } catch (err) {
+      console.warn('[PostCardModal] rename failed:', err);
+    }
+  }
+
   const typeLabel = getPostTypeLabel(task);
   const typeColor = getPostTypeColor(task);
   const statusInfo = getPostStatusInfo(currentStatus);
@@ -303,7 +319,27 @@ export function PostCardModal({
                       {/* Info */}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className="text-xs font-medium text-white">{edit.uploaderName}</span>
+                          {editingVersionId === edit.id ? (
+                            <input
+                              autoFocus
+                              value={editingVersionName}
+                              onChange={e => setEditingVersionName(e.target.value)}
+                              onBlur={() => handleRenameVersion(edit.id, editingVersionName)}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter') handleRenameVersion(edit.id, editingVersionName);
+                                if (e.key === 'Escape') setEditingVersionId(null);
+                              }}
+                              className="bg-gray-700 border border-blue-500/50 rounded px-2 py-0.5 text-xs font-medium text-white focus:outline-none w-36"
+                            />
+                          ) : (
+                            <span
+                              className="text-xs font-medium text-white cursor-text hover:text-blue-300 transition-colors"
+                              title="Click to rename"
+                              onClick={() => { setEditingVersionId(edit.id); setEditingVersionName(edit.uploaderName); }}
+                            >
+                              {edit.uploaderName}
+                            </span>
+                          )}
                           <span className="text-xs text-gray-600">·</span>
                           <span className="text-xs text-gray-500">{formatDateTime(edit.createdAt)}</span>
                           {edit.versionNumber === edits.length && edits.length > 1 && (
@@ -354,6 +390,7 @@ export function PostCardModal({
                                     editName: `${typeLabel} v${edit.versionNumber}`,
                                     sourceType: 'post_edit',
                                     sourceId: task.id,
+                                    editUrl: edit.videoUrl,
                                   });
                                 }}
                                 className={`w-full text-left text-sm px-3 py-2.5 flex items-center gap-2 transition-colors ${
@@ -505,12 +542,12 @@ export function PostCardModal({
           itemName={sendNotesTarget.editName}
           sourceType={sendNotesTarget.sourceType}
           sourceId={sendNotesTarget.sourceId}
+          editUrl={sendNotesTarget.editUrl}
           senderName={currentUserName}
+          senderUserId={currentUserId || undefined}
           teamMembers={recipientMembers}
           onClose={() => setSendNotesTarget(null)}
-          onSent={() => {
-            setSendNotesTarget(null);
-          }}
+          onSent={() => setSendNotesTarget(null)}
           zIndexClass="z-[70]"
         />
       )}

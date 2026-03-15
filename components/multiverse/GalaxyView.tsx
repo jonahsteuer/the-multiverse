@@ -20,6 +20,7 @@ import { MarkChatPanel } from './MarkChatPanel';
 import { UploadPostsModal } from './UploadPostsModal';
 import { UploadFootageModal } from './UploadFootageModal';
 import { PostCardModal } from './PostCardModal';
+import { ShootDayModal } from './ShootDayModal';
 import { ReviewNotesModal } from './ReviewNotesModal';
 import { TaskPanel } from './TaskPanel';
 import { FinalizePostsModal } from './FinalizePostsModal';
@@ -141,6 +142,7 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
   const [isInstagramConnected, setIsInstagramConnected] = useState(false);
   const [isCheckingInstagram, setIsCheckingInstagram] = useState(false);
   const [selectedPostCardTask, setSelectedPostCardTask] = useState<TeamTask | null>(null);
+  const [selectedShootDayTask, setSelectedShootDayTask] = useState<TeamTask | null>(null);
   const [selectedReviewTask, setSelectedReviewTask] = useState<TeamTask | null>(null);
   const [currentUserName, setCurrentUserName] = useState<string>('');
   const [selectedTaskForPanel, setSelectedTaskForPanel] = useState<TeamTask | null>(null);
@@ -534,6 +536,12 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
       return;
     }
 
+    // Shoot day events: open ShootDayModal
+    if (task.type === 'shoot') {
+      setSelectedShootDayTask(task);
+      return;
+    }
+
     // Post event tasks (teaser, promo, etc.) from the todo list: open PostCardModal
     if (
       task.taskCategory === 'event' &&
@@ -747,38 +755,43 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
 
     const existingEvents = teamTasks.filter(t => t.taskCategory === 'event' && t.galaxyId === galaxy.id);
 
-    // If events already exist in teamTasks, skip DB write (already saved)
-    // Exception: if sharedEventsSavedRef is false AND no events found, always try to save
-    if (sharedEventsSavedRef.current && existingEvents.length > 0) return;
-    sharedEventsSavedRef.current = true;
-
-    // Deduplicate existing DB events: if multiple events share the same date, keep
-    // the first and delete the rest. This repairs duplicates from previous bugs.
-    const keptByDate = new Map<string, string>(); // date → id of event to keep
+    // STEP 1: Always deduplicate — collapse exact (date + type) duplicates.
+    // Uses (date, type) as the key so different post types on the same day are preserved,
+    // but repeated saves of the same event are collapsed to one.
+    const keptByDateType = new Map<string, string>(); // "date|type" → id to keep
     const toDelete: string[] = [];
     for (const ev of existingEvents) {
-      if (keptByDate.has(ev.date)) {
-        toDelete.push(ev.id); // duplicate — mark for deletion
+      const key = `${ev.date}|${ev.type}`;
+      if (keptByDateType.has(key)) {
+        toDelete.push(ev.id);
       } else {
-        keptByDate.set(ev.date, ev.id);
+        keptByDateType.set(key, ev.id);
       }
     }
     if (toDelete.length > 0) {
       console.log('[GalaxyView] 🗑 Removing', toDelete.length, 'duplicate events...');
       await Promise.allSettled(toDelete.map(id => deleteTask(id)));
+      loadTeamData();
     }
 
-    // Build a map of currently kept events by date (after dedup)
-    const existingByDate = new Map(
+    // STEP 2: Skip creating new events if already saved this session or events exist
+    if (sharedEventsSavedRef.current && existingEvents.length > 0) return;
+    sharedEventsSavedRef.current = true;
+
+    // Build a map of kept events by (date, type) after dedup
+    const existingByDateType = new Map(
       existingEvents
-        .filter(e => keptByDate.get(e.date) === e.id)
-        .map(e => [e.date, e])
+        .filter(e => keptByDateType.get(`${e.date}|${e.type}`) === e.id)
+        .map(e => [`${e.date}|${e.type}`, e])
     );
 
-    // Only create events for dates that don't already have one (idempotent inserts)
-    const toCreate = events.filter(e => !existingByDate.has(e.date));
-    if (toCreate.length === 0 && toDelete.length === 0) {
-      console.log('[GalaxyView] Shared events up to date — nothing to save');
+    // Only create events for (date, type) combos that don't already exist
+    const toCreate = events.filter(e => {
+      const type = e.type === 'release' ? 'release' : 'post';
+      return !existingByDateType.has(`${e.date}|${type}`);
+    });
+    if (toCreate.length === 0) {
+      console.log('[GalaxyView] Shared events up to date — nothing to create');
       return;
     }
 
@@ -1453,6 +1466,16 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
                   teamMembers={teamMembers}
                   isAdmin={!!effectiveIsAdmin}
                   onUnreadChange={(n) => { if (profileTab !== 'chat') setChatUnread(n); }}
+                  onTaskCardClick={(taskId) => {
+                    const dbTask = teamTasks.find(t => t.id === taskId);
+                    if (dbTask) {
+                      if (dbTask.type === 'shoot') {
+                        setSelectedShootDayTask(dbTask);
+                      } else {
+                        setSelectedPostCardTask(dbTask);
+                      }
+                    }
+                  }}
                 />
               </div>
             ) : profileTab === 'chat' ? (
@@ -1811,6 +1834,44 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
                     console.log('[GalaxyView] Task completed:', taskId);
                     loadTeamData();
                   }}
+                  onTaskDelete={async (taskId) => {
+                    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(taskId);
+                    if (!isUUID) {
+                      console.log('[GalaxyView] Skipping delete for local task ID (should no longer occur):', taskId);
+                      return;
+                    }
+                    const { error } = await supabase.from('team_tasks').delete().eq('id', taskId);
+                    if (error) {
+                      console.error('[GalaxyView] Delete task error:', error);
+                    } else {
+                      loadTeamData();
+                    }
+                  }}
+                  onSaveGeneratedTasks={async (generatedTasks) => {
+                    if (!team || !currentUserId) return;
+                    console.log('[GalaxyView] Saving', generatedTasks.length, 'generated tasks to DB');
+                    const inserts = generatedTasks.map(t => ({
+                      team_id: team.id,
+                      galaxy_id: galaxy.id,
+                      title: t.title,
+                      description: t.description,
+                      type: t.type,
+                      task_category: 'prep',
+                      date: t.date,
+                      start_time: t.startTime,
+                      end_time: t.endTime,
+                      assigned_by: currentUserId,
+                      assigned_to: currentUserId,
+                      status: 'pending',
+                    }));
+                    const { error } = await supabase.from('team_tasks').insert(inserts);
+                    if (error) {
+                      console.error('[GalaxyView] Error saving generated tasks:', error);
+                    } else {
+                      console.log('[GalaxyView] Generated tasks saved — reloading');
+                      loadTeamData();
+                    }
+                  }}
                   onPostCardClick={(taskId) => {
                     // Try exact ID first (real DB tasks)
                     let dbTask = teamTasks.find(t => t.id === taskId);
@@ -1822,6 +1883,11 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
                       }
                     }
                     if (dbTask) {
+                      // Shoot day events → ShootDayModal, not PostCardModal
+                      if (dbTask.type === 'shoot') {
+                        setSelectedShootDayTask(dbTask);
+                        return;
+                      }
                       // Open PostCardModal directly — calendar stays in background
                       setSelectedPostCardTask(dbTask);
                     } else {
@@ -2031,6 +2097,16 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
             setShowUploadPosts(false);
             setSelectedUploadTask(null);
           }}
+        />
+      )}
+
+      {/* Shoot Day Modal — opened by clicking a shoot day event on the calendar */}
+      {selectedShootDayTask && (
+        <ShootDayModal
+          task={selectedShootDayTask}
+          galaxyId={galaxy.id}
+          brainstormResult={brainstormResult}
+          onClose={() => setSelectedShootDayTask(null)}
         />
       )}
 

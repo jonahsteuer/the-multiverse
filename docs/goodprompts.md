@@ -73,3 +73,11 @@ A collection of useful prompts to use in future sessions.
 > "Do comprehensive playwright testing to confirm everything is functioning how it should without creating any new bugs. Please verify what you're aiming for in the playwright test and how you will test this accurately before you do it."
 
 **When to use:** Before running any Playwright test suite — forces the assistant to declare exactly what pass/fail conditions it's testing and how it will verify them accurately, preventing vague or misleading test results.
+
+---
+
+## Brainstorm-to-iteration handoff
+
+> "Now, please digest everything I told you, and help me brainstorm ways to incorporate this into the app. Ask me questions, offer features or better ways to achieve what I'm looking for if you can. Once we are on the same page we'll go into platform iteration."
+
+**When to use:** After the user gives real-world feedback or a feature concept — forces a proper alignment/brainstorm phase before any implementation begins, preventing premature or misaligned code changes.

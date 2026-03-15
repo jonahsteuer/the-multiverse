@@ -317,6 +317,8 @@ function FootageTab({
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState('');
   const [sendNotesTarget, setSendNotesTarget] = useState<{
     itemId: string;
     itemName: string;
@@ -411,6 +413,16 @@ function FootageTab({
     setItems(prev => prev.filter(f => f.id !== id));
   }
 
+  async function handleRename(id: string, newTitle: string) {
+    const trimmed = newTitle.trim();
+    if (!trimmed) return;
+    setItems(prev => prev.map(f => f.id === id ? { ...f, name: trimmed } : f));
+    setEditingId(null);
+    try {
+      await supabase.from('team_tasks').update({ title: trimmed }).eq('id', id);
+    } catch { /* non-blocking */ }
+  }
+
   const recipientMembers = teamMembers.filter(m => m.userId !== currentUserId);
   const effectiveTeamId = teamId;
 
@@ -436,8 +448,28 @@ function FootageTab({
                 🎥
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-white truncate">{item.name}</p>
-                {item.description && <p className="text-xs text-gray-500 truncate">{item.description}</p>}
+                {editingId === item.id ? (
+                  <input
+                    autoFocus
+                    value={editingName}
+                    onChange={e => setEditingName(e.target.value)}
+                    onBlur={() => handleRename(item.id, editingName)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') handleRename(item.id, editingName);
+                      if (e.key === 'Escape') setEditingId(null);
+                    }}
+                    className="w-full bg-gray-700 border border-blue-500/50 rounded px-2 py-0.5 text-sm font-medium text-white focus:outline-none"
+                  />
+                ) : (
+                  <p
+                    className="text-sm font-medium text-white truncate cursor-text hover:text-blue-300 transition-colors"
+                    title="Click to rename"
+                    onClick={() => { setEditingId(item.id); setEditingName(item.name); }}
+                  >
+                    {item.name}
+                  </p>
+                )}
+                {item.description && !editingId && <p className="text-xs text-gray-500 truncate">{item.description}</p>}
                 <p className="text-xs text-gray-600 mt-0.5">{formatDateTime(item.uploadedAt)}</p>
               </div>
               <div className="flex items-center gap-1 flex-shrink-0">
@@ -959,8 +991,10 @@ function SongDataTab({ world, onUpdate }: { world: World; onUpdate: (w: World) =
   const [soundbytes, setSoundbytes] = useState<SoundbyteDef[] | null>(null);
   const [lyricsSegments, setLyricsSegments] = useState<Array<{ start: number; end: number; text: string }>>([]);
   const [savedSections, setSavedSections] = useState<Record<string, boolean>>({});
-  const [showSoundbyteEditor, setShowSoundbyteEditor] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [trackInputMode, setTrackInputMode] = useState<'url' | 'file'>('url');
+  const [trackUrlInput, setTrackUrlInput] = useState('');
+  const [isSavingTrack, setIsSavingTrack] = useState(false);
 
   // Load lyrics, track URL, and soundbytes from galaxy/world records
   useEffect(() => {
@@ -1022,8 +1056,6 @@ function SongDataTab({ world, onUpdate }: { world: World; onUpdate: (w: World) =
 
   async function handleSoundbyteConfirm(picked: SoundbyteDef[]) {
     setSoundbytes(picked);
-    setShowSoundbyteEditor(false);
-    // Persist to brainstorm_draft (merge into existing)
     const { data: gal } = await supabase.from('galaxies').select('brainstorm_draft').eq('id', world.galaxyId).single();
     const existing = (gal?.brainstorm_draft as any) || {};
     const fmtTime = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
@@ -1038,6 +1070,36 @@ function SongDataTab({ world, onUpdate }: { world: World; onUpdate: (w: World) =
       brainstorm_draft: { ...existing, confirmedSoundbytes: converted },
     }).eq('id', world.galaxyId);
     markSaved('soundbytes');
+  }
+
+  async function handleSaveTrackUrl() {
+    if (!trackUrlInput.trim()) return;
+    setIsSavingTrack(true);
+    try {
+      await supabase.from('galaxies').update({ track_url: trackUrlInput.trim() }).eq('id', world.galaxyId);
+      setTrackUrl(trackUrlInput.trim());
+      setTrackUrlInput('');
+      markSaved('track');
+    } catch (e) { console.error(e); }
+    setIsSavingTrack(false);
+  }
+
+  async function handleTrackFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsSavingTrack(true);
+    try {
+      const ext = file.name.split('.').pop() || 'mp3';
+      const path = `${world.galaxyId}/track.${ext}`;
+      const { error: upErr } = await supabase.storage.from('uploads').upload(path, file, { upsert: true });
+      if (upErr) throw upErr;
+      const { data: urlData } = supabase.storage.from('uploads').getPublicUrl(path);
+      const url = urlData.publicUrl;
+      await supabase.from('galaxies').update({ track_url: url }).eq('id', world.galaxyId);
+      setTrackUrl(url);
+      markSaved('track');
+    } catch (err) { console.error('[SongDataTab] track upload error:', err); }
+    setIsSavingTrack(false);
   }
 
   return (
@@ -1105,55 +1167,93 @@ function SongDataTab({ world, onUpdate }: { world: World; onUpdate: (w: World) =
         </CardContent>
       </Card>
 
-      {/* Soundbytes */}
+      {/* Track & Soundbytes — combined waveform editor */}
       <Card className="border-yellow-500/30 bg-black/50">
         <CardHeader>
           <div className="flex items-center justify-between">
-            <CardTitle className="text-sm font-star-wars text-yellow-400">Soundbytes</CardTitle>
-            {savedSections['soundbytes'] && <span className="text-[11px] text-green-400">✓ Saved</span>}
+            <CardTitle className="text-sm font-star-wars text-yellow-400">Track & Soundbytes</CardTitle>
+            <div className="flex items-center gap-2">
+              {savedSections['soundbytes'] && <span className="text-[11px] text-green-400">✓ Saved</span>}
+              {savedSections['track'] && <span className="text-[11px] text-green-400">✓ Track saved</span>}
+            </div>
           </div>
         </CardHeader>
         <CardContent>
-          {!showSoundbyteEditor ? (
-            <div className="space-y-3">
-              {soundbytes && soundbytes.length > 0 ? (
-                <div className="space-y-2">
-                  {soundbytes.map((sb, i) => {
-                    const fmtTime = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
-                    const COLORS = ['#8B5CF6','#3B82F6','#10B981','#F59E0B','#EF4444'];
-                    return (
-                      <div key={sb.id} className="flex items-center gap-2 bg-gray-800/50 rounded-lg px-3 py-2">
-                        <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: COLORS[i % COLORS.length] }} />
-                        <span className="text-sm text-white font-medium flex-1">{sb.label}</span>
-                        <span className="text-xs text-gray-400">{fmtTime(sb.startSec)}–{fmtTime(sb.endSec)}</span>
-                        <span className="text-xs text-purple-400">~{Math.round(sb.endSec - sb.startSec)}s</span>
-                      </div>
-                    );
-                  })}
+          {!trackUrl ? (
+            /* ── No track yet — upload UI ── */
+            <div className="space-y-4">
+              <p className="text-xs text-gray-400">
+                Upload your track to use the waveform soundbyte editor. Soundbytes guide your shoot day schedule and editing sessions.
+              </p>
+              <div className="flex gap-2">
+                {(['url', 'file'] as const).map(mode => (
+                  <button
+                    key={mode}
+                    onClick={() => setTrackInputMode(mode)}
+                    className={`flex-1 py-1.5 text-xs rounded-lg border transition-colors ${
+                      trackInputMode === mode
+                        ? 'border-yellow-500/60 bg-yellow-500/15 text-yellow-400'
+                        : 'border-gray-700 text-gray-400 hover:border-gray-600'
+                    }`}
+                  >
+                    {mode === 'url' ? '🔗 Paste link' : '📂 Upload file'}
+                  </button>
+                ))}
+              </div>
+              {trackInputMode === 'url' ? (
+                <div className="flex gap-2">
+                  <input
+                    type="url"
+                    value={trackUrlInput}
+                    onChange={e => setTrackUrlInput(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && handleSaveTrackUrl()}
+                    placeholder="SoundCloud, Dropbox, or Google Drive link…"
+                    className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-yellow-500/50"
+                  />
+                  <button
+                    onClick={handleSaveTrackUrl}
+                    disabled={isSavingTrack || !trackUrlInput.trim()}
+                    className="px-4 py-2 bg-yellow-500/20 hover:bg-yellow-500/30 border border-yellow-500/40 text-yellow-400 text-sm rounded-lg transition-colors disabled:opacity-50"
+                  >
+                    {isSavingTrack ? '…' : 'Save'}
+                  </button>
                 </div>
               ) : (
-                <p className="text-sm text-gray-500">No soundbytes set yet. Run a brainstorm session or edit below.</p>
-              )}
-              {trackUrl ? (
-                <button
-                  onClick={() => setShowSoundbyteEditor(true)}
-                  className="w-full py-2 rounded-lg bg-yellow-500/20 hover:bg-yellow-500/30 border border-yellow-500/40 text-yellow-400 text-sm font-medium transition-colors"
-                >
-                  {soundbytes?.length ? 'Edit soundbytes' : 'Add soundbytes'} with waveform editor
-                </button>
-              ) : (
-                <p className="text-xs text-gray-600">Upload your track in Settings to enable the waveform editor.</p>
+                <label className={`flex flex-col items-center justify-center gap-2 w-full py-8 border-2 border-dashed rounded-xl cursor-pointer transition-colors ${
+                  isSavingTrack ? 'border-yellow-500/40 bg-yellow-500/5' : 'border-gray-700 hover:border-yellow-500/40 hover:bg-yellow-500/5'
+                }`}>
+                  <span className="text-2xl">{isSavingTrack ? '⏳' : '🎵'}</span>
+                  <span className="text-sm text-gray-400">{isSavingTrack ? 'Uploading…' : 'Click to upload audio file'}</span>
+                  <span className="text-xs text-gray-600">MP3, WAV, M4A, AIFF</span>
+                  <input type="file" accept="audio/*" className="hidden" onChange={handleTrackFileUpload} disabled={isSavingTrack} />
+                </label>
               )}
             </div>
           ) : (
-            <SoundbytePicker
-              trackUrl={trackUrl}
-              lyricsSegments={lyricsSegments}
-              initialSoundbytes={soundbytes ?? undefined}
-              onConfirm={handleSoundbyteConfirm}
-              onCancel={() => setShowSoundbyteEditor(false)}
-              standalone
-            />
+            /* ── Track loaded — show waveform editor directly ── */
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-gray-500 truncate flex-1 pr-2">
+                  🎵 {trackUrl.length > 55 ? '…' + trackUrl.slice(-50) : trackUrl}
+                </p>
+                <button
+                  onClick={async () => {
+                    await supabase.from('galaxies').update({ track_url: null }).eq('id', world.galaxyId);
+                    setTrackUrl('');
+                  }}
+                  className="text-[11px] text-gray-600 hover:text-red-400 transition-colors flex-shrink-0"
+                >
+                  Change
+                </button>
+              </div>
+              <SoundbytePicker
+                trackUrl={trackUrl}
+                lyricsSegments={lyricsSegments}
+                initialSoundbytes={soundbytes ?? undefined}
+                onConfirm={handleSoundbyteConfirm}
+                standalone
+              />
+            </div>
           )}
         </CardContent>
       </Card>
@@ -1290,8 +1390,6 @@ export function WorldDetailView({
 
           {activeTab === 'settings' && (
             <div className="space-y-6">
-              {/* F15: Track upload section */}
-              <TrackSection world={currentWorld} onUpdate={(updated) => { setCurrentWorld(updated); onUpdate?.(updated); }} />
 
               <div className="grid grid-cols-2 gap-4">
                 <Card className="border-yellow-500/30 bg-black/50">
