@@ -1754,6 +1754,23 @@ export function EnhancedCalendar({
       }
 
       // Non-event tasks assigned to the admin
+      const dbPrepTasks = teamTasks.filter(t =>
+        t.taskCategory !== 'event' &&
+        t.taskCategory !== 'footage' &&
+        t.type === 'prep' &&
+        (!t.assignedTo || t.assignedTo === currentUserId)
+      );
+
+      if (dbPrepTasks.length > 0) {
+        // DB has real prep tasks — remove the locally-generated fake-ID ones (prep-w*)
+        // so the DB-backed versions are the only ones shown (and are properly deletable).
+        for (let i = tasks.length - 1; i >= 0; i--) {
+          if (tasks[i].id.startsWith('prep-w')) {
+            tasks.splice(i, 1);
+          }
+        }
+      }
+
       for (const tt of teamTasks) {
         if (tt.taskCategory === 'event') continue; // already handled above
         if (tt.taskCategory === 'footage') continue; // footage items are not calendar tasks
@@ -1825,15 +1842,21 @@ export function EnhancedCalendar({
     // and can be deleted, edited, and retrieved like any other task.
     // ================================================================
     if (onSaveGeneratedTasks && !hasSavedGeneratedTasksRef.current) {
-      const POST_TYPES = new Set(['audience-builder', 'teaser', 'promo', 'release']);
+      // Only count pure prep-type tasks (type='prep') as "already in DB".
+      // Edit days and shoot days from brainstorm have type='edit'/'shoot' and should NOT
+      // prevent the week-1/2 prep tasks (Upload footage etc.) from being saved.
       const hasExistingPrepTasks = (teamTasks || []).some(t =>
+        t.type === 'prep' &&
         t.taskCategory !== 'event' &&
-        t.taskCategory !== 'footage' &&
-        t.type !== 'brainstorm' &&
-        t.type !== 'invite_team'
+        t.taskCategory !== 'footage'
       );
       if (!hasExistingPrepTasks) {
-        const prepTasksToSave = tasks.filter(t => !POST_TYPES.has(t.type));
+        const POST_TYPES = new Set(['audience-builder', 'teaser', 'promo', 'release']);
+        // Only save locally-generated tasks (fake IDs like prep-w*) — not DB-backed ones
+        const prepTasksToSave = tasks.filter(t =>
+          !POST_TYPES.has(t.type) &&
+          (t.id.startsWith('prep-w') || t.id.startsWith('shoot-') || t.id.startsWith('release-'))
+        );
         if (prepTasksToSave.length > 0) {
           hasSavedGeneratedTasksRef.current = true;
           onSaveGeneratedTasks(prepTasksToSave);

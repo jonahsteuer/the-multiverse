@@ -165,6 +165,34 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [team?.id, teamTasks.length, galaxy.id]);
 
+  // Standalone dedup: once teamTasks finishes loading and contains event rows, collapse
+  // any (date, type) duplicates directly in Supabase. This runs independently of the
+  // calendar component so it fires even if the calendar hasn't been opened yet.
+  const eventDedupDoneRef = useRef(false);
+  useEffect(() => {
+    if (!team || !effectiveIsAdmin || eventDedupDoneRef.current) return;
+    const eventTasks = teamTasks.filter(t => t.taskCategory === 'event' && t.galaxyId === galaxy.id);
+    if (eventTasks.length === 0) return; // still loading or truly empty — wait
+
+    eventDedupDoneRef.current = true; // only run once per mount
+
+    const seen = new Map<string, string>(); // "date|type" → id to keep
+    const toDelete: string[] = [];
+    for (const ev of eventTasks) {
+      const key = `${ev.date}|${ev.type}`;
+      if (seen.has(key)) {
+        toDelete.push(ev.id);
+      } else {
+        seen.set(key, ev.id);
+      }
+    }
+    if (toDelete.length === 0) return;
+
+    console.log(`[GalaxyView] 🧹 Dedup: removing ${toDelete.length} duplicate event tasks`);
+    Promise.allSettled(toDelete.map(id => deleteTask(id))).then(() => loadTeamData());
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [teamTasks.length, team?.id, galaxy.id, effectiveIsAdmin]);
+
   // Check Instagram connection status when profile panel opens
   useEffect(() => {
     if (showProfilePanel && isAdmin) {
@@ -753,39 +781,28 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
 
     if (!team || !effectiveIsAdmin) return;
 
-    const existingEvents = teamTasks.filter(t => t.taskCategory === 'event' && t.galaxyId === galaxy.id);
-
-    // STEP 1: Always deduplicate — collapse exact (date + type) duplicates.
-    // Uses (date, type) as the key so different post types on the same day are preserved,
-    // but repeated saves of the same event are collapsed to one.
-    const keptByDateType = new Map<string, string>(); // "date|type" → id to keep
-    const toDelete: string[] = [];
-    for (const ev of existingEvents) {
-      const key = `${ev.date}|${ev.type}`;
-      if (keptByDateType.has(key)) {
-        toDelete.push(ev.id);
-      } else {
-        keptByDateType.set(key, ev.id);
-      }
-    }
-    if (toDelete.length > 0) {
-      console.log('[GalaxyView] 🗑 Removing', toDelete.length, 'duplicate events...');
-      await Promise.allSettled(toDelete.map(id => deleteTask(id)));
-      loadTeamData();
-    }
-
-    // STEP 2: Skip creating new events if already saved this session or events exist
-    if (sharedEventsSavedRef.current && existingEvents.length > 0) return;
+    // Skip if already saved this session (prevent double-saves from re-renders)
+    if (sharedEventsSavedRef.current) return;
     sharedEventsSavedRef.current = true;
 
-    // Build a map of kept events by (date, type) after dedup
-    const existingByDateType = new Map(
-      existingEvents
-        .filter(e => keptByDateType.get(`${e.date}|${e.type}`) === e.id)
-        .map(e => [`${e.date}|${e.type}`, e])
-    );
+    // Query Supabase directly so we get the real current state, not the potentially
+    // stale in-memory teamTasks (which may be empty when this fires on first mount).
+    const { data: existingRaw } = await supabase
+      .from('team_tasks')
+      .select('id, date, type')
+      .eq('team_id', team.id)
+      .eq('galaxy_id', galaxy.id)
+      .eq('task_category', 'event');
+
+    const existingEvents = existingRaw || [];
+
+    if (existingEvents.length > 0) {
+      console.log('[GalaxyView] Shared events already in DB — skipping create');
+      return;
+    }
 
     // Only create events for (date, type) combos that don't already exist
+    const existingByDateType = new Set(existingEvents.map((e: { date: string; type: string }) => `${e.date}|${e.type}`));
     const toCreate = events.filter(e => {
       const type = e.type === 'release' ? 'release' : 'post';
       return !existingByDateType.has(`${e.date}|${type}`);
@@ -813,9 +830,9 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
       loadTeamData();
     } catch (err) {
       console.error('[GalaxyView] Error saving shared events:', err);
-      sharedEventsSavedRef.current = false;
+      sharedEventsSavedRef.current = false; // allow retry on next load
     }
-  }, [team, effectiveIsAdmin, teamTasks, galaxy.id]);
+  }, [team, effectiveIsAdmin, galaxy.id]);
 
   // Build display tasks — use real team tasks if available, else generate defaults
   // IMPORTANT: Only admin users see default tasks. Invited members only see tasks assigned to them.
