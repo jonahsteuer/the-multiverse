@@ -165,33 +165,6 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [team?.id, teamTasks.length, galaxy.id]);
 
-  // Standalone dedup: once teamTasks finishes loading and contains event rows, collapse
-  // any (date, type) duplicates directly in Supabase. This runs independently of the
-  // calendar component so it fires even if the calendar hasn't been opened yet.
-  const eventDedupDoneRef = useRef(false);
-  useEffect(() => {
-    if (!team || !effectiveIsAdmin || eventDedupDoneRef.current) return;
-    const eventTasks = teamTasks.filter(t => t.taskCategory === 'event' && t.galaxyId === galaxy.id);
-    if (eventTasks.length === 0) return; // still loading or truly empty — wait
-
-    eventDedupDoneRef.current = true; // only run once per mount
-
-    const seen = new Map<string, string>(); // "date|type" → id to keep
-    const toDelete: string[] = [];
-    for (const ev of eventTasks) {
-      const key = `${ev.date}|${ev.type}`;
-      if (seen.has(key)) {
-        toDelete.push(ev.id);
-      } else {
-        seen.set(key, ev.id);
-      }
-    }
-    if (toDelete.length === 0) return;
-
-    console.log(`[GalaxyView] 🧹 Dedup: removing ${toDelete.length} duplicate event tasks`);
-    Promise.allSettled(toDelete.map(id => deleteTask(id))).then(() => loadTeamData());
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [teamTasks.length, team?.id, galaxy.id, effectiveIsAdmin]);
 
   // Check Instagram connection status when profile panel opens
   useEffect(() => {
@@ -757,6 +730,34 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
 
   // Treat "loading" (null) as non-admin — safe default
   const effectiveIsAdmin = isAdmin === null ? false : isAdmin;
+
+  // Standalone dedup: once teamTasks finishes loading and contains event rows, collapse
+  // any (date, type) duplicates directly in Supabase. This runs independently of the
+  // calendar component so it fires even if the calendar hasn't been opened yet.
+  const eventDedupDoneRef = useRef(false);
+  useEffect(() => {
+    if (!team || !effectiveIsAdmin || eventDedupDoneRef.current) return;
+    const eventTasks = teamTasks.filter(t => t.taskCategory === 'event' && t.galaxyId === galaxy.id);
+    if (eventTasks.length === 0) return; // still loading or truly empty — wait
+
+    eventDedupDoneRef.current = true; // only run once per mount
+
+    const seen = new Map<string, string>(); // "date|type" → id to keep
+    const toDelete: string[] = [];
+    for (const ev of eventTasks) {
+      const key = `${ev.date}|${ev.type}`;
+      if (seen.has(key)) {
+        toDelete.push(ev.id);
+      } else {
+        seen.set(key, ev.id);
+      }
+    }
+    if (toDelete.length === 0) return;
+
+    console.log(`[GalaxyView] 🧹 Dedup: removing ${toDelete.length} duplicate event tasks`);
+    Promise.allSettled(toDelete.map(id => deleteTask(id))).then(() => loadTeamData());
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [teamTasks.length, team?.id, galaxy.id, effectiveIsAdmin]);
 
   // Save shared events (posts + release day) to Supabase so team members can see them
   const sharedEventsSavedRef = useRef(false); // prevent duplicate saves
