@@ -1874,7 +1874,7 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
                       title: t.title,
                       description: t.description,
                       type: t.type,
-                      task_category: 'prep',
+                      task_category: 'task', // DB constraint: only 'task', 'event', 'footage'
                       date: t.date,
                       start_time: t.startTime,
                       end_time: t.endTime,
