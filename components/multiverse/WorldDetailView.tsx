@@ -779,6 +779,13 @@ function AllPostsTab({
                 {getRolloutZoneBadge(zone)}
               </div>
 
+              {/* Post title (brainstorm-assigned name, e.g. "Trial Reels — Reflection in Stream") */}
+              {task.title && task.title !== 'Post' && !task.title.match(/^🎵 Promo Post$|^🌱 Audience builder Post$|^🎙 Audience Builder Post$/) && (
+                <p className="text-[10px] text-gray-200 font-medium leading-tight mb-1 line-clamp-2">
+                  {task.title.replace(/^[^\w]*/, '')}
+                </p>
+              )}
+
               {/* Date */}
               <p className="text-xs text-gray-300 font-medium">{formatDate(task.date)}</p>
 

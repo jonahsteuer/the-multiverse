@@ -853,12 +853,12 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
     });
 
     if (realTasks.length > 0) {
-      // Only show today's tasks + overdue tasks (future tasks appear on their scheduled day)
+      // Show only today's tasks — matching what's on the calendar for today.
+      // Overdue tasks are intentionally excluded; they show on the calendar on their scheduled date.
       const today = new Date().toISOString().split('T')[0];
-      const overdue = realTasks.filter(t => t.date < today && t.status !== 'completed');
       const todayTasks = realTasks.filter(t => t.date === today && t.status !== 'completed');
       const recentlyCompleted = realTasks.filter(t => t.status === 'completed');
-      const supabaseTitles = new Set([...overdue, ...todayTasks].map(t => t.title.toLowerCase()));
+      const supabaseTitles = new Set(todayTasks.map(t => t.title.toLowerCase()));
 
       // Also include locally-computed prep tasks for TODAY that aren't already covered by a Supabase task
       // This ensures "Upload footage", "Upload rough edit", etc. appear when the calendar shows them
@@ -914,7 +914,7 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
         })).filter(t => !supabaseTitles.has(t.title.toLowerCase()));
       })();
 
-      return [...overdue, ...todayTasks, ...localPrepToday, ...recentlyCompleted];
+      return [...todayTasks, ...localPrepToday, ...recentlyCompleted];
     }
     // If not admin (invited user) or still determining, show nothing
     if (!effectiveIsAdmin) return [];
