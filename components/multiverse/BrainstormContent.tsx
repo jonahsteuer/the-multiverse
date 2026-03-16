@@ -469,12 +469,21 @@ export function BrainstormContent({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contentIdeas.length]);
 
-  // F6: Clear draft on complete or start fresh
-  const clearDraft = async () => {
+  // F6: Clear draft on complete or start fresh.
+  // When called at completion, preserve soundbytes so SongDataTab can read them.
+  const clearDraft = async (soundbytesToPreserve?: Soundbyte[]) => {
     if (!galaxyId) return;
     try {
       const { supabase } = await import('@/lib/supabase');
-      await supabase.from('galaxies').update({ brainstorm_draft: null }).eq('id', galaxyId);
+      if (soundbytesToPreserve?.length) {
+        // Keep only confirmed soundbytes — strips all in-progress brainstorm state
+        // while preserving the data SongDataTab reads.
+        await supabase.from('galaxies').update({
+          brainstorm_draft: { confirmedSoundbytes: soundbytesToPreserve },
+        }).eq('id', galaxyId);
+      } else {
+        await supabase.from('galaxies').update({ brainstorm_draft: null }).eq('id', galaxyId);
+      }
     } catch { /* silent */ }
   };
 
@@ -898,6 +907,20 @@ export function BrainstormContent({
   const handleLyricsConfirmed = async (confirmedLyrics: string) => {
     setLyricsText(confirmedLyrics);
     addUserMessage('Lyrics confirmed ✓');
+
+    // Persist lyrics immediately to the dedicated galaxy columns so SongDataTab can read them
+    if (galaxyId && confirmedLyrics.trim()) {
+      (async () => {
+        try {
+          const { supabase } = await import('@/lib/supabase');
+          await supabase.from('galaxies').update({
+            lyrics: confirmedLyrics,
+            ...(lyricsSegments.length ? { lyrics_segments: lyricsSegments } : {}),
+          }).eq('id', galaxyId);
+        } catch { /* best-effort */ }
+      })();
+    }
+
     // L4: Run emotion + listening context suggestion in background
     (async () => {
       try {
@@ -1203,7 +1226,7 @@ export function BrainstormContent({
   };
 
   // Handles confirmation from the new SoundbytePicker component
-  const handleSoundbytePickerConfirm = (picked: SoundbyteDef[]) => {
+  const handleSoundbytePickerConfirm = async (picked: SoundbyteDef[]) => {
     const fmtTime = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
     const confirmed: Soundbyte[] = picked.map(sb => ({
       id: sb.id,
@@ -1214,6 +1237,21 @@ export function BrainstormContent({
     }));
     setConfirmedSoundbytes(confirmed);
     addUserMessage(`Confirmed ${confirmed.length} soundbytes`);
+
+    // Persist soundbytes immediately — they must survive clearDraft() at completion
+    if (galaxyId) {
+      (async () => {
+        try {
+          const { supabase } = await import('@/lib/supabase');
+          const { data: gal } = await supabase.from('galaxies').select('brainstorm_draft').eq('id', galaxyId).single();
+          const existing = (gal?.brainstorm_draft as Record<string, unknown>) || {};
+          await supabase.from('galaxies').update({
+            brainstorm_draft: { ...existing, confirmedSoundbytes: confirmed },
+          }).eq('id', galaxyId);
+        } catch { /* best-effort */ }
+      })();
+    }
+
     enterPhase2();
   };
 
@@ -1564,7 +1602,8 @@ export function BrainstormContent({
     };
 
     setStep('complete');
-    clearDraft(); // F6: remove draft now that brainstorm is complete
+    // Preserve confirmed soundbytes in the draft so SongDataTab can load them
+    clearDraft(confirmedSoundbytes.length ? confirmedSoundbytes : undefined);
     addBotMessage(
       `Done! 🎬\n\n**3 scenes × 5 looks = 15 full takes** on shoot day.\n\n**Week 1:** 5 posts lined up with explicit soundbytes + edit instructions.\n**Weeks 2–6:** 25 ambiguous post slots that fill in after each Weekly Check-in.\n\nShoot day locked: **${fmtDate(shootDate)}** at **${confirmedLocation || 'your location'}**.\n\nCheck your calendar — everything is on there.`,
       600
@@ -1633,6 +1672,9 @@ export function BrainstormContent({
       // Persist in-memory API results so resume can restore them without re-fetching
       contentIdeas: [...contentIdeas],
       locationOptions: [...locationOptions],
+      // Persist lyrics + soundbytes so they survive a mid-session refresh
+      ...(lyricsText ? { lyricsText } : {}),
+      ...(confirmedSoundbytes.length ? { confirmedSoundbytes } : {}),
       savedAt: new Date().toISOString(),
     });
   }, [step, confirmedLocation, allLikedIdeas, likedIdeas.size, contentIdeas.length, locationOptions.length]); // eslint-disable-line react-hooks/exhaustive-deps
