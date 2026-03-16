@@ -173,6 +173,9 @@ export function SoundbytePicker({
   const containerRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<import('wavesurfer.js').default | null>(null);
   const regionsRef = useRef<import('wavesurfer.js/dist/plugins/regions.esm.js').default | null>(null);
+  // Tracks the active rAF ID for the region-preview stop loop.
+  // Must be cancelled before starting a new preview or full playback.
+  const stopAtRafRef = useRef<number | null>(null);
 
   const [isReady, setIsReady] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -253,8 +256,8 @@ export function SoundbytePicker({
         });
 
         ws.on('play', () => { if (!destroyed) setIsPlaying(true); });
-        ws.on('pause', () => { if (!destroyed) setIsPlaying(false); setPlayingRegionId(null); });
-        ws.on('finish', () => { if (!destroyed) setIsPlaying(false); setPlayingRegionId(null); });
+        ws.on('pause', () => { if (!destroyed) { setIsPlaying(false); setPlayingRegionId(null); } });
+        ws.on('finish', () => { if (!destroyed) { setIsPlaying(false); setPlayingRegionId(null); } });
 
         // Sync region drags back to soundbytes state
         regions.on('region-updated', (region: { id: string; start: number; end: number }) => {
@@ -276,6 +279,10 @@ export function SoundbytePicker({
 
     return () => {
       destroyed = true;
+      if (stopAtRafRef.current !== null) {
+        cancelAnimationFrame(stopAtRafRef.current);
+        stopAtRafRef.current = null;
+      }
       wsRef.current?.destroy();
       wsRef.current = null;
       regionsRef.current = null;
@@ -285,24 +292,33 @@ export function SoundbytePicker({
 
   // ── Helpers ────────────────────────────────────────────────────────────────
 
+  // Cancel any in-progress region-preview stop loop before starting a new one.
+  const cancelStopLoop = useCallback(() => {
+    if (stopAtRafRef.current !== null) {
+      cancelAnimationFrame(stopAtRafRef.current);
+      stopAtRafRef.current = null;
+    }
+  }, []);
+
   const seekAndPlay = useCallback((startSec: number, endSec: number, sbId: string) => {
     const ws = wsRef.current;
     if (!ws || !isReady) return;
+    cancelStopLoop(); // kill any previous region preview loop first
     setPlayingRegionId(sbId);
     ws.setTime(startSec);
     ws.play();
-    // Stop at endSec
+    // Poll until playhead reaches endSec, then stop
     const stopAt = () => {
-      const cur = ws.getCurrentTime();
-      if (cur >= endSec) {
+      if (ws.getCurrentTime() >= endSec) {
         ws.pause();
         setPlayingRegionId(null);
+        stopAtRafRef.current = null;
       } else {
-        requestAnimationFrame(stopAt);
+        stopAtRafRef.current = requestAnimationFrame(stopAt);
       }
     };
-    requestAnimationFrame(stopAt);
-  }, [isReady]);
+    stopAtRafRef.current = requestAnimationFrame(stopAt);
+  }, [isReady, cancelStopLoop]);
 
   const updateRegionOnWave = useCallback((sb: SoundbyteDef, i: number) => {
     const regions = regionsRef.current;
@@ -395,7 +411,7 @@ export function SoundbytePicker({
         {/* Playback controls */}
         <div className="flex items-center gap-3 px-3 pb-2.5 pt-0.5">
           <button
-            onClick={() => wsRef.current?.playPause()}
+            onClick={() => { cancelStopLoop(); wsRef.current?.playPause(); }}
             disabled={!isReady}
             className="w-7 h-7 rounded-full bg-purple-600 hover:bg-purple-500 disabled:opacity-40 flex items-center justify-center text-white text-xs transition-colors flex-shrink-0"
           >
