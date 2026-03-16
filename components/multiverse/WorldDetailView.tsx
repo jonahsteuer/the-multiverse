@@ -102,7 +102,9 @@ function SnapshotStarterTab({
             .eq('id', galaxyId)
             .single();
           const draft = draftData?.brainstorm_draft as any;
-          if (draft?.step) {
+          // Only show the resume banner for genuinely in-progress sessions;
+          // 'generating_output' is the final step — the brainstorm is done.
+          if (draft?.step && draft.step !== 'generating_output') {
             setDraftInfo({
               step: draft.step,
               confirmedLocation: draft.confirmedLocation || undefined,
@@ -999,9 +1001,9 @@ function SongDataTab({ world, onUpdate }: { world: World; onUpdate: (w: World) =
   const [lyricsSegments, setLyricsSegments] = useState<Array<{ start: number; end: number; text: string }>>([]);
   const [savedSections, setSavedSections] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState(false);
-  const [trackInputMode, setTrackInputMode] = useState<'url' | 'file'>('url');
-  const [trackUrlInput, setTrackUrlInput] = useState('');
   const [isSavingTrack, setIsSavingTrack] = useState(false);
+  const [uploadPhase, setUploadPhase] = useState<'idle' | 'converting' | 'uploading'>('idle');
+  const [uploadProgress, setUploadProgress] = useState(0);
 
   // Load lyrics, track URL, and soundbytes from galaxy/world records
   useEffect(() => {
@@ -1079,34 +1081,48 @@ function SongDataTab({ world, onUpdate }: { world: World; onUpdate: (w: World) =
     markSaved('soundbytes');
   }
 
-  async function handleSaveTrackUrl() {
-    if (!trackUrlInput.trim()) return;
-    setIsSavingTrack(true);
-    try {
-      await supabase.from('galaxies').update({ track_url: trackUrlInput.trim() }).eq('id', world.galaxyId);
-      setTrackUrl(trackUrlInput.trim());
-      setTrackUrlInput('');
-      markSaved('track');
-    } catch (e) { console.error(e); }
-    setIsSavingTrack(false);
-  }
-
   async function handleTrackFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+    e.target.value = '';
     setIsSavingTrack(true);
+    setUploadProgress(0);
     try {
-      const ext = file.name.split('.').pop() || 'mp3';
-      const path = `${world.galaxyId}/track.${ext}`;
-      const { error: upErr } = await supabase.storage.from('uploads').upload(path, file, { upsert: true });
+      const ext = file.name.split('.').pop()?.toLowerCase() || '';
+      const needsConvert = ext !== 'mp3';
+
+      let finalFile = file;
+      if (needsConvert) {
+        setUploadPhase('converting');
+        const { convertToMp3 } = await import('@/lib/audio-convert');
+        finalFile = await convertToMp3(file, (phase, pct) => {
+          setUploadProgress(phase === 'decoding' ? Math.round(pct * 0.4) : 40 + Math.round(pct * 0.4));
+        });
+      }
+
+      setUploadPhase('uploading');
+      setUploadProgress(needsConvert ? 80 : 0);
+
+      const path = `${world.galaxyId}/track.mp3`;
+      const { error: upErr } = await supabase.storage.from('uploads').upload(path, finalFile, {
+        upsert: true,
+        contentType: 'audio/mpeg',
+      });
       if (upErr) throw upErr;
+
+      setUploadProgress(95);
       const { data: urlData } = supabase.storage.from('uploads').getPublicUrl(path);
-      const url = urlData.publicUrl;
-      await supabase.from('galaxies').update({ track_url: url }).eq('id', world.galaxyId);
-      setTrackUrl(url);
+      await supabase.from('galaxies').update({ track_url: urlData.publicUrl }).eq('id', world.galaxyId);
+      setTrackUrl(urlData.publicUrl);
+      setUploadProgress(100);
       markSaved('track');
-    } catch (err) { console.error('[SongDataTab] track upload error:', err); }
-    setIsSavingTrack(false);
+    } catch (err) {
+      console.error('[SongDataTab] track upload error:', err);
+    } finally {
+      setIsSavingTrack(false);
+      setUploadPhase('idle');
+      setTimeout(() => setUploadProgress(0), 1500);
+    }
   }
 
   return (
@@ -1192,49 +1208,38 @@ function SongDataTab({ world, onUpdate }: { world: World; onUpdate: (w: World) =
               <p className="text-xs text-gray-400">
                 Upload your track to use the waveform soundbyte editor. Soundbytes guide your shoot day schedule and editing sessions.
               </p>
-              <div className="flex gap-2">
-                {(['url', 'file'] as const).map(mode => (
-                  <button
-                    key={mode}
-                    onClick={() => setTrackInputMode(mode)}
-                    className={`flex-1 py-1.5 text-xs rounded-lg border transition-colors ${
-                      trackInputMode === mode
-                        ? 'border-yellow-500/60 bg-yellow-500/15 text-yellow-400'
-                        : 'border-gray-700 text-gray-400 hover:border-gray-600'
-                    }`}
-                  >
-                    {mode === 'url' ? '🔗 Paste link' : '📂 Upload file'}
-                  </button>
-                ))}
-              </div>
-              {trackInputMode === 'url' ? (
-                <div className="flex gap-2">
-                  <input
-                    type="url"
-                    value={trackUrlInput}
-                    onChange={e => setTrackUrlInput(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && handleSaveTrackUrl()}
-                    placeholder="SoundCloud, Dropbox, or Google Drive link…"
-                    className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-yellow-500/50"
-                  />
-                  <button
-                    onClick={handleSaveTrackUrl}
-                    disabled={isSavingTrack || !trackUrlInput.trim()}
-                    className="px-4 py-2 bg-yellow-500/20 hover:bg-yellow-500/30 border border-yellow-500/40 text-yellow-400 text-sm rounded-lg transition-colors disabled:opacity-50"
-                  >
-                    {isSavingTrack ? '…' : 'Save'}
-                  </button>
-                </div>
-              ) : (
-                <label className={`flex flex-col items-center justify-center gap-2 w-full py-8 border-2 border-dashed rounded-xl cursor-pointer transition-colors ${
-                  isSavingTrack ? 'border-yellow-500/40 bg-yellow-500/5' : 'border-gray-700 hover:border-yellow-500/40 hover:bg-yellow-500/5'
-                }`}>
-                  <span className="text-2xl">{isSavingTrack ? '⏳' : '🎵'}</span>
-                  <span className="text-sm text-gray-400">{isSavingTrack ? 'Uploading…' : 'Click to upload audio file'}</span>
-                  <span className="text-xs text-gray-600">MP3, WAV, M4A, AIFF</span>
-                  <input type="file" accept="audio/*" className="hidden" onChange={handleTrackFileUpload} disabled={isSavingTrack} />
-                </label>
-              )}
+              <label className={`flex flex-col items-center justify-center gap-2 w-full py-8 border-2 border-dashed rounded-xl transition-colors ${
+                isSavingTrack
+                  ? 'border-yellow-500/40 bg-yellow-500/5 cursor-default'
+                  : 'border-gray-700 hover:border-yellow-500/40 hover:bg-yellow-500/5 cursor-pointer'
+              }`}>
+                <span className="text-2xl">
+                  {uploadPhase === 'converting' ? '⚙️' : uploadPhase === 'uploading' ? '📤' : '🎵'}
+                </span>
+                <span className="text-sm text-gray-400">
+                  {uploadPhase === 'converting'
+                    ? `Converting to MP3… ${uploadProgress}%`
+                    : uploadPhase === 'uploading'
+                    ? `Uploading… ${uploadProgress}%`
+                    : 'Click to upload audio file'}
+                </span>
+                <span className="text-xs text-gray-600">WAV, MP3, M4A, AIFF</span>
+                {isSavingTrack && (
+                  <div className="w-48 h-1.5 bg-gray-700 rounded-full overflow-hidden mt-1">
+                    <div
+                      className="h-full bg-yellow-400 rounded-full transition-all duration-300"
+                      style={{ width: `${uploadProgress}%` }}
+                    />
+                  </div>
+                )}
+                <input
+                  type="file"
+                  accept=".wav,.mp3,.m4a,.aiff,audio/*"
+                  className="hidden"
+                  onChange={handleTrackFileUpload}
+                  disabled={isSavingTrack}
+                />
+              </label>
             </div>
           ) : (
             /* ── Track loaded — show waveform editor directly ── */
