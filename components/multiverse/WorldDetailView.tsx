@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import type { World, Universe, ArtistProfile, TeamTask, TeamMemberRecord, BrainstormResult } from '@/types';
 import { ReminderSettingsComponent } from './ReminderSettings';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -994,6 +994,9 @@ function SongDataTab({ world, onUpdate }: { world: World; onUpdate: (w: World) =
   const [isSavingTrack, setIsSavingTrack] = useState(false);
   const [uploadPhase, setUploadPhase] = useState<'idle' | 'converting' | 'uploading'>('idle');
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [playingPreviewId, setPlayingPreviewId] = useState<string | null>(null);
+  const previewAudioRef = useRef<HTMLAudioElement | null>(null);
+  const previewLoopRafRef = useRef<number | null>(null);
 
   // Load lyrics, track URL, and soundbytes — all stored inside brainstorm_draft jsonb
   useEffect(() => {
@@ -1195,61 +1198,104 @@ function SongDataTab({ world, onUpdate }: { world: World; onUpdate: (w: World) =
         </CardHeader>
         <CardContent>
           {!trackUrl ? (
-            /* ── No track yet — upload UI ── */
+            /* ── No track yet ── */
             <div className="space-y-4">
-              <p className="text-xs text-gray-400">
-                Upload your track to use the waveform soundbyte editor. Soundbytes guide your shoot day schedule and editing sessions.
-              </p>
-              <label className={`flex flex-col items-center justify-center gap-2 w-full py-8 border-2 border-dashed rounded-xl transition-colors ${
-                isSavingTrack
-                  ? 'border-yellow-500/40 bg-yellow-500/5 cursor-default'
-                  : 'border-gray-700 hover:border-yellow-500/40 hover:bg-yellow-500/5 cursor-pointer'
-              }`}>
-                <span className="text-2xl">
-                  {uploadPhase === 'converting' ? '⚙️' : uploadPhase === 'uploading' ? '📤' : '🎵'}
-                </span>
-                <span className="text-sm text-gray-400">
-                  {uploadPhase === 'converting'
-                    ? `Converting to MP3… ${uploadProgress}%`
-                    : uploadPhase === 'uploading'
-                    ? `Uploading… ${uploadProgress}%`
-                    : 'Click to upload audio file'}
-                </span>
-                <span className="text-xs text-gray-600">WAV, MP3, M4A, AIFF</span>
-                {isSavingTrack && (
-                  <div className="w-48 h-1.5 bg-gray-700 rounded-full overflow-hidden mt-1">
-                    <div
-                      className="h-full bg-yellow-400 rounded-full transition-all duration-300"
-                      style={{ width: `${uploadProgress}%` }}
-                    />
+              {/* If soundbytes are already saved, show locked view — skip upload prompt */}
+              {soundbytes && soundbytes.length > 0 ? (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="text-green-400 text-xs">✓</span>
+                      <p className="text-xs text-gray-300 font-medium">Soundbytes locked in</p>
+                    </div>
+                    <label className={`text-[11px] px-2.5 py-1 rounded-lg border transition-colors cursor-pointer ${
+                      isSavingTrack
+                        ? 'border-gray-700 text-gray-600 cursor-default'
+                        : 'border-gray-700 text-gray-500 hover:border-yellow-500/50 hover:text-yellow-400'
+                    }`}>
+                      {isSavingTrack
+                        ? (uploadPhase === 'converting' ? `Converting… ${uploadProgress}%` : `Uploading… ${uploadProgress}%`)
+                        : '+ Upload track to edit'}
+                      <input type="file" accept=".wav,.mp3,.m4a,.aiff,audio/*" className="hidden" onChange={handleTrackFileUpload} disabled={isSavingTrack} />
+                    </label>
                   </div>
-                )}
-                <input
-                  type="file"
-                  accept=".wav,.mp3,.m4a,.aiff,audio/*"
-                  className="hidden"
-                  onChange={handleTrackFileUpload}
-                  disabled={isSavingTrack}
-                />
-              </label>
-
-              {/* Show saved soundbytes even without a track so user knows they're persisted */}
-              {soundbytes && soundbytes.length > 0 && (
-                <div className="rounded-xl bg-gray-800/50 border border-gray-700/60 p-3 space-y-2">
-                  <p className="text-[11px] text-gray-500 uppercase tracking-wide">Saved soundbytes — upload track to edit</p>
+                  {isSavingTrack && (
+                    <div className="w-full h-1 bg-gray-700 rounded-full overflow-hidden">
+                      <div className="h-full bg-yellow-400 rounded-full transition-all duration-300" style={{ width: `${uploadProgress}%` }} />
+                    </div>
+                  )}
+                  {/* Locked soundbyte cards with preview play (loops) */}
                   {soundbytes.map((sb, i) => {
                     const colors = ['#8B5CF6','#3B82F6','#10B981','#F59E0B','#EF4444'];
                     const fmt = (s: number) => `${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`;
+                    const isPlaying = playingPreviewId === sb.id;
                     return (
-                      <div key={sb.id} className="flex items-center gap-2 text-xs">
+                      <div
+                        key={sb.id}
+                        className="rounded-xl bg-gray-800/60 border border-gray-700/60 p-3 flex items-center gap-3"
+                        style={{ borderLeftColor: colors[i % colors.length], borderLeftWidth: 3 }}
+                      >
                         <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: colors[i % colors.length] }} />
-                        <span className="text-white font-medium">{sb.label}</span>
-                        <span className="text-gray-400 ml-auto">{fmt(sb.startSec)}–{fmt(sb.endSec)}</span>
-                        <span className="text-purple-400">~{Math.round(sb.endSec - sb.startSec)}s</span>
+                        <span className="text-sm font-semibold text-white flex-1">{sb.label}</span>
+                        <span className="text-[11px] text-gray-400 bg-gray-700/60 px-1.5 py-0.5 rounded">{fmt(sb.startSec)}–{fmt(sb.endSec)}</span>
+                        <span className="text-[11px] text-purple-400">~{Math.round(sb.endSec - sb.startSec)}s</span>
+                        <button
+                          onClick={() => {
+                            if (isPlaying) {
+                              // Stop
+                              if (previewLoopRafRef.current) { cancelAnimationFrame(previewLoopRafRef.current); previewLoopRafRef.current = null; }
+                              previewAudioRef.current?.pause();
+                              setPlayingPreviewId(null);
+                            } else {
+                              // Stop any currently playing
+                              if (previewLoopRafRef.current) { cancelAnimationFrame(previewLoopRafRef.current); previewLoopRafRef.current = null; }
+                              previewAudioRef.current?.pause();
+                              if (!trackUrl) { return; } // no audio without track
+                              const audio = previewAudioRef.current || new Audio(trackUrl);
+                              previewAudioRef.current = audio;
+                              audio.currentTime = sb.startSec;
+                              audio.play();
+                              setPlayingPreviewId(sb.id);
+                              const loop = () => {
+                                if (audio.currentTime >= sb.endSec) audio.currentTime = sb.startSec;
+                                previewLoopRafRef.current = requestAnimationFrame(loop);
+                              };
+                              previewLoopRafRef.current = requestAnimationFrame(loop);
+                            }
+                          }}
+                          disabled={!trackUrl}
+                          className="w-7 h-7 rounded-lg bg-gray-700 hover:bg-purple-500/30 disabled:opacity-30 flex items-center justify-center text-gray-300 text-xs transition-colors flex-shrink-0"
+                          title={!trackUrl ? 'Upload track to preview' : isPlaying ? 'Stop' : 'Preview (loops)'}
+                        >
+                          {isPlaying ? '⏹' : '▶'}
+                        </button>
                       </div>
                     );
                   })}
+                  <p className="text-[11px] text-gray-600 text-center">Upload your track above to edit these soundbytes on the waveform</p>
                 </div>
+              ) : (
+                /* No soundbytes yet — show standard upload prompt */
+                <>
+                  <p className="text-xs text-gray-400">
+                    Upload your track to use the waveform soundbyte editor. Soundbytes guide your shoot day schedule and editing sessions.
+                  </p>
+                  <label className={`flex flex-col items-center justify-center gap-2 w-full py-8 border-2 border-dashed rounded-xl transition-colors ${
+                    isSavingTrack ? 'border-yellow-500/40 bg-yellow-500/5 cursor-default' : 'border-gray-700 hover:border-yellow-500/40 hover:bg-yellow-500/5 cursor-pointer'
+                  }`}>
+                    <span className="text-2xl">{uploadPhase === 'converting' ? '⚙️' : uploadPhase === 'uploading' ? '📤' : '🎵'}</span>
+                    <span className="text-sm text-gray-400">
+                      {uploadPhase === 'converting' ? `Converting to MP3… ${uploadProgress}%` : uploadPhase === 'uploading' ? `Uploading… ${uploadProgress}%` : 'Click to upload audio file'}
+                    </span>
+                    <span className="text-xs text-gray-600">WAV, MP3, M4A, AIFF</span>
+                    {isSavingTrack && (
+                      <div className="w-48 h-1.5 bg-gray-700 rounded-full overflow-hidden mt-1">
+                        <div className="h-full bg-yellow-400 rounded-full transition-all duration-300" style={{ width: `${uploadProgress}%` }} />
+                      </div>
+                    )}
+                    <input type="file" accept=".wav,.mp3,.m4a,.aiff,audio/*" className="hidden" onChange={handleTrackFileUpload} disabled={isSavingTrack} />
+                  </label>
+                </>
               )}
             </div>
           ) : (

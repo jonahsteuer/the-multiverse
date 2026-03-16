@@ -307,17 +307,14 @@ export function SoundbytePicker({
     setPlayingRegionId(sbId);
     ws.setTime(startSec);
     ws.play();
-    // Poll until playhead reaches endSec, then stop
-    const stopAt = () => {
+    // Poll: loop back to startSec when playhead reaches endSec
+    const loopCheck = () => {
       if (ws.getCurrentTime() >= endSec) {
-        ws.pause();
-        setPlayingRegionId(null);
-        stopAtRafRef.current = null;
-      } else {
-        stopAtRafRef.current = requestAnimationFrame(stopAt);
+        ws.setTime(startSec);
       }
+      stopAtRafRef.current = requestAnimationFrame(loopCheck);
     };
-    stopAtRafRef.current = requestAnimationFrame(stopAt);
+    stopAtRafRef.current = requestAnimationFrame(loopCheck);
   }, [isReady, cancelStopLoop]);
 
   const updateRegionOnWave = useCallback((sb: SoundbyteDef, i: number) => {

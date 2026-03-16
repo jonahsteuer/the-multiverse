@@ -855,7 +855,9 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
     if (realTasks.length > 0) {
       // Show only today's DB-backed tasks — exactly matching what's on today's calendar column.
       // No local generation here: if a task isn't in Supabase it shouldn't appear in the todo list.
-      const today = new Date().toISOString().split('T')[0];
+      // Use local date (not UTC) — toISOString() returns UTC and can be a day ahead in western timezones
+      const now = new Date();
+      const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
       const todayTasks = realTasks.filter(t => t.date === today && t.status !== 'completed');
       const recentlyCompleted = realTasks.filter(t => t.status === 'completed');
 
