@@ -1232,6 +1232,25 @@ function SongDataTab({ world, onUpdate }: { world: World; onUpdate: (w: World) =
                   disabled={isSavingTrack}
                 />
               </label>
+
+              {/* Show saved soundbytes even without a track so user knows they're persisted */}
+              {soundbytes && soundbytes.length > 0 && (
+                <div className="rounded-xl bg-gray-800/50 border border-gray-700/60 p-3 space-y-2">
+                  <p className="text-[11px] text-gray-500 uppercase tracking-wide">Saved soundbytes — upload track to edit</p>
+                  {soundbytes.map((sb, i) => {
+                    const colors = ['#8B5CF6','#3B82F6','#10B981','#F59E0B','#EF4444'];
+                    const fmt = (s: number) => `${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`;
+                    return (
+                      <div key={sb.id} className="flex items-center gap-2 text-xs">
+                        <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: colors[i % colors.length] }} />
+                        <span className="text-white font-medium">{sb.label}</span>
+                        <span className="text-gray-400 ml-auto">{fmt(sb.startSec)}–{fmt(sb.endSec)}</span>
+                        <span className="text-purple-400">~{Math.round(sb.endSec - sb.startSec)}s</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           ) : (
             /* ── Track loaded — show waveform editor directly ── */
@@ -1242,7 +1261,11 @@ function SongDataTab({ world, onUpdate }: { world: World; onUpdate: (w: World) =
                 </p>
                 <button
                   onClick={async () => {
-                    await supabase.from('galaxies').update({ track_url: null }).eq('id', world.galaxyId);
+                    const { data: gal } = await supabase.from('galaxies').select('brainstorm_draft').eq('id', world.galaxyId).single();
+                    const existing = (gal?.brainstorm_draft as Record<string, unknown>) || {};
+                    const { track_url: _removed, ...rest } = existing as any;
+                    void _removed;
+                    await supabase.from('galaxies').update({ brainstorm_draft: rest }).eq('id', world.galaxyId);
                     setTrackUrl('');
                   }}
                   className="text-[11px] text-gray-600 hover:text-red-400 transition-colors flex-shrink-0"
