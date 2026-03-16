@@ -87,31 +87,21 @@ function SnapshotStarterTab({
     }
     (async () => {
       try {
-        // Fetch brainstorm_result first (safe, always exists)
-        const { data: resultData } = await supabase
+        const { data: draftData } = await supabase
           .from('galaxies')
-          .select('brainstorm_result')
+          .select('brainstorm_draft')
           .eq('id', galaxyId)
           .single();
-        if (resultData?.brainstorm_result) setPastResult(resultData.brainstorm_result as BrainstormResult);
-        // C: try fetching brainstorm_draft separately — column may not exist yet
-        try {
-          const { data: draftData } = await supabase
-            .from('galaxies')
-            .select('brainstorm_draft')
-            .eq('id', galaxyId)
-            .single();
-          const draft = draftData?.brainstorm_draft as any;
-          // Only show the resume banner for genuinely in-progress sessions;
-          // 'generating_output' is the final step — the brainstorm is done.
-          if (draft?.step && draft.step !== 'generating_output') {
-            setDraftInfo({
-              step: draft.step,
-              confirmedLocation: draft.confirmedLocation || undefined,
-              scenesLocked: Array.isArray(draft.allLikedIdeas) ? draft.allLikedIdeas.length : 0,
-            });
-          }
-        } catch { /* brainstorm_draft column not yet created — safe to ignore */ }
+        const draft = draftData?.brainstorm_draft as any;
+        // Only show resume banner for genuinely in-progress sessions;
+        // 'generating_output' is the final completion step.
+        if (draft?.step && draft.step !== 'generating_output') {
+          setDraftInfo({
+            step: draft.step,
+            confirmedLocation: draft.confirmedLocation || undefined,
+            scenesLocked: Array.isArray(draft.allLikedIdeas) ? draft.allLikedIdeas.length : 0,
+          });
+        }
       } catch {
         // no-op
       } finally {
@@ -1005,25 +995,23 @@ function SongDataTab({ world, onUpdate }: { world: World; onUpdate: (w: World) =
   const [uploadPhase, setUploadPhase] = useState<'idle' | 'converting' | 'uploading'>('idle');
   const [uploadProgress, setUploadProgress] = useState(0);
 
-  // Load lyrics, track URL, and soundbytes from galaxy/world records
+  // Load lyrics, track URL, and soundbytes — all stored inside brainstorm_draft jsonb
   useEffect(() => {
     async function load() {
-      // Lyrics + track_url stored on galaxies row
       const { data: gal } = await supabase
         .from('galaxies')
-        .select('lyrics, track_url, lyrics_segments, brainstorm_draft')
+        .select('brainstorm_draft')
         .eq('id', world.galaxyId)
         .single();
       if (gal) {
-        setLyrics(gal.lyrics || '');
-        setTrackUrl(gal.track_url || '');
-        if (gal.lyrics_segments) setLyricsSegments(gal.lyrics_segments);
-        // Load saved soundbytes from brainstorm_draft if present
         const draft = gal.brainstorm_draft as any;
+        setLyrics(draft?.lyrics || '');
+        setTrackUrl(draft?.track_url || '');
+        if (draft?.lyrics_segments?.length) setLyricsSegments(draft.lyrics_segments);
         if (draft?.confirmedSoundbytes?.length) {
           setSoundbytes(draft.confirmedSoundbytes.map((sb: any) => ({
             id: sb.id,
-            label: sb.section || sb.label || `Section`,
+            label: sb.section || sb.label || 'Section',
             startSec: parseTimeToSec(sb.timeRange?.split('–')[0] || '0:00'),
             endSec: parseTimeToSec(sb.timeRange?.split('–')[1] || '0:30'),
           })));
@@ -1057,7 +1045,9 @@ function SongDataTab({ world, onUpdate }: { world: World; onUpdate: (w: World) =
   async function saveLyrics() {
     setSaving(true);
     try {
-      await supabase.from('galaxies').update({ lyrics }).eq('id', world.galaxyId);
+      const { data: gal } = await supabase.from('galaxies').select('brainstorm_draft').eq('id', world.galaxyId).single();
+      const existing = (gal?.brainstorm_draft as Record<string, unknown>) || {};
+      await supabase.from('galaxies').update({ brainstorm_draft: { ...existing, lyrics } }).eq('id', world.galaxyId);
       markSaved('lyrics');
     } catch (e) { console.error(e); }
     setSaving(false);
@@ -1112,7 +1102,9 @@ function SongDataTab({ world, onUpdate }: { world: World; onUpdate: (w: World) =
 
       setUploadProgress(95);
       const { data: urlData } = supabase.storage.from('uploads').getPublicUrl(path);
-      await supabase.from('galaxies').update({ track_url: urlData.publicUrl }).eq('id', world.galaxyId);
+      const { data: gal } = await supabase.from('galaxies').select('brainstorm_draft').eq('id', world.galaxyId).single();
+      const existing = (gal?.brainstorm_draft as Record<string, unknown>) || {};
+      await supabase.from('galaxies').update({ brainstorm_draft: { ...existing, track_url: urlData.publicUrl } }).eq('id', world.galaxyId);
       setTrackUrl(urlData.publicUrl);
       setUploadProgress(100);
       markSaved('track');

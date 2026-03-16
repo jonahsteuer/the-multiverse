@@ -470,17 +470,20 @@ export function BrainstormContent({
   }, [contentIdeas.length]);
 
   // F6: Clear draft on complete or start fresh.
-  // When called at completion, preserve soundbytes so SongDataTab can read them.
+  // At completion, preserve song-specific data (lyrics, track_url, soundbytes)
+  // since SongDataTab reads them from brainstorm_draft.
   const clearDraft = async (soundbytesToPreserve?: Soundbyte[]) => {
     if (!galaxyId) return;
     try {
       const { supabase } = await import('@/lib/supabase');
-      if (soundbytesToPreserve?.length) {
-        // Keep only confirmed soundbytes — strips all in-progress brainstorm state
-        // while preserving the data SongDataTab reads.
-        await supabase.from('galaxies').update({
-          brainstorm_draft: { confirmedSoundbytes: soundbytesToPreserve },
-        }).eq('id', galaxyId);
+      const hasSongData = soundbytesToPreserve?.length || lyricsText || uploadedTrackUrl;
+      if (hasSongData) {
+        const preserved: Record<string, unknown> = {};
+        if (soundbytesToPreserve?.length) preserved.confirmedSoundbytes = soundbytesToPreserve;
+        if (lyricsText) preserved.lyrics = lyricsText;
+        if (lyricsSegments.length) preserved.lyrics_segments = lyricsSegments;
+        if (uploadedTrackUrl) preserved.track_url = uploadedTrackUrl;
+        await supabase.from('galaxies').update({ brainstorm_draft: preserved }).eq('id', galaxyId);
       } else {
         await supabase.from('galaxies').update({ brainstorm_draft: null }).eq('id', galaxyId);
       }
@@ -908,14 +911,19 @@ export function BrainstormContent({
     setLyricsText(confirmedLyrics);
     addUserMessage('Lyrics confirmed ✓');
 
-    // Persist lyrics immediately to the dedicated galaxy columns so SongDataTab can read them
+    // Persist lyrics into brainstorm_draft (dedicated columns don't exist in schema)
     if (galaxyId && confirmedLyrics.trim()) {
       (async () => {
         try {
           const { supabase } = await import('@/lib/supabase');
+          const { data: gal } = await supabase.from('galaxies').select('brainstorm_draft').eq('id', galaxyId).single();
+          const existing = (gal?.brainstorm_draft as Record<string, unknown>) || {};
           await supabase.from('galaxies').update({
-            lyrics: confirmedLyrics,
-            ...(lyricsSegments.length ? { lyrics_segments: lyricsSegments } : {}),
+            brainstorm_draft: {
+              ...existing,
+              lyrics: confirmedLyrics,
+              ...(lyricsSegments.length ? { lyrics_segments: lyricsSegments } : {}),
+            },
           }).eq('id', galaxyId);
         } catch { /* best-effort */ }
       })();
@@ -1673,7 +1681,7 @@ export function BrainstormContent({
       contentIdeas: [...contentIdeas],
       locationOptions: [...locationOptions],
       // Persist lyrics + soundbytes so they survive a mid-session refresh
-      ...(lyricsText ? { lyricsText } : {}),
+      ...(lyricsText ? { lyrics: lyricsText } : {}),
       ...(confirmedSoundbytes.length ? { confirmedSoundbytes } : {}),
       savedAt: new Date().toISOString(),
     });
@@ -2689,7 +2697,9 @@ export function BrainstormContent({
                       const { data: urlData } = sb.storage.from('uploads').getPublicUrl(filePath);
                       const trackUrl = urlData.publicUrl;
                       setUploadedTrackUrl(trackUrl);
-                      await sb.from('galaxies').update({ track_url: trackUrl }).eq('id', galaxyId);
+                      const { data: galD } = await sb.from('galaxies').select('brainstorm_draft').eq('id', galaxyId).single();
+                      const existingD = (galD?.brainstorm_draft as Record<string, unknown>) || {};
+                      await sb.from('galaxies').update({ brainstorm_draft: { ...existingD, track_url: trackUrl } }).eq('id', galaxyId);
                       const mp3MB = mp3File.size / (1024 * 1024);
                       if (needsConvert) addBotMessage(`Converted to MP3 (${mp3MB.toFixed(1)} MB) ✓`, 200);
                       await transcribeAndContinue(trackUrl);
@@ -3058,7 +3068,9 @@ export function BrainstormContent({
                         .upload(filePath, mp3File, { upsert: true, contentType: 'audio/mpeg' });
                       if (uploadErr) throw uploadErr;
                       const { data: urlData } = supabase.storage.from('uploads').getPublicUrl(filePath);
-                      await supabase.from('galaxies').update({ track_url: urlData.publicUrl }).eq('id', galaxyId);
+                      const { data: galF5 } = await supabase.from('galaxies').select('brainstorm_draft').eq('id', galaxyId).single();
+                      const existingF5 = (galF5?.brainstorm_draft as Record<string, unknown>) || {};
+                      await supabase.from('galaxies').update({ brainstorm_draft: { ...existingF5, track_url: urlData.publicUrl } }).eq('id', galaxyId);
                       const mp3MB = mp3File.size / (1024 * 1024);
                       addBotMessage(`Track uploaded! 🎵 ${needsConvert ? `Converted to MP3 (${mp3MB.toFixed(1)} MB). ` : ''}Play buttons are now active.`, 400);
                       setStep('ask_soundbytes');
@@ -3123,7 +3135,9 @@ export function BrainstormContent({
                           const { error: uploadErr } = await supabase.storage.from('uploads').upload(filePath, mp3File, { upsert: true, contentType: 'audio/mpeg' });
                           if (uploadErr) throw uploadErr;
                           const { data: urlData } = supabase.storage.from('uploads').getPublicUrl(filePath);
-                          await supabase.from('galaxies').update({ track_url: urlData.publicUrl }).eq('id', galaxyId);
+                          const { data: galSb } = await supabase.from('galaxies').select('brainstorm_draft').eq('id', galaxyId).single();
+                          const existingSb = (galSb?.brainstorm_draft as Record<string, unknown>) || {};
+                          await supabase.from('galaxies').update({ brainstorm_draft: { ...existingSb, track_url: urlData.publicUrl } }).eq('id', galaxyId);
                           setUploadedTrackUrl(urlData.publicUrl);
                         } catch (err: unknown) {
                           console.error('[ask_soundbytes] upload error:', err);
