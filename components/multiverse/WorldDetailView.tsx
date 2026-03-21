@@ -11,6 +11,8 @@ import { PostCardModal } from './PostCardModal';
 import { SendWithNotesModal } from './SendWithNotesModal';
 import { SoundbytePicker } from './SoundbytePicker';
 import type { SoundbyteDef } from './SoundbytePicker';
+import dynamic from 'next/dynamic';
+const SmartEditTab = dynamic(() => import('./SmartEditTab'), { ssr: false });
 
 // ─────────────────────────────────────────────
 // Helpers
@@ -272,7 +274,7 @@ interface WorldDetailViewProps {
   onRefreshTasks?: () => void;
   onStartBrainstorm?: (mode?: 'mark_generates' | 'user_idea', songCtx?: { songEmotion?: string; listeningContext?: string }, resume?: boolean) => void;
   brainstormResult?: BrainstormResult | null;
-  initialTab?: 'footage' | 'all-posts' | 'snapshot-starter' | 'song-data' | 'settings';
+  initialTab?: 'footage' | 'all-posts' | 'snapshot-starter' | 'song-data' | 'settings' | 'smart-edit';
 }
 
 // ─────────────────────────────────────────────
@@ -1356,7 +1358,7 @@ export function WorldDetailView({
   brainstormResult,
   initialTab = 'footage',
 }: WorldDetailViewProps) {
-  const [activeTab, setActiveTab] = useState<'footage' | 'all-posts' | 'snapshot-starter' | 'song-data' | 'settings'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'footage' | 'all-posts' | 'snapshot-starter' | 'song-data' | 'settings' | 'smart-edit'>(initialTab);
   const [currentWorld, setCurrentWorld] = useState<World>(world);
 
   const releaseDateDisplay = (() => {
@@ -1366,11 +1368,12 @@ export function WorldDetailView({
     return d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
   })();
 
-  const tabs: { id: 'footage' | 'all-posts' | 'snapshot-starter' | 'song-data' | 'settings'; label: string; icon: string }[] = [
+  const tabs: { id: 'footage' | 'all-posts' | 'snapshot-starter' | 'song-data' | 'settings' | 'smart-edit'; label: string; icon: string }[] = [
     { id: 'footage', label: 'Footage', icon: '🎬' },
     { id: 'all-posts', label: 'All Posts', icon: '📋' },
     { id: 'snapshot-starter', label: 'Snapshot Starter', icon: '✨' },
     { id: 'song-data', label: 'Song Data', icon: '🎵' },
+    { id: 'smart-edit', label: 'Smart Edit', icon: '✂️' },
     { id: 'settings', label: 'Settings', icon: '⚙️' },
   ];
 
@@ -1458,6 +1461,15 @@ export function WorldDetailView({
             <SongDataTab
               world={currentWorld}
               onUpdate={(updated) => { setCurrentWorld(updated); onUpdate?.(updated); }}
+            />
+          )}
+
+          {activeTab === 'smart-edit' && (
+            <SmartEditTab
+              world={currentWorld}
+              teamId={teamId ?? ''}
+              currentUserId={currentUserId ?? ''}
+              currentUserName={currentUserName ?? 'Artist'}
             />
           )}
 
