@@ -1,431 +1,436 @@
-# The Multiverse - Product Specification
-## Building Visual Universes for Music Artists
+# The Multiverse — Product Specification
 
-**Version:** 2.0  
-**Date:** January 8, 2026  
-**Status:** Major Pivot - Visual Universe Architecture  
-**Platform Name:** The Multiverse
-
----
-
-## The Problem (Revised)
-
-Independent artists struggle to create consistent, visually cohesive social media content that aligns with their music AND actually builds their fanbase. The challenge isn't just creating content—it's:
-
-1. **Posting consistently** (the #1 struggle for artists)
-2. **Creating content that reaches actual fans** (not just existing followers)
-3. **Understanding what works** (which snapshots drive streams and build superfans)
-4. **Coordinating with teams** (videographers, editors, bandmates need clear direction)
-5. **Building a visual universe** that represents their artistic identity
-
-Most artists don't have a manager or team to help them with this. They're juggling music creation, social media, promotion, and coordination—all while trying to build a fanbase. They need someone (or something) to act as their **master scheduler and manager**—proactively helping them post consistently, create high-performing content, and build their fanbase.
-
-Current solutions fail because they:
-- Generate generic content without visual cohesion
-- Don't help artists establish a visual identity
-- Treat each release in isolation rather than as part of a larger artistic narrative
-- Don't facilitate collaboration with videographers, editors, and creative teams
-- Don't track performance or show what's actually building fanbase
-- Don't help artists post consistently
-- Are **passive tools** that require artists to do all the work
-- Don't act like a manager—proactively suggesting, reminding, and optimizing
-
-**The real opportunity:** Be the artist's **master scheduler and manager**—an intelligent platform that actively helps artists build a visual universe where each piece of content (snapshot) is part of a cohesive visual landscape that connects their music to their social media presence, reaches new fans, drives streams, and builds superfans. The platform should be **proactive**, not reactive—suggesting optimal posting times, identifying what works, coordinating teams, and ensuring consistency.
-
-**Core Principle:** Consistency is impossible if artists don't enjoy making the content. We must help artists find content formats they actually enjoy creating (their MVP - Most Valuable Post format), then build their schedule around those formats. The platform should create an editable outline schedule that artists can approve and customize, with all new snapshots guided by our algorithm to ensure they're both enjoyable AND effective for growth.
+**Version:** 3.0  
+**Last Updated:** February 22, 2026  
+**Status:** Live — Active Development  
+**URL:** [themultiverse.space](https://themultiverse.space)  
+**Stack:** Next.js 15 · TypeScript · Tailwind CSS · Supabase · Claude AI
 
 ---
 
-## The Solution: Your Master Scheduler & Manager
+## Overview
 
-**The Multiverse is your master scheduler and manager.** It's not just a tool—it's an intelligent assistant that actively helps you post consistent snapshots, create content that performs well, and build your fanbase. Think of it as having a manager who:
+The Multiverse is an intelligent content management platform for independent music artists. It acts as a **master scheduler and manager** — guiding artists through the full content lifecycle: brainstorming ideas, planning and executing shoot days, managing post-production, and scheduling posts to social media.
 
-- **Reminds you to post** (so you never miss a scheduled snapshot)
-- **Suggests optimal posting times** (based on what actually works for your audience)
-- **Identifies what's working** (which snapshots drive streams and build superfans)
-- **Helps you replicate success** (creates more snapshots like your top performers)
-- **Coordinates your team** (ensures videographers and editors have what they need)
-- **Tracks your performance** (shows you what's actually building your fanbase)
-- **Builds your visual universe** (maintains visual cohesion across all content)
-
-The platform is **proactive**—it doesn't wait for you to ask. It suggests, reminds, optimizes, and helps you stay consistent. It's like having a manager who's always working for you, even when you're not logged in.
-
-### Core Concept: Universe → Galaxy → World → Snapshots
-
-**Universe:** The entire artist persona - everything we know about the artist visually and analytically. The artist's data (atoms and molecules) inform the universe's decisions.
-
-**Galaxy:** An entire release "block" for an artist (e.g., an album, EP, or project like Kendrick Lamar's "DAMN")
-
-**World:** A single song or release within a galaxy (e.g., "DNA" within the "DAMN" galaxy). Worlds farther from the sun are released later.
-
-**Snapshots:** Individual pieces of social media content that are "snapshots" of the artist's visual landscape. Each snapshot is a video loop (10-15 seconds) with strong vignettes, positioned around the world like "memories" or "events" that occurred on that planet. They include visual/creative direction and tell the story of the world.
-
-### Key Features
-
-1. **Interactive 3D Multiverse View (Homepage)**
-   - Google Earth-style navigation: zoom in/out, pan left/right/up/down
-   - View ALL artists' universes in the Multiverse
-   - Click on galaxies or worlds to unlock more information
-   - Visual representation of release timeline (distance from sun = release date)
-   - Worlds orbit around suns, spin on their axis when viewed closely
-   - Hover over worlds to preview music (audio plays automatically)
-   - Public/private controls: greyed out worlds show "being built" messages
-   - Empty space with "+" symbol to create own universe
-
-2. **Visual Landscape System**
-   - Each world has a visual landscape representation
-   - Mix of user-uploaded images, color palettes, and Pinterest board integration
-   - Pinterest API integration to help artists visually communicate their universe/galaxy/world aesthetics
-   - **World Colors**: Each world has a unique color (dark purple, bright yellow, light grey, deep blue, hot pink, white, etc.) representing its visual identity
-   - **Sun Colors**: Galaxies have colored suns (e.g., bright yellow) that worlds orbit around
-
-3. **Snapshot Strategies & Display**
-   - AI-generated snapshot plans for each world release
-   - Includes visual/creative direction (not just captions)
-   - Organized by release cycle timing
-   - **Snapshot Display**: Rectangular videos (10-15 second loops) with strong vignettes
-   - **Spatial Positioning**: Snapshots appear around the world like "memories" or "events"
-   - **Visual Storytelling**: Snapshots tell the story of the world, not just promotional content
-
-4. **Real-Time Countdown Timers**
-   - Active countdown for each galaxy/world's release date
-   - Displayed next to galaxy/world titles
-   - Example: "DNA dropping in 65 days 10 hours, 30 mins, and 25 seconds"
-   - Info bubbles for unreleased content: "this world is currently being built. It will be viewable to the public in 33 days."
-
-5. **Audio Preview System**
-   - Hover over worlds to automatically play music previews
-   - Audio continues playing when exploring a world
-   - Music and visuals are deeply integrated
-
-5. **Collaboration System**
-   - Artists can invite videographers, editors, and creative team members
-   - Shareable links with permissions (view or edit access)
-   - Collaborators see same interface/UI
-   - Can view snapshot strategies, treatments, and schedules
-   - Edit upload and review workflow
-   - Version control for edits
-
-6. **Treatment Generator**
-   - AI-generated treatments for shoot days
-   - Visual references (Pinterest integration)
-   - Shot descriptions, mood, color palette
-   - Shot list suggestions based on universe/galaxy/world
-   - Delivered 1 week before shoot days
-
-7. **Performance Insights & Fan Discovery (Manager Analytics)**
-   - **Track which snapshots drive streams** - See exactly which content is building your fanbase
-   - **Identify what builds superfans** - Distinguish between casual streams and superfan creation
-   - **Proactive pattern recognition** - The platform tells you: "Posts with [X] at [Y time] reach 3x more new fans"
-   - **Replication suggestions** - "This snapshot drove 500 streams because [reason]. Create 3 more like this."
-   - **Track NEW fan engagement** - See which snapshots are reaching actual new fans, not just existing followers
-   - **Performance alerts** - Get notified when a snapshot performs exceptionally well (or poorly)
-   - **Fanbase growth tracking** - See how your fanbase is growing over time and what's driving it
-
-8. **Consistency Engine (Master Scheduler)**
-   - **Proactive posting schedules** - AI generates optimal posting dates based on release date and performance data
-   - **Google Calendar integration** - Two-way sync so you never miss a post
-   - **Automatic reminders** - The platform reminds you to post, shoot, and edit (like a manager would)
-   - **Shoot day suggestions** - Suggests optimal shoot days based on release timeline and team availability
-   - **Team availability coordination** - Automatically finds times when your team is available
-   - **Performance-based optimization** - Adjusts posting times based on what actually works for your audience
-   - **Consistency tracking** - Shows you your posting streak and helps you maintain it
+The platform's core differentiator is its **AI assistant, Mark**, who guides artists through structured workflows and eliminates the guesswork from content creation. Rather than a passive tool, The Multiverse proactively helps artists stay consistent, build their visual universe, and coordinate their team.
 
 ---
 
-## User Types
+## Core Metaphor: Universe → Galaxy → World
 
-### 1. Artists (Primary Users)
-- **The platform works FOR them** - Acts as their master scheduler and manager
-- Create galaxies and worlds
-- Receive proactive suggestions, reminders, and optimizations
-- See performance insights that help them build their fanbase
-- Invite collaborators
-- **The platform's job:** Help them post consistently, create high-performing content, and build superfans
-
-### 2. Videographers
-- Invited collaborators with view or edit access
-- Can see visual landscapes and snapshot strategies
-- Help build visual universe through their contributions
-
-### 3. Editors
-- Invited collaborators with view or edit access
-- Can see visual landscapes and snapshot strategies
-- Help refine and execute snapshot strategies
+| Term | Meaning |
+|------|---------|
+| **Universe** | The artist's entire persona and all their releases |
+| **Galaxy** | A release project (album, EP, or standalone single campaign) |
+| **World** | A single song/release within a galaxy |
+| **Posts / Snapshots** | Individual social media content pieces linked to a world |
 
 ---
 
-## Architecture & Data Model
+## What's Built (Current State)
 
-### Initial State
-- Artists immediately have an **empty galaxy with a sun** upon signup
-- Can use a form to create a single world within this galaxy
-- Separate onboarding form from galaxy/world creation forms
+### 1. Authentication & Onboarding
 
-### Navigation Structure
+- Email + password auth via Supabase
+- **Conversational onboarding** (`ConversationalOnboarding.tsx`): Mark greets new users and collects artist profile data through a chat interface
+- **Creator setup form** (`CreatorOnboardingForm.tsx`): Name, genre, location (zip code stored for location-aware recommendations)
+- **Galaxy + World creation** (`GalaxyCreationForm.tsx`, `WorldCreationForm.tsx`): Artists name their release project and first song
+- Profile editing panel (`ProfileEditPanel.tsx`) with editable user-specific data (zip code, listening context, song emotion, soundbytes, etc.)
+
+---
+
+### 2. Universe View (Homepage after login)
+
+- 3D galaxy visualization using **Three.js / React Three Fiber** (`Galaxy3DView.tsx`, `Galaxy3DWrapper.tsx`)
+- Worlds orbit a sun; each world represents a release
+- Release countdown displayed ("Releasing in X days")
+- Click a world to open the **World Detail View**
+- **View Calendar** button opens the full calendar
+- Invite team members from the galaxy view
+- Remove team members from the galaxy
+
+---
+
+### 3. World Detail View (`WorldDetailView.tsx`)
+
+A tabbed panel for each song/release with the following tabs:
+
+#### All Posts Tab
+- Grid of all post slots linked to this world
+- Posts sourced from `team_tasks` (Supabase) where `task_category = 'event'`
+- Post titles shown (e.g. "Post 1.11", "Trial 1 for Post 1.11", "Reflection in Stream")
+- Click a post card to open the **Post Detail Modal**
+
+#### Footage Tab
+- List of footage links (Google Drive / Dropbox URLs) uploaded from the Shoot Day event
+- Each link's name is **editable inline**
+
+#### Song Data Tab
+- **Track upload**: Upload a WAV/MP3; large files (>50MB) are auto-converted to MP3 client-side before upload using `@breezystack/lamejs`
+- **Waveform editor** using **WaveSurfer.js**: Visual waveform with draggable soundbyte selection (3–5 soundbytes)
+- Each soundbyte is named (e.g. "Verse 1", "Chorus"), plays on loop when previewed, and stores start/end times
+- Soundbytes and track URL persisted to `galaxies.brainstorm_draft`
+- **Lyrics** storage and editing
+- If soundbytes are already saved, a "locked in" summary view is shown instead of the full editor
+
+#### Team Tab
+- Shows all team members with roles
+- Admin can assign tasks, view activity
+
+---
+
+### 4. Calendar (`EnhancedCalendar.tsx`)
+
+A fully-featured weekly calendar that is the primary scheduling interface.
+
+#### Layout
+- 4-week grid view (current month + context)
+- Previous/Next navigation to browse past and future weeks
+- Task/event cards sized to fit all tasks without hiding any
+- Fixed-height day boxes; cells with many tasks stack cards smaller
+
+#### Task/Event Types & Colors
+| Type | Color | Description |
+|------|-------|-------------|
+| `prep` | Blue | Prep tasks (e.g. "Prep for shoot day") |
+| `edit` | Cyan | Edit days and editing tasks |
+| `shoot` | Orange | Shoot day events |
+| `post` | Yellow/Green (skeleton: greyed+dashed) | Post slots and trial reels |
+| `release` | Red | Release day |
+| `review` | Purple | Review tasks |
+| `custom` (check_in) | Teal | Shoot check-ins, weekly check-ins |
+| `promo` | Yellow | Promo posts (post-release) |
+| `audience-builder` | Green | Audience builder posts |
+
+#### Skeleton Posts (Unedited Placeholder Slots)
+- Skeleton posts are greyed out with a dashed border
+- Named using **X.YZ convention**: `Post 1.11`, `Post 1.12`, … where `X` = shoot number, `Y` = batch number (edit day), `Z` = post within the batch
+- Trial reels are named: `Trial 1 for Post 1.11`, `Trial 2 for Post 1.11` — 2 per post, scheduled the day before their corresponding main post
+- When a finished edit is submitted on Edit Day, skeleton slots become filled posts
+
+#### Calendar Generation Logic
+- DB-backed tasks (from `team_tasks` in Supabase) are the primary source of truth
+- Local prep-task generation (for "Upload footage"-type tasks) is **skipped entirely** if the team already has skeleton posts — the brainstorm/shoot-check-in workflow replaces the generic prep phase
+- Generated tasks are saved to Supabase and are never re-generated if already present
+- The "Save to DB" guard also does a real-time DB check for skeleton posts before inserting, preventing race conditions on first render
+
+#### Task Interactions
+- Click a post-type task → opens **Post Detail Modal**
+- Click a Shoot Check-in task → opens **Shoot Check-in Modal**
+- Click any other task → opens **Task Panel**
+- Right-click → context menu (assign to team member, delete)
+- Delete → removes from Supabase and all associated world view tabs
+
+#### Rollout Zones (Calendar Phases)
+- `Pre-release`, `Release Week`, `Post-release` banners shown above each week
+- Based on calculated distance from release date
+
+---
+
+### 5. Mark — AI Content Assistant (`MarkChatPanel.tsx`)
+
+Mark is a conversational AI assistant powered by **Claude (Anthropic)**. He lives in a chat panel that can be opened from any screen.
+
+#### Mark's Capabilities
+- **Content brainstorming**: Full guided brainstorm session (see §6)
+- **Task awareness**: Knows what's on the calendar and can answer questions about it
+- **Proactive suggestions**: Can recommend next steps based on current state
+- **Knowledge base** (`lib/mark-knowledge.ts`): Domain knowledge about music content strategy
+- **Voice input** (`VoiceInput.tsx`): Users can speak to Mark; transcribed via Whisper API
+
+#### Mark's Chat Panel
+- Persistent chat thread per galaxy
+- Real-time streaming responses
+- Team chat integration (Mark messages appear in the team feed)
+
+---
+
+### 6. Content Brainstorm Flow (`BrainstormContent.tsx`)
+
+A multi-step, Mark-guided session that produces a complete shoot plan. All data is saved incrementally to Supabase so the session can be resumed at any time.
+
+#### Saved Per-User (Never Re-Asked)
+- **Zip code** (for location recommendations)
+
+#### Saved Per-Song/World (Never Re-Asked After First Collection)
+- **Song file** (WAV → MP3, stored in Supabase Storage)
+- **Lyrics** (stored in `galaxies.brainstorm_draft.lyrics`)
+- **Song emotion** (1–2 word description, e.g. "heartbreak")
+- **Listening context** (where someone might listen, e.g. "driving alone at night")
+- **Soundbytes** (3–5 named time ranges, stored in `brainstorm_draft.confirmedSoundbytes`)
+
+#### Session-Specific Data (Guides Brainstorm, Restorable)
+- Location area, specific location (confirmed via Google Maps Places API)
+- Selected scenes (from AI-generated options with Instagram reference links)
+- Looks per scene (camera setups, location-aware)
+- Post format assignments
+- Shoot day date and schedule
+
+#### Brainstorm Steps
+1. Check for saved song data → skip if already saved
+2. Gather song emotion (if not saved)
+3. Gather listening context (if not saved)
+4. Suggest and confirm shoot location (Google Maps Places API, weather-aware)
+5. Generate 5 scene concepts with Instagram/TikTok reference links (Tavily API)
+6. User selects 3 scenes
+7. Generate 4–5 looks per scene (camera angles, location-specific descriptions)
+8. User selects looks (checked on shoot day)
+9. Soundbyte confirmation (shows waveform editor if not already saved, or "locked in" summary)
+10. Generate shoot schedule → outputs `BrainstormResult`
+
+#### Brainstorm Output (`handleBrainstormComplete` in `GalaxyView.tsx`)
+Creates in Supabase:
+- **Shoot Day event** (`type: 'shoot'`): Timed schedule per scene/look
+- **Shoot Check-in task** (`type: 'custom'`, `rollout_zone: 'shoot-check-in'`): Appears 1 hour after shoot end
+- **Skeleton post slots** (Batch 1): 5 main posts + 2 trial reels each = up to 10 tasks, named `Post 1.11–1.15`, trials scheduled day-before
+- Does NOT immediately create filled post content — those are created at Edit Day
+
+---
+
+### 7. Shoot Day Event & Modal (`ShootDayModal.tsx`)
+
+Clicking the Shoot Day calendar event opens a dedicated modal:
+
+- **Timed shoot schedule**: Per-scene, per-look breakdown with times
+  - Each scene: concept, setting, best-light window, hook description
+  - Each look: 3–5 takes of each of the 3 selected soundbytes
+  - Scene-specific Instagram/TikTok reference links (tappable)
+- **Footage link upload**: Input for Google Drive / Dropbox link (saved to World → Footage tab)
+- **Download PDF**: Full shoot schedule as a downloadable PDF with complete descriptions
+  - All 3 looks per scene (not truncated)
+  - Hook + lighting descriptions
+  - Clickable reference links
+
+---
+
+### 8. Shoot Check-in Modal (`ShootCheckInModal.tsx`)
+
+Auto-generated task that appears on the calendar ~1 hour after the shoot day ends. Clicking it opens a structured form:
+
+#### Form Sections
+1. **Footage link**: Where today's raw footage is stored
+2. **Location**: "Did you shoot at the original location?" — if No, add Google Maps links with reasons (stored for Mark's future location recommendations)
+3. **Per-scene capture**: For each planned scene — was it shot? Editable title + description (updated titles propagate to all associated skeleton post instructions)
+4. **Per-look capture**: For each look within each shot scene — was it shot? How many takes? Which soundbytes were covered?
+5. **Notes**: Free-text field
+
+#### On Submission
+- Check-in data saved to `mark_analysis` JSONB on the check-in task
+- Task status set to `completed`
+- `generateEditDayInstructions()` creates detailed per-post edit instructions for Edit Day 1, referencing updated scene/look titles and soundbyte coverage
+- Edit Day 1 task description is updated with those instructions
+- Alternate location notes saved to `galaxies.brainstorm_draft`
+
+---
+
+### 9. Edit Day
+
+The Edit Day task (e.g. "Edit Day 1 — Batch 1.1") appears on the calendar on the scheduled date. Its description contains the Mark-generated edit instructions.
+
+#### Edit Instructions Format
+Each of the 5 skeleton post slots gets a specific instruction card:
+- Scene + look reference (using updated titles from check-in)
+- Which soundbyte to use (start/end time)
+- Number of takes available
+- Suggested caption direction / hook framing
+- Trial reel guidance (same clip, slight caption variation)
+
+#### Batch Logic
+- **Batch 1.1** = 5 posts from the first edit day of Shoot 1
+- Each batch tests one variable (e.g. Batch 1 = test soundbyte performance: each post uses a different soundbyte)
+- 2 trial reels per post (day before each post) for micro-testing caption/take variations
+- **Weekly Check-in** auto-schedules after the last post of each batch to review performance
+
+#### Post Naming Convention
 ```
-Universe (Artist's entire persona)
-  └── Galaxy (Release block/project)
-      └── World (Individual song/release)
-          ├── Visual Landscape (images, color palettes, Pinterest board)
-          ├── Snapshot Strategy (AI-generated snapshots with visual direction)
-          └── Countdown Timer (real-time release countdown)
+Post X.YZ
+ └── X = shoot number  (1 = first shoot)
+ └── Y = batch number  (1 = first edit day output)
+ └── Z = post within batch (1–5)
+
+Example: Post 1.11 = Shoot 1, Batch 1, Post 1
+         Trial 1 for Post 1.12 = trial reel for Shoot 1, Batch 1, Post 2
 ```
 
-### Visual Representation
-- **3D Multiverse View (Homepage)**: All artists' universes visible, Google Earth-style navigation
-- **Universe View**: Multiple galaxies visible, equidistant from each other
-- **Galaxy View**: Worlds orbit around a sun (bright, colored suns), distance from sun = release timeline
-- **World View**: World spins on its axis, snapshots appear as rectangular videos with vignettes around it
-- **Color Coding**: Each world has unique color representing its visual identity
-- **Motion States**: Active worlds orbit and spin; unreleased worlds are greyed out and static
-- **Moons**: Worlds can have moons orbiting them (bonus tracks, remixes, etc.)
-- **Click interactions**: Unlock detailed information about galaxies/worlds
-- **Hover interactions**: Preview music automatically plays when hovering over worlds
+---
+
+### 10. Post Detail Modal (`PostDetailModal.tsx`)
+
+Opens when clicking any post card (from calendar or All Posts tab):
+- Post title, date, description
+- Edit instructions (from Edit Day)
+- Upload finished video edit (Google Drive / Dropbox link)
+- Caption / hashtags
+- Approval workflow: `unlinked → linked → analyzed → caption_written → revision_requested → approved → scheduled → posted`
+- Send edit for review: opens **Send With Notes Modal**
 
 ---
 
-## Terminology Changes
+### 11. Team Collaboration
 
-| Old Term | New Term | Notes |
-|----------|----------|-------|
-| Content | Snapshots | Each piece of content is a "snapshot" of the visual universe |
-| Content Plan/Strategy | Snapshot Plan/Strategy | Plans for creating snapshots |
-| Posts | Snapshots | Individual social media pieces |
-| Release | World | A single song/release within a galaxy |
-| Project/Album | Galaxy | A collection of releases (worlds) |
+#### Invitation System (`InviteModal.tsx`)
+- Admin invites collaborators by email
+- Invitation is to a **specific galaxy** (not the entire universe)
+- Invite link uses a signed token
+- Invited user lands on the galaxy view automatically
 
----
+#### Team Roles
+- **Admin**: Full access — brainstorm, calendar, world view, team management
+- **Member (Videographer/Editor)**: Scoped access — can view calendar, upload edits, view shoot schedule
+- Permission-based UI rendering throughout
 
-## Technical Requirements
-
-### New Integrations Needed
-
-1. **Pinterest API**
-   - Allow artists to create/import Pinterest boards
-   - Visual reference system for universe/galaxy/world aesthetics
-   - Help communicate visual direction to collaborators
-
-2. **Image Upload System**
-   - User-uploaded images for visual landscapes
-   - Color palette extraction/generation
-   - Visual mood board creation
-
-3. **Real-Time Countdown System**
-   - WebSocket or polling for accurate countdown timers
-   - Updates every second for precision
-
-4. **Collaboration System**
-   - Shareable link generation
-   - Permission management (view/edit)
-   - Multi-user access to same universe/galaxy/world
-
-### UI/UX Requirements
-
-1. **3D Multiverse Navigation System**
-   - **Homepage**: Interactive 3D view of ALL artists' universes
-   - Pan and zoom controls (Google Earth-style)
-   - Click-to-explore interactions
-   - Smooth transitions between zoom levels (Multiverse → Universe → Galaxy → World)
-   - Visual representation of spatial relationships (distance from sun = release timeline)
-   - **World Motion**: Worlds orbit around suns, spin on axis when viewed closely
-   - **Color System**: Unique colors for each world, colored suns for galaxies
-   - **Moons**: Worlds can have moons orbiting them
-   - **Empty Space Creation**: Hover over empty space to reveal "+" symbol for creating universe
-
-2. **Visual Landscape View**
-   - Image gallery/grid
-   - Color palette display
-   - Pinterest board integration
-   - Mood board interface
-
-3. **Snapshot Strategy Display**
-   - Visual/creative direction included
-   - Platform-specific recommendations
-   - Timing and scheduling information
-   - Copy/download functionality (maintained from current system)
-   - **Video Format**: Rectangular videos with strong vignettes
-   - **Looping**: 10-15 second loops
-   - **Spatial Layout**: Positioned around the world like memories/events
-   - **Visual Storytelling**: Each snapshot tells part of the world's story
+#### Team Chat (`TeamChat.tsx`)
+- Group chat for all galaxy members + optional direct messages between pairs
+- Mark's responses appear in the team chat thread
+- Edit cards shared in chat are **clickable** → open the post card in the world view
+- Edit cards sent via DM look identical to group chat edit cards
+- Email notifications sent via **Resend API** (domain: `themultiverse.space`) when:
+  - Edit is shared with notes
+  - A note is sent to a team member
 
 ---
 
-## Current Implementation Status
+### 12. Notification System (`NotificationBell.tsx`)
 
-**Last Updated:** January 8, 2026
-
-### ✅ Completed (Legacy - Pre-Pivot)
-
-**Core Features:**
-- ✅ Next.js 15 project structure with TypeScript and Tailwind CSS
-- ✅ Onboarding form with validation (to be updated for new architecture)
-- ✅ Claude API integration with enhanced prompts
-- ✅ Results display page with posts grouped by week (to be converted to snapshots)
-- ✅ Copy-to-clipboard functionality
-- ✅ Download as JSON and CSV
-
-**Technical Decisions:**
-- ✅ **Framework:** Next.js 15 with App Router
-- ✅ **Styling:** Tailwind CSS + Shadcn UI (New York style, Slate color)
-- ✅ **Validation:** Zod schemas
-- ✅ **Forms:** React Hook Form
-- ✅ **API:** Next.js API routes
-
-### 🚧 In Progress (Post-Pivot)
-
-- ⏳ **Architecture Redesign:** Universe → Galaxy → World structure
-- ⏳ **Terminology Updates:** Content → Snapshots throughout codebase
-- ⏳ **Visual Navigation:** Google Earth-style interface research and planning
-- ⏳ **New User Journeys:** Artist, Videographer, Editor journeys (to be documented)
-
-### 📋 Pending (New Features)
-
-- ⏳ **Pinterest API Integration:** Research and implementation
-- ⏳ **Image Upload System:** Visual landscape image management
-- ⏳ **Color Palette System:** Extraction and display
-- ⏳ **Real-Time Countdown:** WebSocket/polling implementation
-- ⏳ **Collaboration System:** Shareable links and permissions
-- ⏳ **Database Schema:** Universe/Galaxy/World data model
-- ⏳ **Visual Navigation UI:** Google Earth-style interface
-- ⏳ **Updated Onboarding:** Separate forms for initial setup vs. world creation
+- In-app notification bell in the header
+- Notifications for: new team member joined, edit uploaded, notes received, task assigned
 
 ---
 
-## Tech Stack (Updated)
+### 13. Todo List (`TodoList.tsx`)
 
-### Core (Existing)
-- **Framework:** Next.js 15 with App Router
-- **Styling:** Tailwind CSS + Shadcn UI
-- **AI:** Claude API via `@anthropic-ai/sdk`
-- **Database:** Supabase (PostgreSQL + auth)
-- **Validation:** Zod schemas
-- **Forms:** React Hook Form
-
-### New Additions Needed
-- **Pinterest API:** For visual reference boards
-- **Image Processing:** For color palette extraction and visual landscape management
-- **Real-Time Updates:** WebSocket or Server-Sent Events for countdown timers
-- **File Uploads:** Uploadthing or similar for visual landscape images and snapshot videos
-- **3D/Interactive UI:** Library for Google Earth-style navigation (research needed - Three.js, React Three Fiber, or similar)
-- **Audio System:** Music preview playback on hover, background audio during world exploration
-- **Video Processing:** Snapshot video upload, looping, vignette effects
-- **Animation System:** World orbital motion, spinning animations, moon orbits
-
-### Phase 2+ Additions
-- **Instagram API:** For snapshot posting
-- **Calendar UI:** For snapshot scheduling
-- **Image AI:** Replicate (FLUX, Stable Diffusion) for visual generation
-- **Analytics:** Performance tracking for snapshots
+- Shows today's tasks pulled from `team_tasks` for today's date
+- Reflects what's actually on the calendar for today
+- Tasks link to the same DB records — checking one off updates the calendar
 
 ---
 
-## Migration Strategy
+## Tech Stack
 
-### Phase 1: Foundation (Current)
-- Keep existing form-based onboarding for now
-- Update terminology in codebase (content → snapshots)
-- Plan new data structures
+### Core
+| Layer | Tech |
+|-------|------|
+| Framework | Next.js 15 (App Router) |
+| Language | TypeScript |
+| Styling | Tailwind CSS |
+| Database | Supabase (PostgreSQL + Auth + Storage) |
+| AI | Claude 3.5 Sonnet (Anthropic) via streaming API |
+| 3D | Three.js + React Three Fiber |
+| Deployment | Vercel (production: themultiverse.space) |
 
-### Phase 2: Core Architecture
-- Implement Universe/Galaxy/World data model
-- Build Google Earth-style navigation interface
-- Create visual landscape system
+### Key Libraries
+| Library | Purpose |
+|---------|---------|
+| `wavesurfer.js` | Waveform display + soundbyte selection |
+| `@breezystack/lamejs` | Client-side WAV → MP3 conversion |
+| `@dnd-kit` | Drag-and-drop for calendar tasks |
+| `resend` | Email notifications |
+| `jspdf` | Shoot schedule PDF export |
+| `tavily` | Instagram/TikTok reference link search |
+| `@anthropic-ai/sdk` | Claude API |
 
-### Phase 3: Enhanced Features
-- Add Pinterest integration
-- Implement collaboration system
-- Add real-time countdown timers
-
-### Phase 4: Polish & Scale
-- Refine visual navigation UX
-- Optimize performance
-- Add advanced collaboration features
-
----
-
-## Key Differentiators
-
-### vs. ChatGPT
-- **Visual Universe Focus:** Not just content generation, but building cohesive visual identity
-- **Music Industry Context:** Understanding of release cycles, visual storytelling
-- **Collaboration:** Built for creative teams, not just individual artists
-- **Proactive Management:** Acts like a manager—suggests, reminds, optimizes (not just generates content)
-
-### vs. Buffer/Later
-- **Visual-First:** Visual landscape and creative direction, not just scheduling
-- **Universe Concept:** Long-term visual identity building, not just individual posts
-- **Music-Specific:** Designed for music release cycles and promotion
-- **Performance-Driven:** Optimizes posting times based on what actually works for YOUR audience
-- **Fanbase Building:** Focuses on building superfans, not just scheduling posts
-
-### vs. Agencies
-- **Self-Service:** Artists build their own visual universe
-- **Collaborative:** Invite team members without agency overhead
-- **Scalable:** AI-powered snapshot generation with visual direction
-- **Always-On Manager:** Works 24/7 to help you post consistently and build your fanbase
-- **Data-Driven:** Uses performance data to optimize your strategy in real-time
-
-### vs. Generic Content Tools
-- **Music-Specific:** Understands release cycles, fan building, and music promotion
-- **Performance Insights:** Shows you what's actually building your fanbase (not just vanity metrics)
-- **Proactive:** Suggests, reminds, and optimizes—doesn't wait for you to ask
-- **Manager Perspective:** Acts like a manager who's always working for you
-
-**The white space:** Nobody combines visual universe building + snapshot generation + music industry expertise + collaboration + proactive management + performance optimization in one platform. The Multiverse is your **master scheduler and manager**—always working to help you post consistently, create high-performing content, and build your fanbase.
+### APIs & Services
+| Service | Usage |
+|---------|-------|
+| Google Maps Places API | Location search in brainstorm |
+| Tavily API | Reference video search for scenes |
+| Google Calendar API | Two-way sync of events |
+| Resend | Transactional emails from `themultiverse.space` |
+| Supabase Storage | Song files, footage |
 
 ---
 
-## Next Steps
+## Database Schema (Key Tables)
 
-### Immediate (Based on Kiss Bang Research)
+### `universes`
+- `id`, `user_id`, `name`, `created_at`
 
-1. ⏳ **World Detail View:** Create modal/sidebar with tabs (Visual, Snapshots, Performance, Treatments, Edits, Schedule)
-2. ⏳ **Enhanced Snapshot Strategy:** Add posting dates, Google Calendar sync, timeline visualization
-3. ⏳ **Treatment Generator:** AI-generated treatments with Pinterest integration, shot list suggestions
-4. ⏳ **Edit Workflow:** Upload system, review/approval interface, version control
-5. ⏳ **Performance Insights:** Track streams, views, new fans, pattern recognition, replication suggestions
-6. ⏳ **Scheduling System:** Shoot day suggestions, team availability coordination, Google Calendar sync
-7. ⏳ **Team Collaboration:** Team panel, permissions, activity feed
+### `galaxies`
+- `id`, `universe_id`, `user_id`, `name`, `release_date`
+- `brainstorm_draft` (JSONB): `{ lyrics, track_url, confirmedSoundbytes, confirmedLocation, alternateLocationNotes, listeningContext, songEmotion, ... }`
+- `brainstorm_liked_scenes` (JSONB array): scenes selected during brainstorm
+- `brainstorm_location_area`: location context
 
-### Foundation (Already Complete)
-- ✅ **3D Navigation:** Google Earth-style interface implemented
-- ✅ **Universe/Galaxy/World Structure:** Data model created
-- ✅ **Visual Landscape System:** Basic implementation
-- ✅ **Snapshot Generation:** AI-powered with visual descriptions
+### `teams`
+- `id`, `universe_id`, `galaxy_id`, `name`, `created_by`
 
-### Future Enhancements
-- ⏳ **Fan Discovery Metrics:** Track new vs. existing fan engagement
-- ⏳ **Streaming Platform Integration:** Connect Spotify/Apple Music for stream attribution
-- ⏳ **Social Media Integration:** Connect Instagram/TikTok for performance tracking
-- ⏳ **Advanced Analytics:** Predictive insights, competitor benchmarking
-
----
-
-## Questions for Future Resolution
-
-- Exact number of snapshots per world (removed "15-20" requirement for now)
-- Specific visual navigation library/technology choice
-- Pinterest API access and rate limits
-- Color palette generation method (AI vs. manual)
-- Snapshot strategy generation frequency and triggers
+### `team_tasks`
+- `id`, `team_id`, `galaxy_id`, `title`, `description`
+- `type`: `'custom' | 'edit' | 'post' | 'prep' | 'release' | 'review' | 'shoot'`
+- `task_category`: `'task' | 'event' | 'footage'`
+- `date`, `start_time`, `end_time`
+- `status`: `'pending' | 'in_progress' | 'completed'`
+- `rollout_zone`: e.g. `'skeleton-1.11'`, `'shoot-check-in'`, `'pre-release'`, etc.
+- `mark_analysis` (JSONB): Shoot check-in data, edit instructions
+- `soundbyte`, `shoot_look`, `video_url`, `caption`, `hashtags`, etc.
 
 ---
 
-## Feature Roadmap
+## Current Calendar State (Leon Tax — "Will I Find You")
 
-See `docs/FEATURE_ROADMAP.md` for complete list of features to be built based on Kiss Bang user research.
+As of February 2026, Leon Tax's calendar reflects the full brainstorm → shoot → check-in workflow:
 
-**Priority Order (Manager Perspective):**
-1. **Consistency Engine** - **THE #1 JOB**: Help artists post consistently. Posting schedules, Google Calendar, reminders, shoot day suggestions, performance-based optimization
-2. **Performance Insights** - **THE #2 JOB**: Show artists what's working and help them replicate success. Social media tracking, stream attribution, fan discovery, pattern recognition, replication suggestions
-3. **Treatment Generator** - Help videographers create better content. AI treatments, Pinterest integration, shot lists
-4. **Edit Workflow** - Streamline collaboration. Upload, review, version control, feedback
-5. **Team Collaboration** - Coordinate teams efficiently. Team management, activity feed, availability coordination
-6. **Visual Enhancements** - Visual feedback on performance. Status indicators, performance badges, timeline visualization
-
-**Everything should be viewed from the perspective of: "How does this help the artist post consistently and build their fanbase?"**
+| Date | Events |
+|------|--------|
+| Fri 3/13 | Shoot Day — Ferndell Nature Trail |
+| Fri 3/13 | Shoot Check-in — Ferndell Nature Trail |
+| Thu 3/19 | Edit Day 1 — Batch 1.1 (with per-post instructions) |
+| Fri 3/20 | Trial 1 for Post 1.11, Trial 2 for Post 1.11 |
+| Sat 3/21 | Post 1.11, Trial 1 for Post 1.12, Trial 2 for Post 1.12, Release Day |
+| Sun 3/22 | Post 1.12, Trial 1 for Post 1.13, Trial 2 for Post 1.13 |
+| Mon 3/23 | Post 1.13 |
+| Tue 3/24 | Trial 1 for Post 1.14, Trial 2 for Post 1.14 |
+| Wed 3/25 | Post 1.14, Trial 1 for Post 1.15, Trial 2 for Post 1.15 |
+| Thu 3/26 | Post 1.15 |
+| Fri 3/27 | Trial 1 for Post 2.11, Trial 2 for Post 2.11 |
+| Sat 3/28 | Weekly Check-in — Batch 1 Review |
+| Sun 3/29+ | Promo Posts (daily), Edit Day 2, Weekly Check-ins |
 
 ---
 
-**This spec will be updated as user journeys are documented and implementation progresses.**
+## What's Pending / Not Yet Built
+
+### Near-Term Priorities
+
+1. **Edit Day → Skeleton post filling**: When the editor submits finished edits on Edit Day, the corresponding skeleton post slot should transform into a filled post with the video attached
+
+2. **Weekly Check-in flow**: The Weekly Check-in task should open a structured form to review batch performance and inform the next batch's strategy (soundbyte winner, scene that performed best, etc.)
+
+3. **Batch 2+ planning**: After Batch 1 check-in, automatically plan Edit Day 2 with instructions based on the learnings
+
+4. **Post scheduling / auto-posting**: Connect Instagram/TikTok accounts and schedule posts directly from the platform
+
+### Medium-Term
+
+5. **Performance analytics**: Track views, saves, shares per post; identify what's working
+
+6. **Instagram/TikTok API integration**: Pull metrics into the platform post-posting
+
+7. **Stream attribution**: Correlate posting activity with Spotify stream spikes
+
+8. **Pattern recognition**: AI identifies what formats/soundbytes/scenes perform best
+
+### Future
+
+9. **Pinterest integration**: Visual references during brainstorm from Pinterest boards
+
+10. **Automated posting**: Auto-post at scheduled times to connected social platforms
+
+11. **Benchmarking**: Compare performance against similar artists
+
+12. **Predictive insights**: Pre-posting predictions based on historical patterns
+
+---
+
+## Key Design Principles
+
+1. **Mark is the guide** — every major workflow starts with a Mark conversation, not a blank form
+2. **Never re-ask what we already know** — all user/song/brainstorm data is persisted and referenced automatically
+3. **No locally-generated tasks for teams with skeleton posts** — the brainstorm workflow is the source of truth for teams that have completed a brainstorm
+4. **Calendar is always DB-backed** — every visible task has a real Supabase record; nothing exists only in memory
+5. **Galaxy-scoped sharing** — artists share individual galaxies (releases), not their entire universe
+6. **Test before committing** — the trial reel system (2 trial reels per post, day before) enables micro-testing before the main post goes out
+
+---
+
+*This spec reflects the live production state as of February 22, 2026. It should be updated after each major feature release.*

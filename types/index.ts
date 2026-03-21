@@ -478,6 +478,7 @@ export interface TeamTask {
   hashtags?: string;
   postStatus?: string; // 'unlinked' | 'linked' | 'analyzed' | 'caption_written' | 'revision_requested' | 'approved' | 'scheduled' | 'posted'
   revisionNotes?: string;
+  rolloutZone?: string; // e.g. 'skeleton-1.11', 'shoot-check-in', 'pre-release', etc.
 }
 
 // Notification
@@ -526,7 +527,7 @@ export interface ContentFormatAssignment {
   // Stafford: soundbyte + shoot look
   soundbyte?: string;        // which song section: intro/verse/pre-chorus/chorus/bridge/outro
   shootLook?: string;        // e.g. "Look 2 — close-up, side angle, seated"
-  rolloutZone?: 'pre-release' | 'release-week' | 'post-release'; // where in the campaign arc
+  rolloutZone?: string; // 'pre-release' | 'release-week' | 'post-release' | 'skeleton-X.YZ'
   // Variation tracking
   variationIndex?: number;     // 0 = original, 1+ = variation (all shot same day)
   variationOf?: string;        // postId of the original this is a variation of

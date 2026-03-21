@@ -744,16 +744,16 @@ export async function createTasksFromBrainstorm(
 
   // Create post events for each brainstormed idea assignment (M: includes soundbyte + rollout_zone)
   for (const assignment of result.formatAssignments) {
-    const postLabel = assignment.postType.charAt(0).toUpperCase() +
-      assignment.postType.slice(1).replace('-', ' ');
-    const title = assignment.ideaTitle
-      ? assignment.ideaTitle
-      : `${postLabel} Post`;
-    let description = assignment.ideaHook
-      ? `Hook: ${assignment.ideaHook}`
-      : `${postLabel} post from content brainstorm`;
-    if (assignment.shootLook) description += `\nLook: ${assignment.shootLook}`;
-    if (assignment.soundbyte) description += `\nSoundbyte: starts at ${assignment.soundbyte}`;
+    // Use ideaTitle directly — skeleton posts are named "Post 1.11" etc., ambiguous ones are "Promo Post"
+    const title = assignment.ideaTitle || 'Promo Post';
+    const isSkeleton = (assignment.rolloutZone || '').startsWith('skeleton-');
+    let description = isSkeleton
+      ? `Skeleton post — edit instructions added on Edit Day 1.`
+      : assignment.ideaHook
+        ? `Hook: ${assignment.ideaHook}`
+        : 'Promo post from content brainstorm';
+    if (!isSkeleton && assignment.shootLook) description += `\nLook: ${assignment.shootLook}`;
+    if (!isSkeleton && assignment.soundbyte) description += `\nSoundbyte: ${assignment.soundbyte}`;
 
     const task = await createTask(teamId, {
       galaxyId,

@@ -35,13 +35,14 @@ interface ScheduledTask {
   id: string;
   title: string;
   description: string;
-  type: 'prep' | 'audience-builder' | 'teaser' | 'promo' | 'release' | 'edit' | 'shoot';
+  type: 'prep' | 'audience-builder' | 'teaser' | 'promo' | 'release' | 'edit' | 'shoot' | 'check_in';
   date: string;
   startTime: string; // e.g., "10:00"
   endTime: string;   // e.g., "11:00"
   completed: boolean;
   contentFormat?: string; // e.g., "Music Video Snippet" — from brainstorm
   isPostEvent?: boolean;  // true for shared calendar post/release events
+  rolloutZone?: string;   // e.g. "skeleton-1.11" for unedited skeleton slots
 }
 
 interface CalendarDay {
@@ -500,10 +501,13 @@ function DraggableTask({
       className={`text-[10px] p-1 rounded transition-all flex flex-col justify-center overflow-hidden ${compact ? 'h-9 flex-shrink-0' : 'flex-1 min-h-0'} ${
         task.isPostEvent ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing'
       } ${
-        // F7: ambiguous (unfilled) post slots get dashed border + dimmed
-        task.description?.includes('Edit instructions will be filled')
-          ? 'border border-dashed border-gray-600/60 bg-gray-800/20 text-gray-500 opacity-70'
-          : `border ${getTaskColor(task.type)}`
+        // Skeleton post slots — greyed out with dashed border, awaiting edit day instructions
+        task.rolloutZone?.startsWith('skeleton-')
+          ? 'border border-dashed border-gray-500/50 bg-gray-800/30 text-gray-500 opacity-60'
+          // F7: ambiguous (unfilled) post slots get dashed border + dimmed
+          : task.description?.includes('Edit instructions will be filled')
+            ? 'border border-dashed border-gray-600/60 bg-gray-800/20 text-gray-500 opacity-70'
+            : `border ${getTaskColor(task.type)}`
       } ${
         isExpanded ? 'ring-2 ring-white/30' : 'hover:ring-1 hover:ring-white/20'
       }`}
@@ -642,10 +646,11 @@ function SortableTask({
         }
       }}
       className={`p-3 mb-2 rounded-lg cursor-grab active:cursor-grabbing transition-all ${
-        // F7: ambiguous posts get dashed border + dimmed
-        task.description?.includes('Edit instructions will be filled')
-          ? 'border border-dashed border-gray-600/60 bg-gray-800/20 text-gray-500 opacity-70'
-          : `border ${getTaskColor(task.type)}`
+        task.rolloutZone?.startsWith('skeleton-')
+          ? 'border border-dashed border-gray-500/50 bg-gray-800/30 text-gray-500 opacity-60'
+          : task.description?.includes('Edit instructions will be filled')
+            ? 'border border-dashed border-gray-600/60 bg-gray-800/20 text-gray-500 opacity-70'
+            : `border ${getTaskColor(task.type)}`
       } ${
         isExpanded ? 'ring-2 ring-white/30' : 'hover:ring-1 hover:ring-white/20'
       }`}
@@ -1267,10 +1272,14 @@ export function EnhancedCalendar({
           else if (tt.type === 'edit') calType = 'edit';
           else if (tt.type === 'shoot') calType = 'shoot';
           else if (tt.type === 'brainstorm') calType = 'prep';
+          else if (tt.type === 'custom' && tt.title.toLowerCase().includes('check-in')) calType = 'check_in';
+
+          const rz: string = (tt as any).rollout_zone || '';
 
           // Determine post type from title for display color
           if (tt.taskCategory === 'event') {
-            if (tt.title.toLowerCase().includes('release')) calType = 'release';
+            if (rz.startsWith('skeleton-')) calType = 'promo'; // skeleton slots use promo base color but get dimmed separately
+            else if (tt.title.toLowerCase().includes('release')) calType = 'release';
             else if (tt.title.toLowerCase().includes('teaser')) calType = 'teaser';
             else if (tt.title.toLowerCase().includes('promo')) calType = 'promo';
             else if (tt.title.toLowerCase().includes('audience')) calType = 'audience-builder';
@@ -1286,6 +1295,7 @@ export function EnhancedCalendar({
             endTime: tt.endTime || '11:00',
             completed: tt.status === 'completed',
             isPostEvent: tt.taskCategory === 'event',
+            rolloutZone: rz || undefined,
           });
         }
       }
@@ -1378,7 +1388,10 @@ export function EnhancedCalendar({
     };
 
     // PREP PHASE (Weeks 1-2): Admin-only (members return early above)
-    {
+    // Skip entirely if the team already has skeleton posts — the brainstorm/shoot-check-in
+    // workflow has replaced the generic prep task generation for this team.
+    const hasSkeletonPosts = (teamTasks || []).some(t => t.rolloutZone?.startsWith('skeleton-'));
+    if (!hasSkeletonPosts) {
       // Determine content tier and find editor/videographer team member
       const editedClipCount = (artistProfile as any)?.editedClipCount ?? 0;
       const rawFootageDesc: string = (artistProfile as any)?.rawFootageDescription || '';
@@ -1473,7 +1486,7 @@ export function EnhancedCalendar({
 
       scheduleTasksIntoDays(week1Tasks, sortedWeek1, 0, 'prep-w1');
       scheduleTasksIntoDays(week2Tasks, sortedWeek2, 1, 'prep-w2');
-    } // end prep phase
+    } // end prep phase (only runs if !hasSkeletonPosts)
     
     // POSTING PHASE (Weeks 3-4): Schedule posts (shared events) + prep tasks (admin only)
     const postingTaskSet = ((artistProfile as any)?.editedClipCount ?? 0) >= 10
@@ -1850,7 +1863,8 @@ export function EnhancedCalendar({
         t.taskCategory !== 'event' &&
         t.taskCategory !== 'footage'
       );
-      if (!hasExistingPrepTasks) {
+      // Also skip if the team has skeleton posts — the brainstorm workflow manages their prep
+      if (!hasExistingPrepTasks && !hasSkeletonPosts) {
         const POST_TYPES = new Set(['audience-builder', 'teaser', 'promo', 'release']);
         // Only save locally-generated tasks (fake IDs like prep-w*) — not DB-backed ones
         const prepTasksToSave = tasks.filter(t =>
@@ -1905,6 +1919,7 @@ export function EnhancedCalendar({
       case 'release': return 'bg-red-500/30 border-red-500 text-red-300';
       case 'edit': return 'bg-cyan-500/30 border-cyan-500 text-cyan-300';
       case 'shoot': return 'bg-orange-500/30 border-orange-500 text-orange-300';
+      case 'check_in': return 'bg-teal-500/30 border-teal-500 text-teal-300';
       default: return 'bg-gray-500/30 border-gray-500 text-gray-300';
     }
   };

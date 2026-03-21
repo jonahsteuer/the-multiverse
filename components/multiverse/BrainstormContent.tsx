@@ -63,8 +63,12 @@ interface BrainstormContentProps {
   homeCity?: string;
   // F13: real team member names for crew selection
   teamMembers?: Array<{ id: string; name: string; role?: string }>;
-  // F5: whether the world already has a song uploaded
+  // F5: whether the world already has a song uploaded (or lyrics saved)
   worldHasSong?: boolean;
+  // Pre-saved lyrics text from a completed brainstorm — skips lyrics collection
+  savedLyrics?: string;
+  // Pre-confirmed soundbytes from a previous session — pre-fills the picker
+  savedSoundbytes?: Soundbyte[];
   // When true, skip the initial steps and auto-restore from the saved draft
   autoResume?: boolean;
   onComplete: (result: BrainstormResult) => void;
@@ -307,6 +311,8 @@ export function BrainstormContent({
   homeCity,
   teamMembers = [],
   worldHasSong = false,
+  savedLyrics,
+  savedSoundbytes,
   autoResume = false,
   onComplete,
   onClose,
@@ -348,10 +354,10 @@ export function BrainstormContent({
   const [sceneReferences, setSceneReferences] = useState<Record<string, string[]>>({});
   const [isLoadingReferences, setIsLoadingReferences] = useState(false);
 
-  // L1-L4: Lyrics state
-  const [lyricsText, setLyricsText] = useState('');
+  // L1-L4: Lyrics state (pre-populate from saved data if available)
+  const [lyricsText, setLyricsText] = useState(savedLyrics || '');
   const [lyricsSegments, setLyricsSegments] = useState<Array<{ start: number; end: number; text: string }>>([]);
-  const [lyricsEditValue, setLyricsEditValue] = useState('');
+  const [lyricsEditValue, setLyricsEditValue] = useState(savedLyrics || '');
   const [lyricsTranscribing, setLyricsTranscribing] = useState(false);
   const [uploadedTrackUrl, setUploadedTrackUrl] = useState('');
   const [suggestedEmotion, setSuggestedEmotion] = useState('');
@@ -388,7 +394,7 @@ export function BrainstormContent({
   const [soundbyteOptions, setSoundbyteOptions] = useState<Soundbyte[]>([]);
   const [likedSoundbytes, setLikedSoundbytes] = useState<Set<string>>(new Set());
   const [rejectedSoundbytes, setRejectedSoundbytes] = useState<Set<string>>(new Set());
-  const [confirmedSoundbytes, setConfirmedSoundbytes] = useState<Soundbyte[]>([]);
+  const [confirmedSoundbytes, setConfirmedSoundbytes] = useState<Soundbyte[]>(savedSoundbytes || []);
 
   // Phase 2: shoot day planning (E, I)
   const [shootDate, setShootDate] = useState('');
@@ -714,14 +720,16 @@ export function BrainstormContent({
     } else if (songEmotionProp && (savedLocationArea || homeCity)) {
       // A: all context saved — skip straight to shoot date
       const locationLabel = savedLocationArea || homeCity;
+      const lyricsNote = savedLyrics ? ' Lyrics locked in too.' : '';
       addBotMessage(
-        `Let's build your next batch for **${galaxyName}**.\n\nGot the vibe (**${songEmotionProp}**) and your area (**${locationLabel}**) saved from last time. When are you thinking of shooting? I'll check the weather and find the best spots.`,
+        `Let's build your next batch for **${galaxyName}**.\n\nGot the vibe (**${songEmotionProp}**) and your area (**${locationLabel}**) saved from last time.${lyricsNote} When are you thinking of shooting? I'll check the weather and find the best spots.`,
         300
       );
     } else if (songEmotionProp) {
       // G: emotion already saved — skip to travel time
+      const lyricsNote = savedLyrics ? ' Lyrics locked in.' : '';
       addBotMessage(
-        `Let's build your content plan for **${galaxyName}**.\n\nI've got the vibe: **${songEmotionProp}**. Before I pull locations — how far are you willing to drive to shoot? (e.g. 10 minutes, 30 minutes, 1 hour)`,
+        `Let's build your content plan for **${galaxyName}**.\n\nI've got the vibe: **${songEmotionProp}**.${lyricsNote} Before I pull locations — how far are you willing to drive to shoot? (e.g. 10 minutes, 30 minutes, 1 hour)`,
         300
       );
     } else {
@@ -748,9 +756,11 @@ export function BrainstormContent({
       addBotMessage(`Let's build your content plan for **${galaxyName}**.\n\nQuick one first — where do you imagine someone listening to this song? (e.g. late-night drive, gym, bedroom, party, nature walk)`, 300);
     } else if (songEmotionProp && (savedLocationArea || homeCity)) {
       const locationLabel = savedLocationArea || homeCity;
-      addBotMessage(`Let's build your next batch for **${galaxyName}**.\n\nGot the vibe (**${songEmotionProp}**) and your area (**${locationLabel}**) saved from last time. When are you thinking of shooting? I'll check the weather and find the best spots.`, 300);
+      const lyricsNote2 = savedLyrics ? ' Lyrics locked in too.' : '';
+      addBotMessage(`Let's build your next batch for **${galaxyName}**.\n\nGot the vibe (**${songEmotionProp}**) and your area (**${locationLabel}**) saved from last time.${lyricsNote2} When are you thinking of shooting? I'll check the weather and find the best spots.`, 300);
     } else if (songEmotionProp) {
-      addBotMessage(`Let's build your content plan for **${galaxyName}**.\n\nI've got the vibe: **${songEmotionProp}**. Before I pull locations — how far are you willing to drive to shoot?`, 300);
+      const lyricsNote2 = savedLyrics ? ' Lyrics locked in.' : '';
+      addBotMessage(`Let's build your content plan for **${galaxyName}**.\n\nI've got the vibe: **${songEmotionProp}**.${lyricsNote2} Before I pull locations — how far are you willing to drive to shoot?`, 300);
     } else {
       addBotMessage(`Let's build your content plan for **${galaxyName}**.\n\nFirst — in 1-2 words, what does this song feel like? (e.g. heartbreak, confidence, nostalgia, rage)`, 300);
     }
@@ -1227,10 +1237,17 @@ export function BrainstormContent({
 
   const enterSoundbytes = () => {
     setStep('ask_soundbytes');
-    addBotMessage(
-      `Now let's pick your soundbytes — the sections of your song each post will be cut to. ${lyricsSegments.length ? "I've pre-selected 5 regions based on your lyrics structure." : "I've pre-selected 5 regions across the track."} Drag the edges to resize, rename any section, and hit Confirm when you're happy.`,
-      400
-    );
+    if (confirmedSoundbytes.length > 0) {
+      addBotMessage(
+        `I've got your soundbytes from last session saved. Take a look — keep them as-is or start fresh with a new upload.`,
+        400
+      );
+    } else {
+      addBotMessage(
+        `Now let's pick your soundbytes — the sections of your song each post will be cut to. ${lyricsSegments.length ? "I've pre-selected 5 regions based on your lyrics structure." : "I've pre-selected 5 regions across the track."} Drag the edges to resize, rename any section, and hit Confirm when you're happy.`,
+        400
+      );
+    }
   };
 
   // Handles confirmation from the new SoundbytePicker component
@@ -1463,34 +1480,37 @@ export function BrainstormContent({
     // F6: Content starts 4 days after shoot (editing buffer)
     const contentStart = addDays(shootDate, 4);
 
-    // Week 1: FILLED posts — one per confirmed soundbyte (3–5)
-    const sbCount = soundbytes.length;
-    const week1PostDays = Array.from({ length: sbCount }, (_, i) => i * 2); // Day 0, 2, 4, (6, 8)
-    const filledAssignments: ContentFormatAssignment[] = soundbytes.slice(0, sbCount).map((sb, i) => {
+    // Batch 1: 5 skeleton posts using X.YZ naming convention
+    // Schedule: POST POST POST _ POST POST _ (days 0,1,2,4,5 from contentStart)
+    // Shoot number = 1 (increments per shoot), batch number = 1 (first edit day)
+    const shootNum = 1;
+    const batchNum = 1;
+    const BATCH_POST_DAYS = [0, 1, 2, 4, 5]; // day offsets for 5 posts within the batch week
+    const filledAssignments: ContentFormatAssignment[] = BATCH_POST_DAYS.map((dayOffset, i) => {
+      const postNum = i + 1; // 1-5
+      const postId = `${shootNum}.${batchNum}${postNum}`; // e.g. "1.11", "1.12"
       const scene = scenes[i % Math.max(scenes.length, 1)];
       const look = looks[i % looks.length];
-      const postDate = addDays(contentStart, week1PostDays[i]);
-      let rolloutZone: 'pre-release' | 'release-week' | 'post-release' = 'post-release';
-      if (releaseDate) {
-        const diff = (new Date(postDate).getTime() - new Date(releaseDate).getTime()) / 86400000;
-        rolloutZone = diff < -1 ? 'pre-release' : diff <= 7 ? 'release-week' : 'post-release';
-      }
+      const postDate = addDays(contentStart, dayOffset);
+      let rolloutZone = `skeleton-${shootNum}.${batchNum}${postNum}`;
       return {
         postId: `fa-w1-${i}-${Date.now()}`,
         postIndex: i,
         date: postDate,
         postType: 'promo' as const,
         format: 'custom' as const,
-        ideaTitle: scene?.title || `Scene ${i + 1}`,
+        ideaTitle: `Post ${postId}`,
         ideaHook: (scene as any)?.action || scene?.title || '',
-        soundbyte: sb.section,
+        soundbyte: soundbytes[i % soundbytes.length]?.section || '',
         shootLook: look.description,
         rolloutZone,
         trialReelDate: addDays(postDate, -1),
       };
     });
 
-    // Week 1 trial reels (2 per post = 10 total, day before each post)
+    // Trial reels: 2 per post (each gets its own slot the day before the post)
+    // Trial N for Post 1.11 → posted day-1, then Post 1.11 is posted the next day
+    // One of the 2 trials becomes the actual post — so 5 posts × 2 trials = 10 extra edits
     const trialReels = filledAssignments.map((a, idx) => ({
       postIndex: idx,
       postDate: a.date,
@@ -3098,7 +3118,41 @@ export function BrainstormContent({
           {/* F5: SOUNDBYTE SELECTION — waveform timeline editor */}
           {step === 'ask_soundbytes' && !isTyping && (
             <div>
-              {uploadedTrackUrl ? (
+              {/* Pre-saved soundbytes from a previous session — show locked-in view */}
+              {confirmedSoundbytes.length > 0 && !uploadedTrackUrl ? (
+                <div className="space-y-3">
+                  <div className="space-y-2">
+                    {confirmedSoundbytes.map((sb, i) => (
+                      <div key={sb.id} className="flex items-center justify-between rounded-xl bg-gray-800/60 border border-gray-700/40 px-3 py-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-purple-400">{i + 1}</span>
+                          <span className="text-sm text-white font-medium">{sb.section}</span>
+                        </div>
+                        <span className="text-xs text-gray-400">{sb.timeRange} · {sb.duration}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <button
+                    onClick={() => {
+                      addUserMessage('Keep these soundbytes');
+                      enterPhase2();
+                    }}
+                    className="w-full py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-sm font-semibold transition-colors"
+                  >
+                    Keep these soundbytes →
+                  </button>
+                  <button
+                    onClick={() => {
+                      setConfirmedSoundbytes([]);
+                      addUserMessage('Start fresh — re-pick soundbytes');
+                      addBotMessage('No problem — upload your track and we\'ll re-select your soundbytes.', 300);
+                    }}
+                    className="w-full py-2 text-sm text-gray-500 hover:text-gray-300 transition-colors"
+                  >
+                    Start fresh
+                  </button>
+                </div>
+              ) : uploadedTrackUrl ? (
                 <SoundbytePicker
                   trackUrl={uploadedTrackUrl}
                   lyricsSegments={lyricsSegments}

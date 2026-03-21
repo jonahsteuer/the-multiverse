@@ -21,6 +21,7 @@ import { UploadPostsModal } from './UploadPostsModal';
 import { UploadFootageModal } from './UploadFootageModal';
 import { PostCardModal } from './PostCardModal';
 import { ShootDayModal } from './ShootDayModal';
+import { ShootCheckInModal } from './ShootCheckInModal';
 import { ReviewNotesModal } from './ReviewNotesModal';
 import { TaskPanel } from './TaskPanel';
 import { FinalizePostsModal } from './FinalizePostsModal';
@@ -143,6 +144,7 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
   const [isCheckingInstagram, setIsCheckingInstagram] = useState(false);
   const [selectedPostCardTask, setSelectedPostCardTask] = useState<TeamTask | null>(null);
   const [selectedShootDayTask, setSelectedShootDayTask] = useState<TeamTask | null>(null);
+  const [selectedCheckInTask, setSelectedCheckInTask] = useState<TeamTask | null>(null);
   const [selectedReviewTask, setSelectedReviewTask] = useState<TeamTask | null>(null);
   const [currentUserName, setCurrentUserName] = useState<string>('');
   const [selectedTaskForPanel, setSelectedTaskForPanel] = useState<TeamTask | null>(null);
@@ -212,25 +214,33 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
   // A: Saved location area from previous brainstorm run
   const [savedLocationArea, setSavedLocationArea] = useState<string | undefined>(undefined);
 
-  // Load stored brainstorm result + saved location area from Supabase on mount
+  // Song data derived from brainstorm_draft — used to skip already-answered questions
+  const [worldHasSong, setWorldHasSong] = useState(false);
+  const [savedLyricsForBrainstorm, setSavedLyricsForBrainstorm] = useState('');
+  const [savedSoundbytesForBrainstorm, setSavedSoundytesForBrainstorm] = useState<Array<{ id: string; section: string; timeRange: string; duration: string; rationale: string }>>([]);
+
+  // Load stored brainstorm draft + location area from Supabase on mount
   useEffect(() => {
     if (galaxy.id) {
       (async () => {
         try {
           const { data } = await supabase
             .from('galaxies')
-            .select('brainstorm_result, brainstorm_location_area')
+            .select('brainstorm_location_area, brainstorm_draft')
             .eq('id', galaxy.id)
             .single();
-          if (data?.brainstorm_result && !brainstormResult) {
-            console.log('[GalaxyView] Loaded brainstorm result from Supabase');
-            setBrainstormResult(data.brainstorm_result as BrainstormResult);
-          }
           if (data?.brainstorm_location_area) {
             setSavedLocationArea(data.brainstorm_location_area as string);
           }
-        } catch (err) {
-          // Column may not exist yet, that's fine
+          const draft = data?.brainstorm_draft as any;
+          if (draft) {
+            // worldHasSong = true if lyrics text or a track URL are already saved
+            if (draft.lyrics || draft.track_url) setWorldHasSong(true);
+            if (draft.lyrics) setSavedLyricsForBrainstorm(draft.lyrics);
+            if (draft.confirmedSoundbytes?.length) setSavedSoundytesForBrainstorm(draft.confirmedSoundbytes);
+          }
+        } catch {
+          // Column may not exist yet — safe to ignore
         }
       })();
     }
@@ -388,26 +398,58 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
       try {
         await createTasksFromBrainstorm(team.id, galaxy.id, result);
 
-        // Create trial reel calendar entries (Instagram-only, day before each post)
+        // Create trial reel skeleton slots — 2 individual slots per post (each a slight variation)
         if (result.trialReels && result.trialReels.length > 0) {
           const { data: { user } } = await supabase.auth.getUser();
           for (const tr of result.trialReels) {
-            await supabase.from('team_tasks').insert({
-              team_id: team.id,
-              galaxy_id: galaxy.id,
-              title: `🎬 Trial Reels — ${tr.postTitle}`,
-              description: 'Post 2–3 slight variations on Instagram today to test which performs best. Use the best one for tomorrow\'s actual post.',
-              type: 'prep',
-              task_category: 'event',
-              date: tr.trialDate,
-              start_time: '10:00',
-              end_time: '10:30',
-              assigned_by: user?.id || null,
-              assigned_to: user?.id || null,
-              status: 'pending',
-            });
+            // Extract skeleton id from the post title e.g. "Post 1.11" → "skeleton-1.11"
+            const skeletonId = tr.postTitle.startsWith('Post ')
+              ? `skeleton-${tr.postTitle.replace('Post ', '')}`
+              : `skeleton-trial`;
+            for (const trialNum of [1, 2]) {
+              await supabase.from('team_tasks').insert({
+                team_id: team.id,
+                galaxy_id: galaxy.id,
+                title: `Trial ${trialNum} for ${tr.postTitle}`,
+                description: `Slight variation ${trialNum} — same clip, different caption or take. Post both, use the best one for the actual post day.`,
+                type: 'post',
+                task_category: 'event',
+                date: tr.trialDate,
+                start_time: '10:00',
+                end_time: '10:30',
+                assigned_by: user?.id || null,
+                assigned_to: user?.id || null,
+                status: 'pending',
+                rollout_zone: skeletonId,
+              });
+            }
           }
-          console.log(`[GalaxyView] Created ${result.trialReels.length} trial reel calendar entries`);
+          console.log(`[GalaxyView] Created ${result.trialReels.length * 2} trial reel skeleton slots`);
+        }
+
+        // Create Shoot Check-in task immediately after shoot day
+        if (result.shootDayDate) {
+          const { data: { user } } = await supabase.auth.getUser();
+          // Schedule check-in ~1h after shoot ends (default shoot end is ~12pm, so 1pm)
+          const shootEndHour = result.shootTimeOfDay === 'morning' ? 13
+            : result.shootTimeOfDay === 'afternoon' ? 17
+            : result.shootTimeOfDay === 'evening' ? 21 : 13;
+          await supabase.from('team_tasks').insert({
+            team_id: team.id,
+            galaxy_id: galaxy.id,
+            title: `Shoot Check-in — ${result.confirmedLocation || 'Shoot Day'}`,
+            description: 'Log what was actually captured today: which scenes/looks were shot, takes per look, soundbytes covered, footage link, and any location changes.',
+            type: 'custom',
+            task_category: 'task',
+            date: result.shootDayDate,
+            start_time: `${String(shootEndHour).padStart(2, '0')}:00`,
+            end_time: `${String(shootEndHour + 1).padStart(2, '0')}:00`,
+            assigned_by: user?.id || null,
+            assigned_to: user?.id || null,
+            status: 'pending',
+            rollout_zone: 'shoot-check-in',
+          });
+          console.log('[GalaxyView] Created Shoot Check-in task');
         }
 
         // Mark the brainstorm task as completed
@@ -540,6 +582,12 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
     // Shoot day events: open ShootDayModal
     if (task.type === 'shoot') {
       setSelectedShootDayTask(task);
+      return;
+    }
+
+    // Shoot Check-in tasks: open ShootCheckInModal
+    if ((task as any).rolloutZone === 'shoot-check-in' || task.title?.toLowerCase().includes('shoot check-in')) {
+      setSelectedCheckInTask(task);
       return;
     }
 
@@ -1814,6 +1862,19 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
                   }}
                   onSaveGeneratedTasks={async (generatedTasks) => {
                     if (!team || !currentUserId) return;
+                    // Guard: if this team already has skeleton posts (brainstorm workflow),
+                    // skip the generic prep task generation entirely — the local state may be
+                    // stale on first render before teamTasks loads from DB.
+                    const { data: skeletonCheck } = await supabase
+                      .from('team_tasks')
+                      .select('id')
+                      .eq('team_id', team.id)
+                      .like('rollout_zone', 'skeleton-%')
+                      .limit(1);
+                    if (skeletonCheck && skeletonCheck.length > 0) {
+                      console.log('[GalaxyView] Skipping prep task save — skeleton posts exist for this team');
+                      return;
+                    }
                     console.log('[GalaxyView] Saving', generatedTasks.length, 'generated tasks to DB');
                     const inserts = generatedTasks.map(t => ({
                       team_id: team.id,
@@ -1954,7 +2015,9 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
           worldId={galaxy.worlds[0]?.id || ''}
           homeCity={(artistProfile as any)?.homeCity || ''}
           teamMembers={(team ? (teamMembers || []).filter(m => m.userId !== currentUserId).map(m => ({ id: m.userId, name: m.displayName || 'Team Member', role: m.role })) : [])}
-          worldHasSong={false}
+          worldHasSong={worldHasSong}
+          savedLyrics={savedLyricsForBrainstorm || undefined}
+          savedSoundbytes={savedSoundbytesForBrainstorm.length ? savedSoundbytesForBrainstorm : undefined}
           autoResume={brainstormAutoResume}
           onComplete={handleBrainstormComplete}
           onClose={() => {
@@ -2072,6 +2135,21 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
           galaxyId={galaxy.id}
           brainstormResult={brainstormResult}
           onClose={() => setSelectedShootDayTask(null)}
+        />
+      )}
+
+      {/* Shoot Check-in Modal — opened by clicking the check-in task after shoot day */}
+      {selectedCheckInTask && (
+        <ShootCheckInModal
+          task={selectedCheckInTask}
+          teamId={team?.id || ''}
+          galaxyId={galaxy.id}
+          onClose={() => setSelectedCheckInTask(null)}
+          onSubmitted={() => {
+            setSelectedCheckInTask(null);
+            // Refresh tasks so the check-in shows as completed + Edit Day gets updated description
+            loadTeamData();
+          }}
         />
       )}
 
