@@ -25,6 +25,33 @@ interface LibraryEntry {
 
 interface PieceState { piece: EditPiece; timeline: EditClip[]; }
 
+interface SavedSession {
+  messages: MarkMessage[];
+  pieces: EditPiece[];        // edit plan without timelines (re-applied when footage uploaded)
+  clipInfos: ClipInfo[];      // names + durations so we can show what was loaded
+  savedAt: string;
+}
+
+// ─── Session persistence ──────────────────────────────────────────────────────
+
+function sessionKey(worldId: string) { return `smart-edit-${worldId}`; }
+
+function loadSession(worldId: string): SavedSession | null {
+  try {
+    const raw = localStorage.getItem(sessionKey(worldId));
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
+
+function saveSession(worldId: string, session: SavedSession) {
+  try { localStorage.setItem(sessionKey(worldId), JSON.stringify(session)); }
+  catch { /* quota exceeded — silent */ }
+}
+
+function clearSession(worldId: string) {
+  try { localStorage.removeItem(sessionKey(worldId)); } catch { /* */ }
+}
+
 interface SmartEditTabProps {
   world: World;
   teamId: string;
@@ -273,20 +300,57 @@ function MarkChat({ messages, onSend, loading, disabled }:
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function SmartEditTab({ world, currentUserId, currentUserName }: SmartEditTabProps) {
+  // ── Session restore ────────────────────────────────────────────────────────
+  const savedSession = loadSession(world.id);
+
   const [library, setLibrary] = useState<LibraryEntry[]>([]);
-  const [messages, setMessages] = useState<MarkMessage[]>([]);
+  const [messages, setMessages] = useState<MarkMessage[]>(savedSession?.messages ?? []);
   const [markLoading, setMarkLoading] = useState(false);
   const [pieces, setPieces] = useState<PieceState[]>([]);
   const [activePieceIdx, setActivePieceIdx] = useState(0);
   const [soundbytes, setSoundbytes] = useState<SoundbyteSummary[]>([]);
   const [trackUrl, setTrackUrl] = useState<string | null>(null);
+  // Saved pieces (plan only, no timeline) awaiting footage re-upload
+  const [pendingPieces, setPendingPieces] = useState<EditPiece[]>(savedSession?.pieces ?? []);
+  const [savedClipInfos] = useState<ClipInfo[]>(savedSession?.clipInfos ?? []);
+  const [savedAt] = useState<string | null>(savedSession?.savedAt ?? null);
   const [audioFileUrl, setAudioFileUrl] = useState<string | null>(null); // user-uploaded audio
   const [downloading, setDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [lipSyncingId, setLipSyncingId] = useState<string | null>(null);
-  const greetedRef = useRef(false);
+  const greetedRef = useRef(!!savedSession); // don't re-greet if restoring a session
   const playerRef = useRef<PlayerRef>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
+
+  // ── Autosave session whenever messages or pieces change ──────────────────
+  useEffect(() => {
+    if (messages.length === 0 && pieces.length === 0) return;
+    saveSession(world.id, {
+      messages,
+      pieces: pieces.map(p => p.piece),
+      clipInfos: library.map(e => e.info),
+      savedAt: new Date().toISOString(),
+    });
+  }, [messages, pieces, library, world.id]);
+
+  // ── Auto-apply pending pieces when footage matches ───────────────────────
+  useEffect(() => {
+    if (!pendingPieces.length || !library.length) return;
+    const allReady = library.every(e => e.info.duration > 0 && !e.analyzing);
+    if (!allReady) return;
+    const applied = pendingPieces.map(piece => ({ piece, timeline: pieceToTimeline(piece, library) }));
+    setPieces(applied);
+    setPendingPieces([]);
+  }, [library, pendingPieces]);
+
+  const handleStartFresh = useCallback(() => {
+    clearSession(world.id);
+    setMessages([]);
+    setPieces([]);
+    setPendingPieces([]);
+    setLibrary(prev => { prev.forEach(e => URL.revokeObjectURL(e.clip.url)); return []; });
+    greetedRef.current = false;
+  }, [world.id]);
 
   // ── Load soundbytes from galaxy ──────────────────────────────────────────
   useEffect(() => {
@@ -479,9 +543,41 @@ export default function SmartEditTab({ world, currentUserId, currentUserName }: 
       {/* Empty state */}
       {!hasClips && (
         <div className="space-y-4">
+          {/* Restore banner */}
+          {savedAt && (savedClipInfos.length > 0 || messages.length > 0) && (
+            <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/5 px-4 py-3 flex items-start gap-3">
+              <span className="text-lg mt-0.5">🔁</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-star-wars text-yellow-400">
+                  Session saved {new Date(savedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                </p>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {messages.length} message{messages.length !== 1 ? 's' : ''} with Mark
+                  {savedClipInfos.length > 0 && ` · ${savedClipInfos.length} clip${savedClipInfos.length !== 1 ? 's' : ''} (${savedClipInfos.map(c => c.name).join(', ')})`}
+                  {pendingPieces.length > 0 && ` · ${pendingPieces.length} edited piece${pendingPieces.length !== 1 ? 's' : ''} ready to restore`}
+                </p>
+                {pendingPieces.length > 0 && (
+                  <p className="text-[10px] text-yellow-500/60 mt-1 font-star-wars">
+                    Re-upload your footage to restore the preview
+                  </p>
+                )}
+              </div>
+              <button
+                onClick={handleStartFresh}
+                className="text-[10px] text-gray-500 hover:text-red-400 font-star-wars transition-colors whitespace-nowrap"
+              >
+                Start fresh
+              </button>
+            </div>
+          )}
+
           <div className="text-center">
             <h3 className="text-sm font-star-wars text-yellow-400 mb-1">Smart Edit</h3>
-            <p className="text-xs text-gray-500">Upload your footage — Mark will watch it and edit it into posts.</p>
+            <p className="text-xs text-gray-500">
+              {pendingPieces.length > 0
+                ? 'Re-upload your footage to restore Mark\'s edit.'
+                : 'Upload your footage — Mark will watch it and edit it into posts.'}
+            </p>
             {soundbytes.length > 0 && (
               <p className="text-xs text-yellow-500/60 mt-1">
                 {soundbytes.length} soundbyte{soundbytes.length !== 1 ? 's' : ''} loaded from this release
@@ -505,6 +601,12 @@ export default function SmartEditTab({ world, currentUserId, currentUserName }: 
                   Footage · {library.length} clip{library.length !== 1 ? 's' : ''}
                   {library.some(e => e.analyzing) && <span className="text-gray-600 ml-1 animate-pulse">· reading...</span>}
                 </h3>
+                <button
+                  onClick={handleStartFresh}
+                  className="text-[10px] text-gray-600 hover:text-red-400 font-star-wars transition-colors"
+                >
+                  Start fresh
+                </button>
                 {/* Audio upload */}
                 <div className="flex items-center gap-2">
                   {soundbytes.length > 0 && (

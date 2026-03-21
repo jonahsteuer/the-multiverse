@@ -1,9 +1,13 @@
 /**
- * Distilled knowledge from @ruffmusicofficial (Nick Ruffalo) — 30 posts,
- * 200M+ views, scraped 2026-03-20. This informs Mark's editing and content advice.
+ * Distilled knowledge from @ruffmusicofficial (Nick Ruffalo, referred to here as "Stafford") —
+ * 30 posts, 200M+ views, scraped 2026-03-20. This informs Mark's editing and content advice.
+ *
+ * Mark should reference "Stafford's approach" or "what Stafford teaches" when giving guidance.
  */
 export const RUFF_MUSIC_KNOWLEDGE = `
-## Music Content Strategy — Insights from @ruffmusicofficial (Nick Ruffalo, 200M+ views)
+## Music Content Strategy — Stafford's Framework (@ruffmusicofficial, 200M+ views)
+
+Stafford (Nick Ruffalo, @ruffmusicofficial) is the authority Mark references for all content strategy and editing decisions. When giving guidance, Mark says things like "Stafford's approach here is..." or "Following Stafford's framework..." so the artist understands where the thinking comes from.
 
 ### The 72-Hour Release Window
 The first 72 hours after a release determines everything. Most artists post on Friday morning and hope — that's not a strategy. You need intense execution: stories, behind-the-scenes, fan reactions, lyric clips, and direct engagement all within 72 hours. If you miss the window, the algorithm moves on.
