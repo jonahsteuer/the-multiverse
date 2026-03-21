@@ -1297,7 +1297,6 @@ export function WorldDetailView({
               teamId={teamId ?? ''}
               currentUserId={currentUserId ?? ''}
               currentUserName={currentUserName ?? 'Artist'}
-              artistName={currentUserName}
             />
           )}
 
