@@ -5,7 +5,7 @@ const webpack = require('webpack');
 const nextConfig: NextConfig = {
   // Exclude Three.js from server components (prevents analysis during build)
   // This tells Next.js to NOT analyze these packages during server-side compilation
-  serverExternalPackages: ['three', '@react-three/fiber', '@react-three/drei'],
+  serverExternalPackages: ['three', '@react-three/fiber', '@react-three/drei', '@remotion/renderer', '@mediapipe/face_mesh'],
   
   webpack: (config, { isServer }) => {
     // Only externalize on server - client needs to bundle but we'll prevent deep analysis

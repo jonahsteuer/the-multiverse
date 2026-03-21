@@ -1293,7 +1293,7 @@ export function WorldDetailView({
 
           {activeTab === 'smart-edit' && (
             <SmartEditTab
-              worldName={currentWorld.name}
+              world={currentWorld}
               teamId={teamId ?? ''}
               currentUserId={currentUserId ?? ''}
               currentUserName={currentUserName ?? 'Artist'}
