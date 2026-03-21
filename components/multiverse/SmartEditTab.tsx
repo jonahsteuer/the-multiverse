@@ -625,7 +625,7 @@ export default function SmartEditTab({ world, currentUserId, currentUserName }: 
             )}
 
             {/* Clip grid (only when clips are loaded) */}
-            {hasClips && <div>
+            {hasClips && (<div>
               <div className="flex items-center justify-between mb-2">
                 <h3 className="text-xs font-star-wars text-yellow-400 uppercase tracking-wider">
                   Footage · {library.length} clip{library.length !== 1 ? 's' : ''}
@@ -662,7 +662,7 @@ export default function SmartEditTab({ world, currentUserId, currentUserName }: 
               </div>
               <FileDropZone onFiles={handleFiles} compact />
             </div>
-            </div>}
+            )}
 
             {/* Pieces */}
             {pieces.length > 0 ? (
