@@ -318,6 +318,8 @@ export default function SmartEditTab({ world, currentUserId, currentUserName }: 
   const [downloading, setDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [lipSyncingId, setLipSyncingId] = useState<string | null>(null);
+  // Show chat layout even before clips are uploaded when resuming a session
+  const [showChat, setShowChat] = useState<boolean>(!!(savedSession?.messages?.length));
   const greetedRef = useRef(!!savedSession); // don't re-greet if restoring a session
   const playerRef = useRef<PlayerRef>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
@@ -553,12 +555,15 @@ export default function SmartEditTab({ world, currentUserId, currentUserName }: 
     <div className="space-y-4">
       {HiddenVideos}
 
-      {/* Empty state */}
-      {!hasClips && (
+      {/* Empty state — show only when no clips AND not showing chat */}
+      {!hasClips && !showChat && (
         <div className="space-y-4">
           {/* Restore banner */}
-          {savedAt && (savedClipInfos.length > 0 || messages.length > 0) && (
-            <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/5 px-4 py-3 flex items-start gap-3">
+          {savedAt && messages.length > 0 && (
+            <button
+              onClick={() => setShowChat(true)}
+              className="w-full text-left rounded-lg border border-yellow-500/30 bg-yellow-500/5 hover:bg-yellow-500/10 hover:border-yellow-500/50 px-4 py-3 flex items-start gap-3 transition-colors"
+            >
               <span className="text-lg mt-0.5">🔁</span>
               <div className="flex-1 min-w-0">
                 <p className="text-xs font-star-wars text-yellow-400">
@@ -566,30 +571,24 @@ export default function SmartEditTab({ world, currentUserId, currentUserName }: 
                 </p>
                 <p className="text-xs text-gray-400 mt-0.5">
                   {messages.length} message{messages.length !== 1 ? 's' : ''} with Mark
-                  {savedClipInfos.length > 0 && ` · ${savedClipInfos.length} clip${savedClipInfos.length !== 1 ? 's' : ''} (${savedClipInfos.map(c => c.name).join(', ')})`}
-                  {pendingPieces.length > 0 && ` · ${pendingPieces.length} edited piece${pendingPieces.length !== 1 ? 's' : ''} ready to restore`}
+                  {savedClipInfos.length > 0 && ` · ${savedClipInfos.length} clip${savedClipInfos.length !== 1 ? 's' : ''}`}
+                  {pendingPieces.length > 0 && ` · ${pendingPieces.length} piece${pendingPieces.length !== 1 ? 's' : ''} saved`}
                 </p>
-                {pendingPieces.length > 0 && (
-                  <p className="text-[10px] text-yellow-500/60 mt-1 font-star-wars">
-                    Re-upload your footage to restore the preview
-                  </p>
-                )}
+                <p className="text-[10px] text-yellow-500/70 mt-1 font-star-wars">Tap to resume →</p>
               </div>
-              <button
-                onClick={handleStartFresh}
-                className="text-[10px] text-gray-500 hover:text-red-400 font-star-wars transition-colors whitespace-nowrap"
+              <span
+                onClick={e => { e.stopPropagation(); handleStartFresh(); }}
+                className="text-[10px] text-gray-500 hover:text-red-400 font-star-wars transition-colors whitespace-nowrap mt-1"
               >
                 Start fresh
-              </button>
-            </div>
+              </span>
+            </button>
           )}
 
           <div className="text-center">
             <h3 className="text-sm font-star-wars text-yellow-400 mb-1">Smart Edit</h3>
             <p className="text-xs text-gray-500">
-              {pendingPieces.length > 0
-                ? 'Re-upload your footage to restore Mark\'s edit.'
-                : 'Upload your footage — Mark will watch it and edit it into posts.'}
+              Upload your footage — Mark will watch it and edit it into posts.
             </p>
             {soundbytes.length > 0 && (
               <p className="text-xs text-yellow-500/60 mt-1">
@@ -601,14 +600,32 @@ export default function SmartEditTab({ world, currentUserId, currentUserName }: 
         </div>
       )}
 
-      {hasClips && (
+      {(hasClips || showChat) && (
         <div className="grid grid-cols-5 gap-4" style={{ minHeight: '560px' }}>
 
           {/* Left: Library + pieces */}
           <div className="col-span-3 flex flex-col gap-3">
 
-            {/* Clip grid */}
-            <div>
+            {/* No clips yet — show upload drop zone in the left panel */}
+            {!hasClips && (
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-star-wars text-yellow-400 uppercase tracking-wider">Upload Footage</h3>
+                  <button onClick={handleStartFresh} className="text-[10px] text-gray-600 hover:text-red-400 font-star-wars transition-colors">
+                    Start fresh
+                  </button>
+                </div>
+                {pendingPieces.length > 0 && (
+                  <p className="text-[10px] text-yellow-500/60 font-star-wars">
+                    Re-upload your footage to restore {pendingPieces.length} saved piece{pendingPieces.length !== 1 ? 's' : ''}
+                  </p>
+                )}
+                <FileDropZone onFiles={handleFiles} />
+              </div>
+            )}
+
+            {/* Clip grid (only when clips are loaded) */}
+            {hasClips && <div>
               <div className="flex items-center justify-between mb-2">
                 <h3 className="text-xs font-star-wars text-yellow-400 uppercase tracking-wider">
                   Footage · {library.length} clip{library.length !== 1 ? 's' : ''}
@@ -645,6 +662,7 @@ export default function SmartEditTab({ world, currentUserId, currentUserName }: 
               </div>
               <FileDropZone onFiles={handleFiles} compact />
             </div>
+            </div>}
 
             {/* Pieces */}
             {pieces.length > 0 ? (
@@ -695,7 +713,7 @@ export default function SmartEditTab({ world, currentUserId, currentUserName }: 
             </div>
             <Card className="flex-1 border-yellow-500/20 bg-black/50 p-3" style={{ minHeight: '460px' }}>
               <div className="h-full">
-                <MarkChat messages={messages} onSend={sendToMark} loading={markLoading} disabled={!hasClips} />
+                <MarkChat messages={messages} onSend={sendToMark} loading={markLoading} disabled={!hasClips && messages.length === 0} />
               </div>
             </Card>
           </div>
