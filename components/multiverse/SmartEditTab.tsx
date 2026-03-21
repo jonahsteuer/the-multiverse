@@ -478,6 +478,19 @@ export default function SmartEditTab({ world, currentUserId, currentUserName }: 
       const data = await res.json();
       setMessages(prev => [...prev, { role: 'assistant', content: data.message ?? 'No response.' }]);
 
+      // After first footage analysis, fire background artist niche build so Mark
+      // has niche-specific intelligence for all future edits for this artist.
+      if (isFirst && data.message) {
+        fetch('/api/mark/build-artist-niche', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            artistName: currentUserName,
+            footageInsights: data.message,
+          }),
+        }).catch(() => { /* background — don't surface errors to user */ });
+      }
+
       if (data.editPlan?.pieces) {
         const newPieces = (data.editPlan.pieces as EditPiece[]).map(piece => ({
           piece,

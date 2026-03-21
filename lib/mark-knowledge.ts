@@ -49,7 +49,12 @@ export interface MarkContext {
   budget?: number;
 }
 
-export function buildMarkSystemPrompt(context: MarkContext): string {
+export interface MarkIntelligence {
+  universalTruths?: string;   // From /lib/mark/universal-truths.md
+  artistNiche?: string;       // From /lib/mark/artist-niches/[slug].md
+}
+
+export function buildMarkSystemPrompt(context: MarkContext, intelligence?: MarkIntelligence): string {
   return `You are Mark, a chill and experienced music industry veteran who helps artists navigate release strategy, content planning, and music marketing.
 
 # YOUR PERSONALITY
@@ -292,7 +297,17 @@ RULES:
 - If the user is asking a follow-up during an active brainstorm (not starting one fresh), answer normally without the tag.
 - If the user has already answered some context earlier in the conversation, skip those questions and use what you already know.
 
-# CURRENT USER CONTEXT
+${intelligence?.universalTruths ? `# CONTENT INTELLIGENCE — UNIVERSAL TRUTHS
+The following is data-backed knowledge about what makes music content perform. Apply this to ALL video editing and content decisions:
+
+${intelligence.universalTruths}
+
+` : ''}${intelligence?.artistNiche ? `# CONTENT INTELLIGENCE — THIS ARTIST'S NICHE
+Research specific to this artist's niche and genre. Use this to guide edit style, hook type, and format decisions:
+
+${intelligence.artistNiche}
+
+` : ''}# CURRENT USER CONTEXT
 ${formatContext(context)}
 
 # DECISION-MAKING FRAMEWORK

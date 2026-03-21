@@ -3,6 +3,10 @@ import type { NextConfig } from "next";
 const webpack = require('webpack');
 
 const nextConfig: NextConfig = {
+  // Bundle Mark's intelligence markdown files in Vercel deployments
+  outputFileTracingIncludes: {
+    '/api/mark': ['./lib/mark/**'],
+  },
   // Exclude Three.js from server components (prevents analysis during build)
   // This tells Next.js to NOT analyze these packages during server-side compilation
   serverExternalPackages: ['three', '@react-three/fiber', '@react-three/drei', '@remotion/renderer', '@mediapipe/face_mesh'],
