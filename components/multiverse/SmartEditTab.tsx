@@ -4,7 +4,8 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Player } from '@remotion/player';
 import { EditPreviewComposition, EditClip, getTotalFrames } from '../remotion/EditPreviewComposition';
 import { Card } from '../ui/card';
-import type { ClipInfo, EditPiece } from '@/app/api/mark-edit/route';
+import type { ClipInfo, ClipFrames, EditPiece } from '@/app/api/mark-edit/route';
+import { extractFrames } from '@/lib/extract-video-frames';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -17,6 +18,8 @@ interface LibraryEntry {
   clip: EditClip;
   file: File;
   info: ClipInfo;
+  frames: string[];      // base64 keyframes for Mark's vision
+  analyzing: boolean;    // true while frames are being extracted
 }
 
 interface SmartEditTabProps {
@@ -113,6 +116,12 @@ function ClipThumb({ entry, index, onRemove }: { entry: LibraryEntry; index: num
         preload="metadata"
       />
       <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
+      {/* Analyzing overlay */}
+      {entry.analyzing && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black/50">
+          <span className="text-[9px] text-yellow-400/80 font-star-wars animate-pulse">analyzing...</span>
+        </div>
+      )}
       <div className="absolute bottom-1 left-1.5 right-1.5 flex items-end justify-between">
         <div>
           <span className="text-yellow-400/80 text-[9px] font-star-wars block leading-tight truncate max-w-[90px]">
@@ -120,9 +129,14 @@ function ClipThumb({ entry, index, onRemove }: { entry: LibraryEntry; index: num
           </span>
           <span className="text-gray-500 text-[9px] font-mono">{formatDuration(entry.info.duration)}</span>
         </div>
-        <span className="text-[10px] bg-black/60 text-yellow-400 font-star-wars px-1.5 py-0.5 rounded">
-          #{index}
-        </span>
+        <div className="flex items-center gap-1">
+          {!entry.analyzing && entry.frames.length > 0 && (
+            <span title="Mark has seen this clip" className="text-[9px]">👁</span>
+          )}
+          <span className="text-[10px] bg-black/60 text-yellow-400 font-star-wars px-1.5 py-0.5 rounded">
+            #{index}
+          </span>
+        </div>
       </div>
       <button
         onClick={onRemove}
@@ -276,11 +290,10 @@ export default function SmartEditTab({
         const index = library.length + i;
         const info: ClipInfo = { index, name: file.name.replace(/\.[^.]+$/, ''), duration: 0 };
         const clip: EditClip = { id, url, startFrom: 0, duration: 0, label: info.name };
-        return { clip, file, info };
+        return { clip, file, info, frames: [], analyzing: true };
       });
 
       setLibrary(prev => {
-        // Re-index all entries
         const all = [...prev, ...newEntries].map((e, i) => ({
           ...e,
           info: { ...e.info, index: i },
@@ -291,20 +304,33 @@ export default function SmartEditTab({
     [library.length],
   );
 
-  // Update duration once video metadata loads
+  // Once duration is known, extract frames for Mark's vision
   const updateDuration = useCallback((id: string, duration: number) => {
-    setLibrary(prev =>
-      prev.map(e =>
+    setLibrary(prev => {
+      const entry = prev.find(e => e.clip.id === id);
+      if (!entry || entry.info.duration === duration) return prev; // already set
+
+      const updated = prev.map(e =>
         e.clip.id === id
-          ? { ...e, clip: { ...e.clip, duration }, info: { ...e.info, duration } }
+          ? { ...e, clip: { ...e.clip, duration }, info: { ...e.info, duration }, analyzing: true }
           : e,
-      ),
-    );
+      );
+
+      // Kick off async frame extraction
+      extractFrames(entry.clip.url, duration, 4).then(frames => {
+        setLibrary(cur =>
+          cur.map(e => e.clip.id === id ? { ...e, frames, analyzing: false } : e),
+        );
+      });
+
+      return updated;
+    });
   }, []);
 
-  // ── Auto-greet when first clip uploaded ───────────────────────────────────
+  // ── Auto-greet once all clips have frames extracted ───────────────────────
   useEffect(() => {
-    if (library.length > 0 && !greetedRef.current && library.every(e => e.info.duration > 0)) {
+    const ready = library.length > 0 && library.every(e => e.info.duration > 0 && !e.analyzing);
+    if (ready && !greetedRef.current) {
       greetedRef.current = true;
       callMark([], library);
     }
@@ -316,12 +342,27 @@ export default function SmartEditTab({
     async (currentMessages: MarkMessage[], currentLibrary: LibraryEntry[]) => {
       setMarkLoading(true);
       try {
+        // Send frames only on the initial greeting call
+        const isFirstCall = currentMessages.filter(m => m.role === 'user').length === 0;
+        const clipFrames: ClipFrames[] = isFirstCall
+          ? currentLibrary
+              .filter(e => e.frames.length > 0)
+              .map(e => ({ clipIndex: e.info.index, frames: e.frames }))
+          : [];
+
+        // For the initial call we need at least one user message — use a silent trigger
+        const messagesToSend: MarkMessage[] =
+          currentMessages.length === 0
+            ? [{ role: 'user', content: 'I just uploaded my footage.' }]
+            : currentMessages;
+
         const res = await fetch('/api/mark-edit', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            messages: currentMessages,
+            messages: messagesToSend,
             clips: currentLibrary.map(e => e.info),
+            clipFrames,
             worldName,
             userName: currentUserName,
           }),
@@ -474,7 +515,10 @@ export default function SmartEditTab({
             <div className="flex items-center gap-2 mb-3">
               <span className="text-lg">🎙️</span>
               <h3 className="text-xs font-star-wars text-yellow-400 uppercase tracking-wider">Mark</h3>
-              {markLoading && (
+              {library.some(e => e.analyzing) && !markLoading && (
+                <span className="text-[10px] text-gray-500 font-star-wars animate-pulse">reading footage...</span>
+              )}
+            {markLoading && (
                 <span className="text-[10px] text-gray-500 font-star-wars animate-pulse">editing...</span>
               )}
             </div>
