@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { FFmpeg } from '@ffmpeg/ffmpeg';
+import { fetchFile, toBlobURL } from '@ffmpeg/util';
 import { Player, PlayerRef } from '@remotion/player';
 import { EditPreviewComposition, EditClip, getTotalFrames, getCompositionSize, AspectRatio } from '../remotion/EditPreviewComposition';
 import { Card } from '../ui/card';
@@ -90,38 +92,103 @@ function pieceToTimeline(piece: EditPiece, library: LibraryEntry[]): EditClip[] 
         startFrom: Math.max(0, pc.startFrom),
         duration: Math.min(pc.duration, entry.info.duration),
         label: pc.label,
+        rotation: entry.clip.rotation,
       } as EditClip;
     })
     .filter((c): c is EditClip => c !== null);
 }
 
-// ─── MediaRecorder download ───────────────────────────────────────────────────
+// ─── FFmpeg MP4 export ────────────────────────────────────────────────────────
 
-async function recordPlayerToBlob(
-  playerRef: React.RefObject<PlayerRef | null>,
-  durationSec: number,
+let _ffmpeg: FFmpeg | null = null;
+let _ffmpegLoaded = false;
+
+async function loadFfmpeg(): Promise<FFmpeg> {
+  if (_ffmpegLoaded && _ffmpeg) return _ffmpeg;
+  _ffmpeg = new FFmpeg();
+  const base = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd';
+  await _ffmpeg.load({
+    coreURL: await toBlobURL(`${base}/ffmpeg-core.js`, 'text/javascript'),
+    wasmURL: await toBlobURL(`${base}/ffmpeg-core.wasm`, 'application/wasm'),
+  });
+  _ffmpegLoaded = true;
+  return _ffmpeg;
+}
+
+function buildVideoFilter(width: number, height: number, rotation?: number): string {
+  const scaleCrop = `scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height}`;
+  if (!rotation) return scaleCrop;
+  const transpose: Record<number, string> = { 90: 'transpose=1', 180: 'transpose=2,transpose=2', 270: 'transpose=2' };
+  const t = transpose[rotation];
+  return t ? `${t},${scaleCrop}` : scaleCrop;
+}
+
+async function exportToMP4(
+  piece: PieceState,
+  audioUrl: string | null,
+  targetWidth: number,
+  targetHeight: number,
   onProgress: (pct: number) => void,
 ): Promise<Blob | null> {
-  const playerEl = document.querySelector('.remotion-player video') as HTMLVideoElement | null;
-  if (!playerEl) return null;
+  onProgress(0.02);
+  const ffmpeg = await loadFfmpeg();
+  onProgress(0.1);
 
-  const stream = (playerEl as any).captureStream?.() || (playerEl as any).mozCaptureStream?.();
-  if (!stream) return null;
+  const trimmedFiles: string[] = [];
+  for (let i = 0; i < piece.timeline.length; i++) {
+    const clip = piece.timeline[i];
+    const inName = `in${i}.mp4`;
+    const outName = `trim${i}.mp4`;
+    const blob = await fetch(clip.url).then(r => r.blob());
+    await ffmpeg.writeFile(inName, await fetchFile(blob));
+    const vf = buildVideoFilter(targetWidth, targetHeight, clip.rotation);
+    await ffmpeg.exec([
+      '-i', inName,
+      '-ss', clip.startFrom.toString(),
+      '-t', clip.duration.toString(),
+      '-vf', vf,
+      '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23',
+      '-an',
+      outName,
+    ]);
+    await ffmpeg.deleteFile(inName);
+    trimmedFiles.push(outName);
+    onProgress(0.1 + (i + 1) / piece.timeline.length * 0.5);
+  }
 
-  return new Promise(resolve => {
-    const chunks: Blob[] = [];
-    const rec = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp9' });
-    rec.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
-    rec.onstop = () => resolve(new Blob(chunks, { type: 'video/webm' }));
-    rec.start(100);
-    playerRef.current?.play();
-    const start = Date.now();
-    const tick = setInterval(() => {
-      const pct = Math.min(1, (Date.now() - start) / (durationSec * 1000));
-      onProgress(pct);
-      if (pct >= 1) { clearInterval(tick); rec.stop(); }
-    }, 200);
-  });
+  // Concatenate trimmed clips
+  const concatTxt = trimmedFiles.map(f => `file '${f}'`).join('\n');
+  await ffmpeg.writeFile('concat.txt', new TextEncoder().encode(concatTxt));
+  await ffmpeg.exec(['-f', 'concat', '-safe', '0', '-i', 'concat.txt', '-c', 'copy', 'video.mp4']);
+  for (const f of trimmedFiles) { try { await ffmpeg.deleteFile(f); } catch { /* */ } }
+  await ffmpeg.deleteFile('concat.txt');
+  onProgress(0.7);
+
+  const totalDuration = piece.timeline.reduce((s, c) => s + c.duration, 0);
+
+  if (audioUrl && piece.piece.audioStartSec !== undefined) {
+    const audioBlob = await fetch(audioUrl).then(r => r.blob());
+    await ffmpeg.writeFile('audio.m4a', await fetchFile(audioBlob));
+    await ffmpeg.exec([
+      '-i', 'video.mp4',
+      '-ss', (piece.piece.audioStartSec || 0).toString(),
+      '-t', totalDuration.toString(),
+      '-i', 'audio.m4a',
+      '-map', '0:v:0', '-map', '1:a:0',
+      '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-shortest',
+      'output.mp4',
+    ]);
+    await ffmpeg.deleteFile('audio.m4a');
+  } else {
+    await ffmpeg.exec(['-i', 'video.mp4', '-c', 'copy', 'output.mp4']);
+  }
+  await ffmpeg.deleteFile('video.mp4');
+  onProgress(0.95);
+
+  const data = await ffmpeg.readFile('output.mp4');
+  await ffmpeg.deleteFile('output.mp4');
+  const bytes = new Uint8Array(data as Uint8Array);
+  return new Blob([bytes], { type: 'video/mp4' });
 }
 
 // ─── File Drop Zone ───────────────────────────────────────────────────────────
@@ -158,8 +225,8 @@ function FileDropZone({ onFiles, compact }: { onFiles: (files: File[]) => void; 
 
 // ─── Clip thumbnail ───────────────────────────────────────────────────────────
 
-function ClipThumb({ entry, index, onRemove, onLipSync, lipSyncing }:
-  { entry: LibraryEntry; index: number; onRemove: () => void; onLipSync: () => void; lipSyncing: boolean }) {
+function ClipThumb({ entry, index, onRemove, onLipSync, lipSyncing, onRotate }:
+  { entry: LibraryEntry; index: number; onRemove: () => void; onLipSync: () => void; lipSyncing: boolean; onRotate: () => void }) {
   return (
     <div className="relative group rounded-lg overflow-hidden border border-yellow-500/20 bg-black">
       <video src={entry.clip.url} className="w-full aspect-video object-cover opacity-70" preload="metadata" />
@@ -187,6 +254,8 @@ function ClipThumb({ entry, index, onRemove, onLipSync, lipSyncing }:
           <button onClick={onLipSync} title="Detect lip sync"
             className="w-5 h-5 flex items-center justify-center bg-black/70 text-purple-400 rounded text-[9px] hover:bg-purple-500/20">👄</button>
         )}
+        <button onClick={onRotate} title={`Rotate (current: ${entry.clip.rotation ?? 0}°)`}
+          className="w-5 h-5 flex items-center justify-center bg-black/70 text-blue-400 rounded text-[10px] hover:bg-blue-500/20">↻</button>
         <button onClick={onRemove}
           className="w-5 h-5 flex items-center justify-center bg-black/70 text-red-400 rounded text-[10px] hover:bg-red-500/20">✕</button>
       </div>
@@ -390,12 +459,14 @@ export default function SmartEditTab({ world, currentUserId, currentUserName }: 
     });
   }, [library.length]);
 
-  const updateDuration = useCallback((id: string, duration: number) => {
+  const updateDuration = useCallback((id: string, duration: number, rotation = 0) => {
     setLibrary(prev => {
       const entry = prev.find(e => e.clip.id === id);
       if (!entry || entry.info.duration > 0) return prev;
       const updated = prev.map(e =>
-        e.clip.id === id ? { ...e, clip: { ...e.clip, duration }, info: { ...e.info, duration } } : e
+        e.clip.id === id
+          ? { ...e, clip: { ...e.clip, duration, rotation }, info: { ...e.info, duration, rotation } }
+          : e
       );
       // Kick off frame extraction
       extractFrames(entry.clip.url, duration).then(frames => {
@@ -410,6 +481,24 @@ export default function SmartEditTab({ world, currentUserId, currentUserName }: 
       const entry = prev.find(e => e.clip.id === id);
       if (entry) URL.revokeObjectURL(entry.clip.url);
       return prev.filter(e => e.clip.id !== id).map((e, i) => ({ ...e, info: { ...e.info, index: i } }));
+    });
+  }, []);
+
+  const rotateClip = useCallback((id: string) => {
+    setLibrary(prev => {
+      const updated = prev.map(e => {
+        if (e.clip.id !== id) return e;
+        const newRotation = ((e.clip.rotation ?? 0) + 90) % 360;
+        return { ...e, clip: { ...e.clip, rotation: newRotation }, info: { ...e.info, rotation: newRotation } };
+      });
+      // Rebuild piece timelines with updated rotation
+      setTimeout(() => {
+        setPieces(prevPieces => prevPieces.map(p => ({
+          ...p,
+          timeline: pieceToTimeline(p.piece, updated),
+        })));
+      }, 0);
+      return updated;
     });
   }, []);
 
@@ -431,6 +520,21 @@ export default function SmartEditTab({ world, currentUserId, currentUserName }: 
       setLipSyncingId(null);
     }
   }, [soundbytes]);
+
+  // ── Auto lip sync when track + clips ready ───────────────────────────────
+  const autoLipSyncRef = useRef(false);
+  useEffect(() => {
+    const hasAudio = soundbytes.length > 0 && (trackUrl || audioFileUrl);
+    if (!hasAudio) return;
+    const allReady = library.length > 0 && library.every(e => e.info.duration > 0 && !e.analyzing);
+    if (!allReady) return;
+    if (autoLipSyncRef.current) return;
+    if (lipSyncingId) return;
+    const needsSync = library.find(e => !e.lipSyncData);
+    if (!needsSync) return;
+    autoLipSyncRef.current = true;
+    runLipSync(needsSync);
+  }, [library, soundbytes, trackUrl, audioFileUrl, lipSyncingId, runLipSync]);
 
   // ── Audio upload ─────────────────────────────────────────────────────────
   const handleAudioFile = (file: File) => {
@@ -514,34 +618,44 @@ export default function SmartEditTab({ world, currentUserId, currentUserName }: 
     callMark(next, library);
   }, [messages, library, callMark]);
 
-  // ── Download via MediaRecorder ───────────────────────────────────────────
+  // ── Download via ffmpeg (MP4) ────────────────────────────────────────────
   const handleDownload = useCallback(async () => {
     if (!pieces[activePieceIdx] || downloading) return;
     setDownloading(true);
     setDownloadProgress(0);
     try {
-      const totalSecs = pieces[activePieceIdx].timeline.reduce((s, c) => s + c.duration, 0);
-      const blob = await recordPlayerToBlob(playerRef, totalSecs + 1, pct => setDownloadProgress(pct));
+      const piece = pieces[activePieceIdx];
+      const { width, height } = getCompositionSize(piece.piece.aspectRatio ?? '9:16');
+      const blob = await exportToMP4(piece, audioFileUrl ?? trackUrl, width, height, pct => setDownloadProgress(pct));
       if (blob) {
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
-        a.download = `${pieces[activePieceIdx].piece.name.replace(/\s+/g, '-')}.webm`;
+        a.download = `${piece.piece.name.replace(/\s+/g, '-')}.mp4`;
         a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 60_000);
       }
+    } catch (err) {
+      console.error('[SmartEdit] ffmpeg export failed:', err);
     } finally {
       setDownloading(false);
       setDownloadProgress(0);
     }
-  }, [pieces, activePieceIdx, downloading]);
+  }, [pieces, activePieceIdx, downloading, audioFileUrl, trackUrl]);
 
-  // ── Hidden video elements (duration detection) ───────────────────────────
+  // ── Hidden video elements (duration + rotation detection) ───────────────
   const HiddenVideos = (
     <div className="hidden">
       {library.map(e => (
         <video key={e.clip.id} src={e.clip.url} preload="metadata" muted
           onLoadedMetadata={ev => {
-            const d = (ev.target as HTMLVideoElement).duration;
-            if (d && d !== e.info.duration) updateDuration(e.clip.id, d);
+            const vid = ev.target as HTMLVideoElement;
+            const d = vid.duration;
+            if (d && d !== e.info.duration) {
+              // Chrome corrects videoWidth/videoHeight for rotation metadata.
+              // If portrait (w < h), the raw stored video is landscape → needs 90° correction in Remotion.
+              const rotation = vid.videoWidth < vid.videoHeight ? 90 : 0;
+              updateDuration(e.clip.id, d, rotation);
+            }
           }} />
       ))}
     </div>
@@ -657,7 +771,8 @@ export default function SmartEditTab({ world, currentUserId, currentUserName }: 
                   <ClipThumb key={entry.clip.id} entry={entry} index={i}
                     onRemove={() => removeFromLibrary(entry.clip.id)}
                     onLipSync={() => runLipSync(entry)}
-                    lipSyncing={lipSyncingId === entry.clip.id} />
+                    lipSyncing={lipSyncingId === entry.clip.id}
+                    onRotate={() => rotateClip(entry.clip.id)} />
                 ))}
               </div>
               <FileDropZone onFiles={handleFiles} compact />

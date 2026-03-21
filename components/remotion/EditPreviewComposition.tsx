@@ -10,6 +10,7 @@ export interface EditClip {
   startFrom: number;   // seconds into source
   duration: number;    // seconds to include
   label?: string;
+  rotation?: number;   // degrees: 90 = portrait phone clip stored as landscape
 }
 
 export interface EditPreviewProps {
@@ -69,21 +70,30 @@ export const EditPreviewComposition: React.FC<EditPreviewProps> = ({
         return (
           <Sequence key={clip.id} from={startFrame} durationInFrames={durationFrames}>
             <AbsoluteFill>
-              <OffthreadVideo
-                src={clip.url}
-                startFrom={Math.round(clip.startFrom * fps)}
-                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-              />
-              {/* Fade in */}
-              <AbsoluteFill
-                style={{
-                  backgroundColor: '#000',
-                  opacity: interpolate(frame - startFrame, [0, 6], [0.7, 0], {
-                    extrapolateRight: 'clamp', extrapolateLeft: 'clamp',
-                  }),
-                  pointerEvents: 'none',
-                }}
-              />
+              {/* Rotation wrapper: corrects portrait phone clips stored as landscape */}
+              {clip.rotation === 90 || clip.rotation === 270 ? (
+                <div style={{ width: '100%', height: '100%', overflow: 'hidden', position: 'relative' }}>
+                  <OffthreadVideo
+                    src={clip.url}
+                    startFrom={Math.round(clip.startFrom * fps)}
+                    style={{
+                      position: 'absolute',
+                      width: '177.78%',   // scale landscape (16:9) to fill portrait container
+                      height: '56.25%',
+                      top: '50%',
+                      left: '50%',
+                      transform: `translate(-50%, -50%) rotate(${clip.rotation}deg)`,
+                      objectFit: 'cover',
+                    }}
+                  />
+                </div>
+              ) : (
+                <OffthreadVideo
+                  src={clip.url}
+                  startFrom={Math.round(clip.startFrom * fps)}
+                  style={{ width: '100%', height: '100%', objectFit: 'cover', transform: clip.rotation === 180 ? 'rotate(180deg)' : undefined }}
+                />
+              )}
               {/* Clip label */}
               {clip.label && (
                 <div style={{
