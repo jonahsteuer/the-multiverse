@@ -10,7 +10,8 @@ export interface EditClip {
   startFrom: number;   // seconds into source
   duration: number;    // seconds to include
   label?: string;
-  rotation?: number;   // degrees: 90 = portrait phone clip stored as landscape
+  rotation?: number;   // degrees: Mark-specified to make subject right-side-up
+  scale?: number;      // 1.0 = fill frame, >1 = zoom in. Never leaves black bars.
 }
 
 export interface EditPreviewProps {
@@ -70,16 +71,17 @@ export const EditPreviewComposition: React.FC<EditPreviewProps> = ({
         return (
           <Sequence key={clip.id} from={startFrame} durationInFrames={durationFrames}>
             <AbsoluteFill>
-              {/* Rotation wrapper: corrects portrait phone clips stored as landscape */}
+              {/* Rotation + scale: Mark specifies per-clip to fill frame correctly */}
               {clip.rotation === 90 || clip.rotation === 270 ? (
                 <div style={{ width: '100%', height: '100%', overflow: 'hidden', position: 'relative' }}>
                   <OffthreadVideo
                     src={clip.url}
                     startFrom={Math.round(clip.startFrom * fps)}
+                    muted
                     style={{
                       position: 'absolute',
-                      width: '177.78%',   // scale landscape (16:9) to fill portrait container
-                      height: '56.25%',
+                      width: `${177.78 * (clip.scale ?? 1)}%`,
+                      height: `${56.25 * (clip.scale ?? 1)}%`,
                       top: '50%',
                       left: '50%',
                       transform: `translate(-50%, -50%) rotate(${clip.rotation}deg)`,
@@ -91,7 +93,16 @@ export const EditPreviewComposition: React.FC<EditPreviewProps> = ({
                 <OffthreadVideo
                   src={clip.url}
                   startFrom={Math.round(clip.startFrom * fps)}
-                  style={{ width: '100%', height: '100%', objectFit: 'cover', transform: clip.rotation === 180 ? 'rotate(180deg)' : undefined }}
+                  muted
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    objectFit: 'cover',
+                    transform: [
+                      clip.rotation === 180 ? 'rotate(180deg)' : '',
+                      clip.scale && clip.scale !== 1 ? `scale(${clip.scale})` : '',
+                    ].filter(Boolean).join(' ') || undefined,
+                  }}
                 />
               )}
               {/* Clip label */}

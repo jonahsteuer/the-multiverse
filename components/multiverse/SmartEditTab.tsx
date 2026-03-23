@@ -1,16 +1,15 @@
 'use client';
 
-import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { FFmpeg } from '@ffmpeg/ffmpeg';
-import { fetchFile, toBlobURL } from '@ffmpeg/util';
+import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { Player, PlayerRef } from '@remotion/player';
 import { EditPreviewComposition, EditClip, getTotalFrames, getCompositionSize, AspectRatio } from '../remotion/EditPreviewComposition';
 import { Card } from '../ui/card';
 import { supabase } from '@/lib/supabase';
 import type { World } from '@/types';
-import type { ClipInfo, ClipFrames, SoundbyteSummary, EditPiece } from '@/app/api/mark-edit/route';
+import type { ClipInfo, ClipFrames, SoundbyteSummary, EditPiece, EditPlanClip } from '@/app/api/mark-edit/route';
 import { extractFrames, VideoFrame } from '@/lib/extract-video-frames';
 import { detectMouthOpennessInVideo, findLipSyncOffset } from '@/lib/detect-mouth-openness';
+import { EditTimeline } from './EditTimeline';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -83,7 +82,7 @@ function parseTimeRange(range: string): [number, number] {
 
 function pieceToTimeline(piece: EditPiece, library: LibraryEntry[]): EditClip[] {
   return piece.clips
-    .map((pc, i) => {
+    .map((pc: EditPlanClip, i: number) => {
       const entry = library[pc.clipIndex];
       if (!entry) return null;
       return {
@@ -92,7 +91,9 @@ function pieceToTimeline(piece: EditPiece, library: LibraryEntry[]): EditClip[] 
         startFrom: Math.max(0, pc.startFrom),
         duration: Math.min(pc.duration, entry.info.duration),
         label: pc.label,
-        rotation: entry.clip.rotation,
+        // Mark specifies rotation/scale; fall back to auto-detected rotation on clip
+        rotation: pc.rotation ?? entry.clip.rotation,
+        scale: pc.scale,
       } as EditClip;
     })
     .filter((c): c is EditClip => c !== null);
@@ -100,19 +101,24 @@ function pieceToTimeline(piece: EditPiece, library: LibraryEntry[]): EditClip[] 
 
 // ─── FFmpeg MP4 export ────────────────────────────────────────────────────────
 
-let _ffmpeg: FFmpeg | null = null;
+// Lazy singleton — only created browser-side, never during SSR
+let _ffmpegInstance: unknown = null;
 let _ffmpegLoaded = false;
 
-async function loadFfmpeg(): Promise<FFmpeg> {
-  if (_ffmpegLoaded && _ffmpeg) return _ffmpeg;
-  _ffmpeg = new FFmpeg();
+async function loadFfmpeg() {
+  if (typeof window === 'undefined') throw new Error('ffmpeg only available in browser');
+  if (_ffmpegLoaded && _ffmpegInstance) return _ffmpegInstance as InstanceType<typeof import('@ffmpeg/ffmpeg').FFmpeg>;
+  const { FFmpeg } = await import('@ffmpeg/ffmpeg');
+  const { toBlobURL } = await import('@ffmpeg/util');
+  const ff = new FFmpeg();
   const base = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd';
-  await _ffmpeg.load({
+  await ff.load({
     coreURL: await toBlobURL(`${base}/ffmpeg-core.js`, 'text/javascript'),
     wasmURL: await toBlobURL(`${base}/ffmpeg-core.wasm`, 'application/wasm'),
   });
+  _ffmpegInstance = ff;
   _ffmpegLoaded = true;
-  return _ffmpeg;
+  return ff;
 }
 
 function buildVideoFilter(width: number, height: number, rotation?: number): string {
@@ -132,6 +138,7 @@ async function exportToMP4(
 ): Promise<Blob | null> {
   onProgress(0.02);
   const ffmpeg = await loadFfmpeg();
+  const { fetchFile } = await import('@ffmpeg/util');
   onProgress(0.1);
 
   const trimmedFiles: string[] = [];
@@ -168,7 +175,8 @@ async function exportToMP4(
 
   if (audioUrl && piece.piece.audioStartSec !== undefined) {
     const audioBlob = await fetch(audioUrl).then(r => r.blob());
-    await ffmpeg.writeFile('audio.m4a', await fetchFile(audioBlob));
+    const { fetchFile: ff2 } = await import('@ffmpeg/util');
+    await ffmpeg.writeFile('audio.m4a', await ff2(audioBlob));
     await ffmpeg.exec([
       '-i', 'video.mp4',
       '-ss', (piece.piece.audioStartSec || 0).toString(),
@@ -225,8 +233,8 @@ function FileDropZone({ onFiles, compact }: { onFiles: (files: File[]) => void; 
 
 // ─── Clip thumbnail ───────────────────────────────────────────────────────────
 
-function ClipThumb({ entry, index, onRemove, onLipSync, lipSyncing, onRotate }:
-  { entry: LibraryEntry; index: number; onRemove: () => void; onLipSync: () => void; lipSyncing: boolean; onRotate: () => void }) {
+function ClipThumb({ entry, index, onRemove, lipSyncing }:
+  { entry: LibraryEntry; index: number; onRemove: () => void; lipSyncing: boolean }) {
   return (
     <div className="relative group rounded-lg overflow-hidden border border-yellow-500/20 bg-black">
       <video src={entry.clip.url} className="w-full aspect-video object-cover opacity-70" preload="metadata" />
@@ -245,17 +253,11 @@ function ClipThumb({ entry, index, onRemove, onLipSync, lipSyncing, onRotate }:
         </div>
         <div className="flex items-center gap-0.5">
           {!entry.analyzing && entry.frames.length > 0 && <span title="Mark has seen this clip" className="text-[9px]">👁</span>}
-          {entry.lipSyncData && <span title="Lip sync data ready" className="text-[9px]">👄</span>}
+          {entry.lipSyncData && <span title="Lip sync detected" className="text-[9px]">👄</span>}
           <span className="text-[10px] bg-black/60 text-yellow-400 font-star-wars px-1 py-0.5 rounded">#{index}</span>
         </div>
       </div>
       <div className="absolute top-1 right-1 hidden group-hover:flex gap-1">
-        {!entry.lipSyncData && !lipSyncing && (
-          <button onClick={onLipSync} title="Detect lip sync"
-            className="w-5 h-5 flex items-center justify-center bg-black/70 text-purple-400 rounded text-[9px] hover:bg-purple-500/20">👄</button>
-        )}
-        <button onClick={onRotate} title={`Rotate (current: ${entry.clip.rotation ?? 0}°)`}
-          className="w-5 h-5 flex items-center justify-center bg-black/70 text-blue-400 rounded text-[10px] hover:bg-blue-500/20">↻</button>
         <button onClick={onRemove}
           className="w-5 h-5 flex items-center justify-center bg-black/70 text-red-400 rounded text-[10px] hover:bg-red-500/20">✕</button>
       </div>
@@ -270,8 +272,8 @@ function ClipThumb({ entry, index, onRemove, onLipSync, lipSyncing, onRotate }:
 
 // ─── Piece preview ────────────────────────────────────────────────────────────
 
-function PiecePreview({ piece, timeline, audioUrl, playerRef }:
-  { piece: EditPiece; timeline: EditClip[]; audioUrl: string | null; playerRef: React.RefObject<PlayerRef | null> }) {
+function PiecePreview({ piece, timeline, inputProps, playerRef }:
+  { piece: EditPiece; timeline: EditClip[]; inputProps: Parameters<typeof EditPreviewComposition>[0]; playerRef: React.RefObject<PlayerRef | null> }) {
   const totalFrames = getTotalFrames(timeline, FPS);
   const { width, height } = getCompositionSize(piece.aspectRatio ?? '9:16');
   const totalSecs = timeline.reduce((s, c) => s + c.duration, 0);
@@ -285,13 +287,9 @@ function PiecePreview({ piece, timeline, audioUrl, playerRef }:
       {timeline.length > 0 ? (
         <Player
           ref={playerRef}
-          component={EditPreviewComposition}
-          inputProps={{
-            clips: timeline,
-            audioUrl: audioUrl ?? undefined,
-            audioStartSec: piece.audioStartSec,
-            audioDurationSec: piece.audioDurationSec,
-          }}
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          component={EditPreviewComposition as any}
+          inputProps={inputProps as any}
           durationInFrames={totalFrames}
           fps={FPS}
           compositionWidth={width}
@@ -387,6 +385,9 @@ export default function SmartEditTab({ world, currentUserId, currentUserName }: 
   const [downloading, setDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [lipSyncingId, setLipSyncingId] = useState<string | null>(null);
+  // Two-pass state
+  const [pass1Done, setPass1Done] = useState(false);
+  const [lipSyncResults, setLipSyncResults] = useState<Array<{ clipIndex: number; offsetSec: number; confidence: number }>>([]);
   // Show chat layout even before clips are uploaded when resuming a session
   const [showChat, setShowChat] = useState<boolean>(!!(savedSession?.messages?.length));
   const greetedRef = useRef(!!savedSession); // don't re-greet if restoring a session
@@ -419,9 +420,30 @@ export default function SmartEditTab({ world, currentUserId, currentUserName }: 
     setMessages([]);
     setPieces([]);
     setPendingPieces([]);
+    setPass1Done(false);
+    setLipSyncResults([]);
     setLibrary(prev => { prev.forEach(e => URL.revokeObjectURL(e.clip.url)); return []; });
     greetedRef.current = false;
   }, [world.id]);
+
+  // ── Save a new soundbyte to Supabase ────────────────────────────────────────
+  const saveSoundbyteToSupabase = useCallback(async (label: string, startSec: number, endSec: number) => {
+    if (!world.galaxyId) return;
+    try {
+      const { data } = await supabase.from('galaxies').select('brainstorm_draft').eq('id', world.galaxyId).single();
+      const draft = (data?.brainstorm_draft ?? {}) as Record<string, unknown>;
+      const existing = (draft.confirmedSoundbytes as unknown[]) ?? [];
+      const newSb = {
+        id: `sb-${Date.now()}`,
+        section: label,
+        timeRange: `${fmtSec(startSec)}–${fmtSec(endSec)}`,
+      };
+      await supabase.from('galaxies').update({
+        brainstorm_draft: { ...draft, confirmedSoundbytes: [...existing, newSb] },
+      }).eq('id', world.galaxyId);
+      setSoundbytes(prev => [...prev, { id: newSb.id, label, startSec, endSec }]);
+    } catch { /* non-blocking */ }
+  }, [world.galaxyId]);
 
   // ── Load soundbytes from galaxy ──────────────────────────────────────────
   useEffect(() => {
@@ -484,57 +506,28 @@ export default function SmartEditTab({ world, currentUserId, currentUserName }: 
     });
   }, []);
 
-  const rotateClip = useCallback((id: string) => {
-    setLibrary(prev => {
-      const updated = prev.map(e => {
-        if (e.clip.id !== id) return e;
-        const newRotation = ((e.clip.rotation ?? 0) + 90) % 360;
-        return { ...e, clip: { ...e.clip, rotation: newRotation }, info: { ...e.info, rotation: newRotation } };
-      });
-      // Rebuild piece timelines with updated rotation
-      setTimeout(() => {
-        setPieces(prevPieces => prevPieces.map(p => ({
-          ...p,
-          timeline: pieceToTimeline(p.piece, updated),
-        })));
-      }, 0);
-      return updated;
-    });
-  }, []);
 
   // ── Lip sync detection ───────────────────────────────────────────────────
-  const runLipSync = useCallback(async (entry: LibraryEntry) => {
+  const runLipSync = useCallback(async (entry: LibraryEntry, targetSoundbyte?: SoundbyteSummary) => {
     setLipSyncingId(entry.clip.id);
     try {
       const data = await detectMouthOpennessInVideo(entry.clip.url, entry.info.duration, 10);
       setLibrary(prev => prev.map(e => e.clip.id === entry.clip.id ? { ...e, lipSyncData: data } : e));
 
-      // If we have a soundbyte, find best alignment and tell Mark
-      if (soundbytes.length > 0) {
-        const sb = soundbytes[0];
+      // Store alignment result for Mark's pass 2
+      const sb = targetSoundbyte ?? soundbytes[0];
+      if (sb) {
         const { videoStartSec, confidence } = findLipSyncOffset(data, sb.startSec, sb.endSec - sb.startSec);
-        const msg = `Lip sync analysis done for clip #${entry.info.index} ("${entry.info.name}"). Best alignment for "${sb.label}" soundbyte: clip should start at ${videoStartSec.toFixed(1)}s (confidence: ${Math.round(confidence * 100)}%). Want me to apply this to the edit?`;
-        setMessages(prev => [...prev, { role: 'assistant', content: msg }]);
+        setLipSyncResults(prev => [
+          ...prev.filter(r => r.clipIndex !== entry.info.index),
+          { clipIndex: entry.info.index, offsetSec: videoStartSec, confidence },
+        ]);
       }
     } finally {
       setLipSyncingId(null);
     }
   }, [soundbytes]);
 
-  // ── Auto lip sync when track + clips ready ───────────────────────────────
-  const autoLipSyncRef = useRef(false);
-  useEffect(() => {
-    const hasAudio = soundbytes.length > 0 && (trackUrl || audioFileUrl);
-    if (!hasAudio) return;
-    const allReady = library.length > 0 && library.every(e => e.info.duration > 0 && !e.analyzing);
-    if (!allReady) return;
-    if (autoLipSyncRef.current) return;
-    if (lipSyncingId) return;
-    const needsSync = library.find(e => !e.lipSyncData);
-    if (!needsSync) return;
-    autoLipSyncRef.current = true;
-    runLipSync(needsSync);
-  }, [library, soundbytes, trackUrl, audioFileUrl, lipSyncingId, runLipSync]);
 
   // ── Audio upload ─────────────────────────────────────────────────────────
   const handleAudioFile = (file: File) => {
@@ -544,21 +537,26 @@ export default function SmartEditTab({ world, currentUserId, currentUserName }: 
     setMessages(prev => [...prev, { role: 'assistant', content: `Got your audio file "${file.name}". I'll use this for the edit. Want me to re-cut with the audio in mind?` }]);
   };
 
-  // ── Auto-greet ───────────────────────────────────────────────────────────
+  // ── Auto-greet (triggers Pass 1) ─────────────────────────────────────────
   useEffect(() => {
     const ready = library.length > 0 && library.every(e => e.info.duration > 0 && !e.analyzing);
     if (ready && !greetedRef.current) {
       greetedRef.current = true;
-      callMark([], library);
+      callMark([], library, []);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [library]);
 
-  // ── Mark API call ────────────────────────────────────────────────────────
-  const callMark = useCallback(async (currentMessages: MarkMessage[], currentLibrary: LibraryEntry[]) => {
+  // ── Mark API call (two-pass aware) ───────────────────────────────────────
+  const callMark = useCallback(async (
+    currentMessages: MarkMessage[],
+    currentLibrary: LibraryEntry[],
+    currentPieces?: PieceState[],
+  ) => {
     setMarkLoading(true);
     try {
       const isFirst = currentMessages.filter(m => m.role === 'user').length === 0;
+      // Send frames only on first call (pass 1)
       const clipFrames: ClipFrames[] = isFirst
         ? currentLibrary.filter(e => e.frames.length > 0).map(e => ({ clipIndex: e.info.index, frames: e.frames }))
         : [];
@@ -566,6 +564,15 @@ export default function SmartEditTab({ world, currentUserId, currentUserName }: 
       const messagesToSend = currentMessages.length === 0
         ? [{ role: 'user' as const, content: 'I just uploaded my footage.' }]
         : currentMessages;
+
+      // Include current timeline so Mark can observe manual edits silently
+      const activeTl = currentPieces?.[0]?.timeline;
+      const currentTimeline = activeTl?.map(c => ({
+        clipIndex: currentLibrary.findIndex(e => e.clip.url === c.url),
+        startFrom: c.startFrom,
+        duration: c.duration,
+        label: c.label,
+      })).filter(c => c.clipIndex >= 0);
 
       const res = await fetch('/api/mark-edit', {
         method: 'POST',
@@ -579,22 +586,40 @@ export default function SmartEditTab({ world, currentUserId, currentUserName }: 
           worldName: world.name,
           userName: currentUserName,
           genre: 'music',
+          lipSyncResults: pass1Done ? lipSyncResults : undefined,
+          currentTimeline: currentTimeline?.length ? currentTimeline : undefined,
         }),
       });
       const data = await res.json();
+
+      // Parse pass1 data — auto-run lip sync on flagged clips
+      if (data.pass1 && !pass1Done) {
+        setPass1Done(true);
+        const flaggedClips: number[] = data.pass1.lipsyncClips ?? [];
+        for (const clipIdx of flaggedClips) {
+          const entry = currentLibrary[clipIdx];
+          if (entry && !entry.lipSyncData) {
+            // Run lip sync in background — results feed into next Mark call
+            runLipSync(entry, soundbytes[0]);
+          }
+        }
+      }
+
+      // Parse new soundbyte — save to Supabase automatically
+      if (data.newSoundbyte) {
+        const { label, startSec, endSec } = data.newSoundbyte;
+        saveSoundbyteToSupabase(label, startSec, endSec);
+      }
+
       setMessages(prev => [...prev, { role: 'assistant', content: data.message ?? 'No response.' }]);
 
-      // After first footage analysis, fire background artist niche build so Mark
-      // has niche-specific intelligence for all future edits for this artist.
+      // Background artist niche build after first analysis
       if (isFirst && data.message) {
         fetch('/api/mark/build-artist-niche', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            artistName: currentUserName,
-            footageInsights: data.message,
-          }),
-        }).catch(() => { /* background — don't surface errors to user */ });
+          body: JSON.stringify({ artistName: currentUserName, footageInsights: data.message }),
+        }).catch(() => {});
       }
 
       if (data.editPlan?.pieces) {
@@ -610,13 +635,13 @@ export default function SmartEditTab({ world, currentUserId, currentUserName }: 
     } finally {
       setMarkLoading(false);
     }
-  }, [world.name, currentUserName, soundbytes, trackUrl, audioFileUrl]);
+  }, [world.name, currentUserName, soundbytes, trackUrl, audioFileUrl, pass1Done, lipSyncResults, runLipSync, saveSoundbyteToSupabase]);
 
   const sendToMark = useCallback((text: string) => {
     const next = [...messages, { role: 'user' as const, content: text }];
     setMessages(next);
-    callMark(next, library);
-  }, [messages, library, callMark]);
+    callMark(next, library, pieces);
+  }, [messages, library, pieces, callMark]);
 
   // ── Download via ffmpeg (MP4) ────────────────────────────────────────────
   const handleDownload = useCallback(async () => {
@@ -661,9 +686,28 @@ export default function SmartEditTab({ world, currentUserId, currentUserName }: 
     </div>
   );
 
+  // ── Timeline change handler ───────────────────────────────────────────────
+  const handleTimelineChange = useCallback((newTimeline: EditClip[], newAudioStartSec: number) => {
+    setPieces(prev => prev.map((p, i) =>
+      i !== activePieceIdx ? p : {
+        ...p,
+        timeline: newTimeline,
+        piece: { ...p.piece, audioStartSec: newAudioStartSec },
+      }
+    ));
+  }, [activePieceIdx]);
+
   const hasClips = library.length > 0;
   const activePiece = pieces[activePieceIdx];
   const effectiveAudio = audioFileUrl ?? trackUrl;
+
+  // Memoized Player inputProps to avoid Remotion composition re-renders on every parent render
+  const playerInputProps = useMemo(() => ({
+    clips: activePiece?.timeline ?? [],
+    audioUrl: effectiveAudio ?? undefined,
+    audioStartSec: activePiece?.piece.audioStartSec,
+    audioDurationSec: activePiece?.piece.audioDurationSec,
+  }), [activePiece, effectiveAudio]);
 
   return (
     <div className="space-y-4">
@@ -770,9 +814,7 @@ export default function SmartEditTab({ world, currentUserId, currentUserName }: 
                 {library.map((entry, i) => (
                   <ClipThumb key={entry.clip.id} entry={entry} index={i}
                     onRemove={() => removeFromLibrary(entry.clip.id)}
-                    onLipSync={() => runLipSync(entry)}
-                    lipSyncing={lipSyncingId === entry.clip.id}
-                    onRotate={() => rotateClip(entry.clip.id)} />
+                    lipSyncing={lipSyncingId === entry.clip.id} />
                 ))}
               </div>
               <FileDropZone onFiles={handleFiles} compact />
@@ -803,7 +845,7 @@ export default function SmartEditTab({ world, currentUserId, currentUserName }: 
                   <PiecePreview
                     piece={activePiece.piece}
                     timeline={activePiece.timeline}
-                    audioUrl={effectiveAudio}
+                    inputProps={playerInputProps}
                     playerRef={playerRef}
                   />
                 )}
@@ -816,6 +858,15 @@ export default function SmartEditTab({ world, currentUserId, currentUserName }: 
                 </div>
               </div>
             )}
+
+            {/* Edit Timeline — always visible, populates when Mark generates an edit */}
+            <EditTimeline
+              timeline={activePiece?.timeline ?? []}
+              audioStartSec={activePiece?.piece.audioStartSec ?? 0}
+              totalDurationSec={activePiece?.piece.audioDurationSec ?? (activePiece?.timeline.reduce((s, c) => s + c.duration, 0) ?? 0)}
+              onTimelineChange={handleTimelineChange}
+              onScrub={(t) => playerRef.current?.seekTo(Math.round(t * FPS))}
+            />
           </div>
 
           {/* Right: Mark chat */}

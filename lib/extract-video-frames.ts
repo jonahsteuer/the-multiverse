@@ -1,9 +1,8 @@
 /**
- * Extract evenly-spaced keyframes from a local video (object URL) using the Canvas API.
- * Returns objects with base64 JPEG + timestamp label, suitable for Claude vision.
- *
- * Frame count scales with duration: ~1 frame per 1.5 seconds, min 6, max 15.
- * Always includes first and last frame for full context.
+ * Extract 3 keyframes from a local video (object URL) using the Canvas API.
+ * Returns first, middle, and last frames — enough for Mark to understand each clip
+ * while staying within the Anthropic API 100-image limit for large clip sets.
+ * Max width: 800px (API recommends ≤1.15MP to avoid server-side resize latency).
  */
 
 export interface VideoFrame {
@@ -22,10 +21,9 @@ export async function extractFrames(
   videoUrl: string,
   duration: number,
   quality = 0.75,
-  maxWidthPx = 720,
+  maxWidthPx = 800,
 ): Promise<VideoFrame[]> {
-  const count = Math.min(15, Math.max(6, Math.ceil(duration / 1.5)));
-
+  // Always 3 frames: first (0.1s), middle, last — keeps 29-clip sets within API limits
   return new Promise(resolve => {
     const video = document.createElement('video');
     video.src = videoUrl;
@@ -39,14 +37,11 @@ export async function extractFrames(
 
     const frames: VideoFrame[] = [];
 
-    // Sample positions: always include 0s and (duration-0.5)s, evenly distributed between
-    const positions: number[] = [0.1];
-    for (let i = 1; i < count - 1; i++) {
-      positions.push((i / (count - 1)) * (duration * 0.95));
-    }
-    positions.push(Math.max(0, duration - 0.5));
-    // Deduplicate and sort
-    const unique = [...new Set(positions.map(p => Math.round(p * 10) / 10))].sort((a, b) => a - b);
+    const unique = [
+      0.1,
+      Math.max(0.1, duration / 2),
+      Math.max(0.1, duration - 0.5),
+    ].map(p => Math.round(p * 10) / 10);
 
     let idx = 0;
 
