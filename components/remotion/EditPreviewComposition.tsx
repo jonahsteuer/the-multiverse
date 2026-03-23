@@ -60,7 +60,7 @@ export const EditPreviewComposition: React.FC<EditPreviewProps> = ({
   const offsets = getClipFrameOffsets(clips, fps);
   const totalFrames = getTotalFrames(clips, fps);
   const totalSecs = totalFrames / fps;
-  const audioFrames = Math.round((audioDurationSec ?? totalSecs) * fps);
+  const audioFrames = Math.max(1, Math.round((audioDurationSec ?? totalSecs) * fps));
 
   return (
     <AbsoluteFill style={{ backgroundColor: '#000' }}>

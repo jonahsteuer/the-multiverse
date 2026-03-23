@@ -42,8 +42,14 @@ export async function detectMouthOpennessInVideo(
   sampleRateFps = 10,
   onProgress?: (pct: number) => void,
 ): Promise<MouthSample[]> {
-  // Dynamically import MediaPipe to avoid SSR issues
-  const { FaceMesh } = await import('@mediapipe/face_mesh');
+  // Dynamically import MediaPipe — gracefully degrade if CDN assets fail to load
+  let FaceMesh: any;
+  try {
+    ({ FaceMesh } = await import('@mediapipe/face_mesh'));
+  } catch (err) {
+    console.warn('[lip-sync] MediaPipe import failed — skipping detection:', err);
+    return [];
+  }
 
   return new Promise((resolve, reject) => {
     const results: MouthSample[] = [];
@@ -59,10 +65,17 @@ export async function detectMouthOpennessInVideo(
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d')!;
 
-    const faceMesh = new FaceMesh({
-      locateFile: (file: string) =>
-        `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`,
-    });
+    let faceMesh: any;
+    try {
+      faceMesh = new FaceMesh({
+        locateFile: (file: string) =>
+          `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`,
+      });
+    } catch (err) {
+      console.warn('[lip-sync] FaceMesh init failed:', err);
+      resolve([]);
+      return;
+    }
 
     faceMesh.setOptions({
       maxNumFaces: 1,

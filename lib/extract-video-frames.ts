@@ -20,10 +20,11 @@ function formatTimeSec(secs: number): string {
 export async function extractFrames(
   videoUrl: string,
   duration: number,
-  quality = 0.75,
-  maxWidthPx = 800,
+  quality = 0.5,
+  maxWidthPx = 400,
 ): Promise<VideoFrame[]> {
   // Always 3 frames: first (0.1s), middle, last — keeps 29-clip sets within API limits
+  // 400px max / 50% quality ≈ 20-40KB/frame → 87 frames for 29 clips ≈ 3MB (under Vercel 4.5MB limit)
   return new Promise(resolve => {
     const video = document.createElement('video');
     video.src = videoUrl;

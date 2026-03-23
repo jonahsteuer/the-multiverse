@@ -286,6 +286,9 @@ function PiecePreview({ piece, timeline, inputProps, playerRef }:
       </div>
       {timeline.length > 0 ? (
         <Player
+          // Key on audioUrl forces a full remount when the audio source changes,
+          // preventing "NotSupportedError: no supported sources" on stale audio elements
+          key={inputProps.audioUrl ?? 'no-audio'}
           ref={playerRef}
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           component={EditPreviewComposition as any}
@@ -448,21 +451,34 @@ export default function SmartEditTab({ world, currentUserId, currentUserName }: 
   // ── Load soundbytes from galaxy ──────────────────────────────────────────
   useEffect(() => {
     if (!world.galaxyId) return;
-    supabase
-      .from('galaxies')
-      .select('track_url, brainstorm_draft')
-      .eq('id', world.galaxyId)
-      .single()
-      .then(({ data }) => {
-        if (!data) return;
-        if (data.track_url) setTrackUrl(data.track_url);
-        const raw = data.brainstorm_draft?.confirmedSoundbytes ?? [];
-        const parsed: SoundbyteSummary[] = raw.map((sb: any) => {
-          const [startSec, endSec] = parseTimeRange(sb.timeRange || '0:00–0:30');
-          return { id: sb.id, label: sb.section || sb.label || 'Section', startSec, endSec };
-        });
-        setSoundbytes(parsed);
+    (async () => {
+      // Try fetching track_url + brainstorm_draft together; fall back to brainstorm_draft only
+      // in case track_url column doesn't exist on this schema version (returns 400)
+      let galaxyData: Record<string, any> | null = null;
+      const { data: d1, error: e1 } = await supabase
+        .from('galaxies')
+        .select('track_url, brainstorm_draft')
+        .eq('id', world.galaxyId)
+        .maybeSingle();
+      if (e1) {
+        const { data: d2 } = await supabase
+          .from('galaxies')
+          .select('brainstorm_draft')
+          .eq('id', world.galaxyId)
+          .maybeSingle();
+        galaxyData = d2;
+      } else {
+        galaxyData = d1;
+      }
+      if (!galaxyData) return;
+      if (galaxyData.track_url) setTrackUrl(galaxyData.track_url as string);
+      const raw = (galaxyData.brainstorm_draft as any)?.confirmedSoundbytes ?? [];
+      const parsed: SoundbyteSummary[] = raw.map((sb: any) => {
+        const [startSec, endSec] = parseTimeRange(sb.timeRange || '0:00–0:30');
+        return { id: sb.id, label: sb.section || sb.label || 'Section', startSec, endSec };
       });
+      setSoundbytes(parsed);
+    })();
   }, [world.galaxyId]);
 
   // ── File import ──────────────────────────────────────────────────────────
@@ -512,6 +528,7 @@ export default function SmartEditTab({ world, currentUserId, currentUserName }: 
     setLipSyncingId(entry.clip.id);
     try {
       const data = await detectMouthOpennessInVideo(entry.clip.url, entry.info.duration, 10);
+      if (!data.length) return; // MediaPipe failed — skip gracefully, no lipSyncData set
       setLibrary(prev => prev.map(e => e.clip.id === entry.clip.id ? { ...e, lipSyncData: data } : e));
 
       // Store alignment result for Mark's pass 2
@@ -523,6 +540,8 @@ export default function SmartEditTab({ world, currentUserId, currentUserName }: 
           { clipIndex: entry.info.index, offsetSec: videoStartSec, confidence },
         ]);
       }
+    } catch (err) {
+      console.warn('[SmartEdit] Lip sync detection failed — continuing without it:', err);
     } finally {
       setLipSyncingId(null);
     }
@@ -530,12 +549,59 @@ export default function SmartEditTab({ world, currentUserId, currentUserName }: 
 
 
   // ── Audio upload ─────────────────────────────────────────────────────────
-  const handleAudioFile = (file: File) => {
+  // WAV masters (24-bit / 32-bit float) aren't supported by HTML5 audio.
+  // Decode via Web Audio API and re-encode as 16-bit PCM WAV for browser playback.
+  const handleAudioFile = useCallback(async (file: File) => {
     if (audioFileUrl) URL.revokeObjectURL(audioFileUrl);
-    const url = URL.createObjectURL(file);
+
+    let url = URL.createObjectURL(file);
+
+    // Test if the browser can play this audio source; if not, re-encode via Web Audio API
+    const canPlay = await new Promise<boolean>(res => {
+      const testAudio = document.createElement('audio');
+      testAudio.oncanplay = () => res(true);
+      testAudio.onerror = () => res(false);
+      testAudio.src = url;
+      setTimeout(() => res(true), 3000); // treat timeout as "probably fine"
+    });
+
+    if (!canPlay) {
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        const audioCtx = new AudioContext();
+        const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+        audioCtx.close();
+
+        // Encode decoded float32 PCM → 16-bit PCM WAV blob
+        const numChannels = audioBuffer.numberOfChannels;
+        const sampleRate = audioBuffer.sampleRate;
+        const length = audioBuffer.length * numChannels * 2; // 2 bytes per int16
+        const buffer = new ArrayBuffer(44 + length);
+        const view = new DataView(buffer);
+        const writeStr = (off: number, s: string) => { for (let i = 0; i < s.length; i++) view.setUint8(off + i, s.charCodeAt(i)); };
+        writeStr(0, 'RIFF'); view.setUint32(4, 36 + length, true); writeStr(8, 'WAVE');
+        writeStr(12, 'fmt '); view.setUint32(16, 16, true); view.setUint16(20, 1, true);
+        view.setUint16(22, numChannels, true); view.setUint32(24, sampleRate, true);
+        view.setUint32(28, sampleRate * numChannels * 2, true); view.setUint16(32, numChannels * 2, true);
+        view.setUint16(34, 16, true); writeStr(36, 'data'); view.setUint32(40, length, true);
+        let offset = 44;
+        for (let i = 0; i < audioBuffer.length; i++) {
+          for (let ch = 0; ch < numChannels; ch++) {
+            const sample = Math.max(-1, Math.min(1, audioBuffer.getChannelData(ch)[i]));
+            view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+            offset += 2;
+          }
+        }
+        URL.revokeObjectURL(url);
+        url = URL.createObjectURL(new Blob([buffer], { type: 'audio/wav' }));
+      } catch (err) {
+        console.warn('[SmartEdit] Audio re-encode failed — using original:', err);
+      }
+    }
+
     setAudioFileUrl(url);
     setMessages(prev => [...prev, { role: 'assistant', content: `Got your audio file "${file.name}". I'll use this for the edit. Want me to re-cut with the audio in mind?` }]);
-  };
+  }, [audioFileUrl]);
 
   // ── Auto-greet (triggers Pass 1) ─────────────────────────────────────────
   useEffect(() => {
@@ -599,8 +665,8 @@ export default function SmartEditTab({ world, currentUserId, currentUserName }: 
         for (const clipIdx of flaggedClips) {
           const entry = currentLibrary[clipIdx];
           if (entry && !entry.lipSyncData) {
-            // Run lip sync in background — results feed into next Mark call
-            runLipSync(entry, soundbytes[0]);
+            // Run sequentially — concurrent FaceMesh instances crash the MediaPipe WASM runtime
+            await runLipSync(entry, soundbytes[0]);
           }
         }
       }
