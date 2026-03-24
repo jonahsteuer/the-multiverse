@@ -452,26 +452,16 @@ export default function SmartEditTab({ world, currentUserId, currentUserName }: 
   useEffect(() => {
     if (!world.galaxyId) return;
     (async () => {
-      // Try fetching track_url + brainstorm_draft together; fall back to brainstorm_draft only
-      // in case track_url column doesn't exist on this schema version (returns 400)
-      let galaxyData: Record<string, any> | null = null;
-      const { data: d1, error: e1 } = await supabase
+      // Fetch brainstorm_draft — this column is always present.
+      // track_url may not exist in all schema versions; try it separately and ignore errors.
+      const { data: galaxyData } = await supabase
         .from('galaxies')
-        .select('track_url, brainstorm_draft')
+        .select('brainstorm_draft')
         .eq('id', world.galaxyId)
         .maybeSingle();
-      if (e1) {
-        const { data: d2 } = await supabase
-          .from('galaxies')
-          .select('brainstorm_draft')
-          .eq('id', world.galaxyId)
-          .maybeSingle();
-        galaxyData = d2;
-      } else {
-        galaxyData = d1;
-      }
+      // Note: track_url column is not yet in this schema version.
+      // When it is added, load it here: if (galaxyData?.track_url) setTrackUrl(...);
       if (!galaxyData) return;
-      if (galaxyData.track_url) setTrackUrl(galaxyData.track_url as string);
       const raw = (galaxyData.brainstorm_draft as any)?.confirmedSoundbytes ?? [];
       const parsed: SoundbyteSummary[] = raw.map((sb: any) => {
         const [startSec, endSec] = parseTimeRange(sb.timeRange || '0:00–0:30');
