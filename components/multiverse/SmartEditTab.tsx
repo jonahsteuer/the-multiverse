@@ -10,6 +10,12 @@ import type { ClipInfo, ClipFrames, SoundbyteSummary, EditPiece, EditPlanClip } 
 import { extractFrames, VideoFrame } from '@/lib/extract-video-frames';
 import { detectMouthOpennessInVideo, findLipSyncOffset } from '@/lib/detect-mouth-openness';
 import { EditTimeline } from './EditTimeline';
+import { HookPitchCards } from './HookPitchCards';
+import type { ExportQueueItem } from '@/lib/export-queue';
+import { generateTrialReels, type TrialReel } from '@/lib/trial-reel-generator';
+import { RenderReview, type ReEditFeedback } from './RenderReview';
+import { scheduleSmartEditPieces, type ScheduledPost } from '@/lib/smartedit-scheduler';
+import { syncSmartEditPosts } from '@/lib/google-calendar';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -52,6 +58,8 @@ function saveSession(worldId: string, session: SavedSession) {
 function clearSession(worldId: string) {
   try { localStorage.removeItem(sessionKey(worldId)); } catch { /* */ }
 }
+
+type SmartEditPhase = 'upload' | 'analyzing' | 'pitch' | 'rendering' | 'review' | 'scheduled';
 
 interface SmartEditTabProps {
   world: World;
@@ -391,6 +399,18 @@ export default function SmartEditTab({ world, currentUserId, currentUserName }: 
   // Two-pass state
   const [pass1Done, setPass1Done] = useState(false);
   const [lipSyncResults, setLipSyncResults] = useState<Array<{ clipIndex: number; offsetSec: number; confidence: number }>>([]);
+  // Phase state machine
+  const [phase, setPhase] = useState<SmartEditPhase>('upload');
+  const [allPieces, setAllPieces] = useState<EditPiece[]>([]);
+  const [approvedPieces, setApprovedPieces] = useState<EditPiece[]>([]);
+  // Render progress
+  const [renderProgress, setRenderProgress] = useState<{ current: number; total: number }>({ current: 0, total: 0 });
+  const [exportQueue, setExportQueue] = useState<ExportQueueItem[]>([]);
+  // Trial reels (generated after pieces approved; no dates until Phase 6)
+  const [trialReels, setTrialReels] = useState<TrialReel[][]>([]);
+  // Scheduled posts (set after onComplete triggers Phase 6 scheduling)
+  const [scheduledPosts, setScheduledPosts] = useState<ScheduledPost[]>([]);
+  const [syncingCalendar, setSyncingCalendar] = useState(false);
   // Show chat layout even before clips are uploaded when resuming a session
   const [showChat, setShowChat] = useState<boolean>(!!(savedSession?.messages?.length));
   const greetedRef = useRef(!!savedSession); // don't re-greet if restoring a session
@@ -425,6 +445,13 @@ export default function SmartEditTab({ world, currentUserId, currentUserName }: 
     setPendingPieces([]);
     setPass1Done(false);
     setLipSyncResults([]);
+    setPhase('upload');
+    setAllPieces([]);
+    setApprovedPieces([]);
+    setTrialReels([]);
+    setScheduledPosts([]);
+    setExportQueue([]);
+    setRenderProgress({ current: 0, total: 0 });
     setLibrary(prev => { prev.forEach(e => URL.revokeObjectURL(e.clip.url)); return []; });
     greetedRef.current = false;
   }, [world.id]);
@@ -679,12 +706,11 @@ export default function SmartEditTab({ world, currentUserId, currentUserName }: 
       }
 
       if (data.editPlan?.pieces) {
-        const newPieces = (data.editPlan.pieces as EditPiece[]).map(piece => ({
-          piece,
-          timeline: pieceToTimeline(piece, currentLibrary),
-        }));
-        setPieces(newPieces);
-        setActivePieceIdx(0);
+        // Cap at 6 pieces per spec — Mark should never return more, but guard here
+        const rawPieces = (data.editPlan.pieces as EditPiece[]).slice(0, 6);
+        // Route to pitch phase — artist approves before rendering
+        setAllPieces(rawPieces);
+        setPhase('pitch');
       }
     } catch {
       setMessages(prev => [...prev, { role: 'assistant', content: 'Having trouble connecting right now.' }]);
@@ -699,6 +725,62 @@ export default function SmartEditTab({ world, currentUserId, currentUserName }: 
     callMark(next, library, pieces);
   }, [messages, library, pieces, callMark]);
 
+  // Re-edit: send per-piece feedback to Mark, splice revision back into pieces state
+  const handleReEdit = useCallback((pieceIndex: number, feedback: ReEditFeedback) => {
+    const piece = pieces[pieceIndex];
+    if (!piece) return;
+    const tagText = feedback.quickTags.length > 0 ? feedback.quickTags.join(', ') : '';
+    const freeText = feedback.freeText ?? '';
+    const message = [
+      `Re-edit piece '${piece.piece.name}': ${[tagText, freeText].filter(Boolean).join('. ')}.`,
+      `Current edit plan for this piece: ${JSON.stringify(piece.piece)}`,
+      `Output a revised [EDIT_PLAN] with only this piece updated.`,
+    ].join('\n');
+    const next = [...messages, { role: 'user' as const, content: message }];
+    setMessages(next);
+    // callMark will parse the revised [EDIT_PLAN] and set allPieces + phase='pitch'.
+    // Instead we want to splice it in-place — override the editPlan handler via a one-shot flag.
+    void (async () => {
+      setMarkLoading(true);
+      try {
+        const res = await fetch('/api/mark-edit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            messages: next,
+            clips: library.map(e => e.info),
+            soundbytes,
+            trackUrl: audioFileUrl ?? trackUrl,
+            worldName: world.name,
+            userName: currentUserName,
+            genre: 'music',
+            lipSyncResults: pass1Done ? lipSyncResults : undefined,
+          }),
+        });
+        const data = await res.json();
+        setMessages(prev => [...prev, { role: 'assistant' as const, content: data.message ?? 'Revised.' }]);
+        if (data.editPlan?.pieces?.[0]) {
+          const revised = data.editPlan.pieces[0] as EditPiece;
+          // Splice into approvedPieces and pieces at pieceIndex
+          setApprovedPieces(prev => prev.map((p, i) => i === pieceIndex ? revised : p));
+          setPieces(prev => prev.map((p, i) =>
+            i === pieceIndex
+              ? { piece: revised, timeline: pieceToTimeline(revised, library) }
+              : p,
+          ));
+          // Update trial reels for this piece
+          setTrialReels(prev => prev.map((tr, i) =>
+            i === pieceIndex ? generateTrialReels(revised, i) : tr,
+          ));
+        }
+      } catch {
+        setMessages(prev => [...prev, { role: 'assistant' as const, content: 'Could not get revision right now.' }]);
+      } finally {
+        setMarkLoading(false);
+      }
+    })();
+  }, [pieces, messages, library, soundbytes, audioFileUrl, trackUrl, world.name, currentUserName, pass1Done, lipSyncResults]);
+
   // ── Download via ffmpeg (MP4) ────────────────────────────────────────────
   const handleDownload = useCallback(async () => {
     if (!pieces[activePieceIdx] || downloading) return;
@@ -706,8 +788,13 @@ export default function SmartEditTab({ world, currentUserId, currentUserName }: 
     setDownloadProgress(0);
     try {
       const piece = pieces[activePieceIdx];
-      const { width, height } = getCompositionSize(piece.piece.aspectRatio ?? '9:16');
-      const blob = await exportToMP4(piece, audioFileUrl ?? trackUrl, width, height, pct => setDownloadProgress(pct));
+      // Prefer pre-rendered blob from export queue if available
+      const queueItem = exportQueue[activePieceIdx];
+      let blob: Blob | null = queueItem?.blob ?? null;
+      if (!blob) {
+        const { width, height } = getCompositionSize(piece.piece.aspectRatio ?? '9:16');
+        blob = await exportToMP4(piece, audioFileUrl ?? trackUrl, width, height, pct => setDownloadProgress(pct));
+      }
       if (blob) {
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
@@ -721,7 +808,7 @@ export default function SmartEditTab({ world, currentUserId, currentUserName }: 
       setDownloading(false);
       setDownloadProgress(0);
     }
-  }, [pieces, activePieceIdx, downloading, audioFileUrl, trackUrl]);
+  }, [pieces, activePieceIdx, downloading, audioFileUrl, trackUrl, exportQueue]);
 
   // ── Hidden video elements (duration + rotation detection) ───────────────
   const HiddenVideos = (
@@ -877,12 +964,148 @@ export default function SmartEditTab({ world, currentUserId, currentUserName }: 
             </div>
             )}
 
-            {/* Pieces */}
-            {pieces.length > 0 ? (
+            {/* Review phase — artist reviews rendered pieces */}
+            {phase === 'review' && pieces.length > 0 && (
+              <div className="flex-1">
+                <RenderReview
+                  pieces={pieces.map(p => p.piece)}
+                  timelines={pieces.map(p => p.timeline)}
+                  trialReels={trialReels}
+                  audioUrl={audioFileUrl ?? trackUrl}
+                  soundbytes={soundbytes}
+                  exportQueue={exportQueue}
+                  onApprove={(idx) => { /* status tracked inside RenderReview */ }}
+                  onKill={(idx) => { /* status tracked inside RenderReview */ }}
+                  onReEdit={handleReEdit}
+                  onComplete={(approvedIndices, approvedTrialReels) => {
+                    const finalPieces = approvedIndices.map(i => pieces[i].piece);
+                    setApprovedPieces(finalPieces);
+                    setTrialReels(approvedTrialReels);
+                    // Phase 6: stamp posting dates and sync to Google Calendar
+                    const releaseDate = world.releaseDate ?? new Date().toISOString().slice(0, 10);
+                    const posts = scheduleSmartEditPieces(finalPieces, approvedTrialReels, releaseDate);
+                    setScheduledPosts(posts);
+                    setPhase('scheduled');
+                    // Sync to Google Calendar in the background (non-blocking)
+                    setSyncingCalendar(true);
+                    syncSmartEditPosts(posts).finally(() => setSyncingCalendar(false));
+                  }}
+                />
+              </div>
+            )}
+
+            {/* Scheduled confirmation view */}
+            {phase === 'scheduled' && scheduledPosts.length > 0 && (
+              <div className="flex-1 flex flex-col gap-4 overflow-y-auto">
+                <div className="flex items-center gap-2">
+                  <span className="text-xl">📅</span>
+                  <h3 className="text-sm font-star-wars text-yellow-400 uppercase tracking-wider">Posts Scheduled</h3>
+                  {syncingCalendar && (
+                    <span className="text-[10px] text-gray-500 font-star-wars animate-pulse">syncing to calendar...</span>
+                  )}
+                </div>
+                <div className="space-y-3">
+                  {scheduledPosts.map((post) => (
+                    <div key={post.pieceIndex} className="border border-yellow-500/20 rounded-xl bg-black/40 p-3">
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div>
+                          <p className="text-xs font-star-wars text-yellow-300">{post.piece.name}</p>
+                          <p className="text-[10px] text-gray-500">{post.weekLabel}</p>
+                        </div>
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-yellow-500/10 text-yellow-400 border border-yellow-500/20 font-star-wars">
+                          {post.piece.arcType ?? 'edit'}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 text-[10px]">
+                        <div className="rounded-lg bg-yellow-900/10 border border-yellow-500/10 p-2">
+                          <p className="text-gray-600 mb-0.5">🧪 Trial reels</p>
+                          <p className="text-yellow-200/80">{post.trialReelDate}</p>
+                          <p className="text-gray-600 mt-0.5">{post.trialReels.length} variation{post.trialReels.length !== 1 ? 's' : ''}</p>
+                        </div>
+                        <div className="rounded-lg bg-red-900/10 border border-red-500/10 p-2">
+                          <p className="text-gray-600 mb-0.5">📱 Main post</p>
+                          <p className="text-red-300/80">{post.postDate}</p>
+                          <p className="text-gray-600 mt-0.5">{new Date(post.postDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long' })}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex gap-2 pt-1">
+                  <a
+                    href="/calendar"
+                    className="flex-1 text-center text-[11px] py-2 rounded-lg font-star-wars bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-400 border border-yellow-500/20 transition-colors"
+                  >
+                    📅 View Calendar
+                  </a>
+                  <button
+                    onClick={handleStartFresh}
+                    className="flex-1 text-[11px] py-2 rounded-lg font-star-wars bg-black/40 hover:bg-yellow-500/10 text-gray-400 hover:text-yellow-400 border border-yellow-500/10 transition-colors"
+                  >
+                    ✓ Done
+                  </button>
+                </div>
+              </div>
+            )}
+
+          {/* Pitch phase — artist approves pieces before rendering */}
+            {phase === 'pitch' && allPieces.length > 0 && (
+              <div className="flex-1">
+                <HookPitchCards
+                  pieces={allPieces}
+                  clipFrames={library.filter(e => e.frames.length > 0).map(e => ({ clipIndex: e.info.index, frames: e.frames }))}
+                  clipInfos={library.map(e => e.info)}
+                  soundbytes={soundbytes}
+                  onApprove={(approved) => {
+                    setApprovedPieces(approved);
+                    // Resolve timelines immediately so piece 1 is viewable right away
+                    const newPieces = approved.map(piece => ({
+                      piece,
+                      timeline: pieceToTimeline(piece, library),
+                    }));
+                    setPieces(newPieces);
+                    setActivePieceIdx(0);
+                    setPhase('rendering');
+                    // Generate trial reels (no dates yet — Phase 6 stamps them)
+                    setTrialReels(approved.map((piece, i) => generateTrialReels(piece, i)));
+                    // Kick off background export queue
+                    setRenderProgress({ current: 0, total: approved.length });
+                    setExportQueue(approved.map((piece, i) => ({
+                      pieceIndex: i, piece, status: 'queued' as const, progress: 0,
+                    })));
+                    import('@/lib/export-queue').then(({ processExportQueue }) => {
+                      processExportQueue(
+                        approved,
+                        audioFileUrl ?? trackUrl,
+                        exportToMP4,
+                        (piece) => pieceToTimeline(piece, library),
+                        (ar) => ({ width: ar === '16:9' ? 1920 : 1080, height: ar === '16:9' ? 1080 : ar === '1:1' ? 1080 : ar === '4:5' ? 1350 : 1920 }),
+                        (items) => {
+                          setExportQueue(items);
+                          const doneCount = items.filter(i => i.status === 'done' || i.status === 'error').length;
+                          const exportingIdx = items.findIndex(i => i.status === 'exporting');
+                          setRenderProgress({ current: exportingIdx >= 0 ? exportingIdx + 1 : doneCount, total: approved.length });
+                          if (doneCount === items.length) setPhase('review');
+                        },
+                      );
+                    });
+                  }}
+                  onCancel={() => setPhase('upload')}
+                />
+              </div>
+            )}
+
+            {/* Pieces — shown after pitch approval */}
+            {phase !== 'pitch' && pieces.length > 0 && (
               <div className="flex-1">
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2 flex-wrap">
                     <h3 className="text-xs font-star-wars text-yellow-400 uppercase tracking-wider">Edited Pieces</h3>
+                    {phase === 'rendering' && renderProgress.total > 0 && (
+                      <span className="text-[10px] text-gray-500 font-star-wars animate-pulse">
+                        Rendering piece {renderProgress.current} of {renderProgress.total}...
+                      </span>
+                    )}
                     {pieces.map((p, i) => (
                       <button key={i} onClick={() => setActivePieceIdx(i)}
                         className={`text-[10px] px-2 py-1 rounded font-star-wars transition-colors ${i === activePieceIdx ? 'bg-yellow-500/30 text-yellow-400 border border-yellow-400/40' : 'bg-black/40 text-gray-500 border border-yellow-500/10 hover:text-yellow-500/70'}`}>
@@ -906,7 +1129,10 @@ export default function SmartEditTab({ world, currentUserId, currentUserName }: 
                   />
                 )}
               </div>
-            ) : (
+            )}
+
+            {/* Empty state — no pieces yet and not in pitch */}
+            {phase !== 'pitch' && pieces.length === 0 && (
               <div className="flex-1 flex items-center justify-center border border-dashed border-yellow-500/15 rounded-xl">
                 <div className="text-center p-6">
                   <div className="text-3xl mb-2">✂️</div>

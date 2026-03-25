@@ -113,10 +113,36 @@ export async function syncToGoogleCalendar(events: CalendarEvent[]): Promise<{
   // 4. Update events with syncedToGoogle: true
 
   console.log('Mock: Syncing events to Google Calendar', events);
-  
+
   return {
     success: true,
     syncedCount: events.length,
   };
+}
+
+/**
+ * Sync SmartEdit scheduled posts to Google Calendar.
+ * Creates two events per post: trial reel (day before) + main post.
+ * Calls /api/calendar/sync-smartedit which handles OAuth server-side.
+ */
+export async function syncSmartEditPosts(posts: import('./smartedit-scheduler').ScheduledPost[]): Promise<{
+  success: boolean;
+  created: number;
+  errors?: string[];
+}> {
+  try {
+    const res = await fetch('/api/calendar/sync-smartedit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ posts }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      return { success: false, created: 0, errors: [err.message ?? `HTTP ${res.status}`] };
+    }
+    return res.json();
+  } catch (err) {
+    return { success: false, created: 0, errors: [err instanceof Error ? err.message : 'Network error'] };
+  }
 }
 

@@ -45,6 +45,8 @@ export interface EditPiece {
   soundbyteId?: string;
   captionSuggestion?: string;
   hookNotes?: string;       // Mark's note on the hook
+  uniquenessNote?: string;  // Mark's reasoning for why this piece is distinct
+  arcType?: 'build-to-peak' | 'peak-valley-peak' | 'even-montage' | 'slow-build';
 }
 
 // ─── System prompt ────────────────────────────────────────────────────────────
@@ -115,19 +117,43 @@ TWO-PASS WORKFLOW:
 
 PASS 1 — runs automatically when footage is first uploaded:
 1. Look at all keyframes carefully. Identify what's in each clip: action, energy, setting, and — critically — whether the subject appears to be lip syncing (mouth moving in sync, words forming).
-2. Check SAVED SOUNDBYTES. If soundbytes exist, ask which one to build the edit around. If none exist, ask the artist for the section name and time range (e.g., "Hook, 0:28–0:43").
-3. Emit PASS1 JSON with the clip indices that contain lip sync content.
+2. AUTO-DETECT the soundbyte from lip sync evidence:
+   a. If lip sync clips clearly map to ONE song section → proceed without asking. Set detectedSoundbyte with confidence "high".
+   b. If lip sync evidence spans MULTIPLE sections → ask ONE question: "It looks like you recorded to both the [section A] and the [section B] — should I build edits around both, or focus on one?"
+   c. If no saved soundbytes AND lip sync is inconclusive → ask for the section name and time range (e.g., "Hook, 0:28–0:43"). Set detectedSoundbyte with confidence "low".
+3. Emit PASS1 JSON with lip sync clip indices and detected soundbyte.
 4. Keep your Pass 1 message to 3 sentences max.
 
 Pass 1 format — emit at the END of your Pass 1 message:
-[PASS1]{"lipsyncClips":[0,2]}[/PASS1]
+[PASS1]{"lipsyncClips":[0,2],"detectedSoundbyte":{"label":"Chorus","confidence":"high"}}[/PASS1]
 
-If lipsyncClips is empty: [PASS1]{"lipsyncClips":[]}[/PASS1]
+If lipsyncClips is empty: [PASS1]{"lipsyncClips":[],"detectedSoundbyte":{"label":"","confidence":"low"}}[/PASS1]
 
-PASS 2 — after soundbyte is confirmed and lip sync data is provided:
-1. Generate the full edit plan using [EDIT_PLAN] format below.
-2. For lip sync clips, use the startFrom values from LIP SYNC ALIGNMENT DATA above.
-3. Announce the plan in 1–2 sentences, then emit it.
+PASS 2 — MULTI-PIECE CONTENT STRATEGY:
+After soundbyte is confirmed (or auto-detected with high confidence) and lip sync data is provided:
+
+1. PLAN THE FULL CONTENT SET. Look at the total clip count, their variety (different settings, angles, energy levels), and the soundbyte length. Determine how many unique pieces this footage can support:
+   - 5-10 clips → aim for 2-3 pieces
+   - 11-25 clips → aim for 3-5 pieces
+   - 26-50 clips → aim for 4-6 pieces
+   - Never exceed 6 pieces. Quality over quantity.
+
+2. ENSURE UNIQUENESS. Every pair of pieces must differ on at least 2 of these 4 axes:
+   - Different hook clip (clips[0] must be a different clipIndex)
+   - Different arc structure (build-to-peak vs peak-valley-peak vs even-montage vs slow-build)
+   - At least 40% different clip coverage
+   - Different cut rhythm (fast cuts vs held shots vs mixed)
+   If two proposed pieces only differ on 1 axis, merge them or cut the weaker one.
+
+3. APPLY STAFFORD'S FRAMEWORK to every piece:
+   - Hook architecture: first 3 seconds must create tension, start mid-action, or ask a question
+   - Duration: 15-30s for pure clip/hook pieces, 45-60s for story-driven
+   - Pull > Push: make viewers feel they're discovering something
+   - Caption: 85% of video is watched without sound — text overlay strategy matters
+
+4. OUTPUT ALL PIECES in a single [EDIT_PLAN] block. Include hookNotes (shown to artist), uniquenessNote (your reasoning), and arcType for each piece.
+
+5. Announce the plan in 2-3 sentences: how many pieces, why this number, and what the overall content strategy is. Then emit the [EDIT_PLAN].
 
 ROTATION & FRAMING (critical — specify per clip):
 - Look at each clip's keyframes. If the subject appears sideways or upside-down, specify the rotation that makes them right-side-up (0, 90, 180, or 270 degrees).
@@ -152,7 +178,7 @@ TIMELINE OBSERVATION:
 - Do NOT comment on manual changes unless the user asks you about them.
 
 EDIT PLAN FORMAT — emit at the END of your Pass 2 message:
-[EDIT_PLAN]{"pieces":[{"name":"Post Title","aspectRatio":"9:16","clips":[{"clipIndex":0,"startFrom":0,"duration":3.5,"label":"walking","rotation":270,"scale":1.0}],"audioStartSec":28.0,"audioDurationSec":15.0,"soundbyteId":"sb-123","captionSuggestion":"line 1\\nline 2","hookNotes":"Opens mid-walk — immediate energy"}]}[/EDIT_PLAN]
+[EDIT_PLAN]{"pieces":[{"name":"Post Title","aspectRatio":"9:16","arcType":"build-to-peak","uniquenessNote":"Only piece using clips 2,5 — different hook and slower build than piece 2","clips":[{"clipIndex":0,"startFrom":0,"duration":3.5,"label":"walking","rotation":270,"scale":1.0}],"audioStartSec":28.0,"audioDurationSec":15.0,"soundbyteId":"sb-123","captionSuggestion":"line 1\\nline 2","hookNotes":"Opens mid-walk — immediate energy"}]}[/EDIT_PLAN]
 
 Rules:
 - clipIndex = 0-based index from the footage list above
@@ -274,7 +300,7 @@ export async function POST(request: NextRequest) {
 
     const response = await anthropic.messages.create({
       model: 'claude-sonnet-4-20250514',
-      max_tokens: 2000,
+      max_tokens: 8000,
       system: systemPrompt,
       messages: claudeMessages,
     });
@@ -289,7 +315,7 @@ export async function POST(request: NextRequest) {
     }
 
     const pass1Match = text.match(/\[PASS1\]([\s\S]*?)\[\/PASS1\]/);
-    let pass1: { lipsyncClips: number[] } | null = null;
+    let pass1: { lipsyncClips: number[]; detectedSoundbyte?: { label: string; confidence: 'high' | 'medium' | 'low' } } | null = null;
     if (pass1Match) {
       try { pass1 = JSON.parse(pass1Match[1].trim()); }
       catch { /* ignore */ }
