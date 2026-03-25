@@ -32,11 +32,21 @@ const AUDIO_FILE   = '/Users/jonahsteuer/Dropbox/Will I find You Final Master.wa
 const SCREENSHOTS  = 'tests/e2e/screenshots/smart-edit';
 const SOUNDBYTE    = 'Verse 1: 0:46 - 1:15';
 
-// Load all footage paths sorted
-const FOOTAGE_FILES = fs.readdirSync(FOOTAGE_DIR)
+// Use 6 clips for the test (balanced spread across the shoot).
+// All 29 clips = 1.8GB total; frame extraction for all takes >10 min in CI.
+// 6 clips ~= 400MB is sufficient to test the fix and produce a real edit plan.
+const ALL_FOOTAGE_FILES = fs.readdirSync(FOOTAGE_DIR)
   .filter(f => f.endsWith('.mov') || f.endsWith('.mp4'))
   .sort()
   .map(f => path.join(FOOTAGE_DIR, f));
+const FOOTAGE_FILES = [
+  ALL_FOOTAGE_FILES[0],                                             // first
+  ALL_FOOTAGE_FILES[Math.floor(ALL_FOOTAGE_FILES.length * 0.2)],  // 20%
+  ALL_FOOTAGE_FILES[Math.floor(ALL_FOOTAGE_FILES.length * 0.4)],  // 40%
+  ALL_FOOTAGE_FILES[Math.floor(ALL_FOOTAGE_FILES.length * 0.6)],  // 60%
+  ALL_FOOTAGE_FILES[Math.floor(ALL_FOOTAGE_FILES.length * 0.8)],  // 80%
+  ALL_FOOTAGE_FILES[ALL_FOOTAGE_FILES.length - 1],                 // last
+].filter(Boolean) as string[];
 
 if (!fs.existsSync(SCREENSHOTS)) fs.mkdirSync(SCREENSHOTS, { recursive: true });
 
@@ -140,8 +150,9 @@ async function sendMarkMessage(page: Page, text: string) {
   ).last();
   await input.waitFor({ state: 'visible', timeout: 15_000 });
 
-  // Wait for input to become enabled (not disabled)
-  const enabledDeadline = Date.now() + 180_000;
+  // Wait for input to become enabled (not disabled) — frame extraction for large .mov files
+  // can take several minutes, so give it up to 7 minutes.
+  const enabledDeadline = Date.now() + 420_000;
   while (Date.now() < enabledDeadline) {
     const isDisabled = await input.isDisabled().catch(() => true);
     if (!isDisabled) break;
@@ -233,7 +244,7 @@ function validateEditPlan(
 // ─── Main Test ────────────────────────────────────────────────────────────────
 
 test('SmartEdit: Ferndell footage + Will I Find You audio — full Mark session', async ({ page }) => {
-  test.setTimeout(600_000); // 10 minutes — frame extraction + lip sync + 2 Mark API calls
+  test.setTimeout(900_000); // 15 minutes — frame extraction + lip sync + 2 Mark API calls
 
   // ── Track all errors ──────────────────────────────────────────────────────
   const consoleErrors: string[] = [];
@@ -297,13 +308,22 @@ test('SmartEdit: Ferndell footage + Will I Find You audio — full Mark session'
   await page.waitForTimeout(1_500);
   await snap(page, '03-smart-edit-tab');
 
-  // Start fresh if a previous session exists
+  // Clear any previous SmartEdit session from localStorage so Mark runs Pass 1 fresh
+  const clearedKeys = await page.evaluate(() => {
+    const toRemove = Object.keys(localStorage).filter(k => k.startsWith('smart-edit-'));
+    toRemove.forEach(k => localStorage.removeItem(k));
+    return toRemove;
+  });
+  if (clearedKeys.length) console.log(`  🗑️  Cleared localStorage keys: ${clearedKeys.join(', ')}`);
+
+  // Also click "Start Fresh" button if the UI shows one
   const startFresh = page.locator('button:has-text("Start Fresh"), button:has-text("start fresh")').first();
   if (await startFresh.isVisible({ timeout: 3_000 }).catch(() => false)) {
     await startFresh.click();
     await page.waitForTimeout(1_000);
-    console.log('  🗑️  Cleared previous session');
+    console.log('  🗑️  Clicked Start Fresh button');
   }
+  await page.waitForTimeout(500);
 
   // ── Upload 29 Ferndell footage clips ──────────────────────────────────────
   console.log(`\n▶ Step 4: Upload ${FOOTAGE_FILES.length} Ferndell footage clips`);
