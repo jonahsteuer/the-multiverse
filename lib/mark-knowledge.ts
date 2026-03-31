@@ -54,6 +54,7 @@ export interface MarkIntelligence {
   artistNiche?: string;       // From /lib/mark/artist-niches/[slug].md
   liveIntelligence?: string;  // From /lib/mark/live-intelligence.md (Tier 2)
   staffordPlaybook?: string;  // From /lib/stafford-knowledge.ts (Stafford's full framework)
+  tier3Context?: string;      // Tier 3: artist-specific Apify scrape data from Supabase
 }
 
 export function buildMarkSystemPrompt(context: MarkContext, intelligence?: MarkIntelligence): string {
@@ -318,6 +319,8 @@ ${intelligence.liveIntelligence}
 Research specific to this artist's niche and genre. Use this to guide edit style, hook type, and format decisions:
 
 ${intelligence.artistNiche}
+
+` : ''}${intelligence?.tier3Context ? `${intelligence.tier3Context}
 
 ` : ''}# CURRENT USER CONTEXT
 ${formatContext(context)}

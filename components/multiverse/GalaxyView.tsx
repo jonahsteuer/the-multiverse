@@ -26,6 +26,7 @@ import { ReviewNotesModal } from './ReviewNotesModal';
 import { TaskPanel } from './TaskPanel';
 import { FinalizePostsModal } from './FinalizePostsModal';
 import { LockedTaskModal } from './LockedTaskModal';
+import { ArtistAnalyticsPanel } from './ArtistAnalyticsPanel';
 import { MarkContext } from '@/lib/mark-knowledge';
 import type { BrainstormIntakeData } from './MarkChatPanel';
 import { isTaskLocked } from '@/lib/task-locks';
@@ -123,7 +124,7 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
   const [showBrainstormReview, setShowBrainstormReview] = useState(false);
   const [pendingBrainstormReview, setPendingBrainstormReview] = useState<BrainstormResult | null>(null);
   const [showProfilePanel, setShowProfilePanel] = useState(false);
-  const [profileTab, setProfileTab] = useState<'profile' | 'chat' | 'edit'>('profile');
+  const [profileTab, setProfileTab] = useState<'profile' | 'chat' | 'edit' | 'analytics'>('profile');
   const [homeCityInput, setHomeCityInput] = useState((artistProfile as any)?.homeCity || '');
   const [chatUnread, setChatUnread] = useState(0);
   const [showMarkChat, setShowMarkChat] = useState(false);
@@ -1412,6 +1413,12 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
                       </span>
                     )}
                   </button>
+                  <button
+                    onClick={() => setProfileTab('analytics')}
+                    className={`relative px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${profileTab === 'analytics' ? 'bg-purple-600 text-white' : 'text-gray-400 hover:text-white'}`}
+                  >
+                    Analytics
+                  </button>
                 </div>
                 <button
                   onClick={() => setShowProfilePanel(false)}
@@ -1454,7 +1461,12 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
             </div>
 
             {/* Panel Body */}
-            {profileTab === 'edit' ? (
+            {profileTab === 'analytics' ? (
+              <ArtistAnalyticsPanel
+                userId={currentUserId || ''}
+                isAdmin={!!effectiveIsAdmin}
+              />
+            ) : profileTab === 'edit' ? (
               <div className="flex-1 p-5 overflow-y-auto">
                 <ProfileEditPanel
                   userId={currentUserId || ''}
@@ -1668,7 +1680,7 @@ export function GalaxyView({ galaxy, universe, artistProfile, onUpdateWorld, onD
             )}
 
             {/* Panel Footer — Actions (profile and edit tabs) */}
-            {(profileTab === 'profile' || profileTab === 'edit') && <div className="p-6 border-t border-gray-700/50 space-y-3">
+            {(profileTab === 'profile' || profileTab === 'edit') && <div className="p-4 border-t border-gray-700/50 space-y-3">
               {onSignOut && (
                 <button
                   onClick={() => {

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
+import { createClient } from '@supabase/supabase-js';
 import { buildMarkSystemPrompt, MarkContext } from '@/lib/mark-knowledge';
 import { loadUniversalTruths, loadLiveIntelligence, loadArtistNiche, slugify } from '@/lib/mark/intelligence-loader';
 import { STAFFORD_KNOWLEDGE } from '@/lib/stafford-knowledge';
@@ -7,6 +8,23 @@ import { STAFFORD_KNOWLEDGE } from '@/lib/stafford-knowledge';
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY || '',
 });
+
+async function loadTier3Context(userId: string): Promise<string> {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!supabaseUrl || !supabaseServiceKey || !userId) return '';
+  try {
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    const { data: prof } = await supabase
+      .from('profiles')
+      .select('onboarding_profile')
+      .eq('id', userId)
+      .single();
+    return prof?.onboarding_profile?.instagramAnalytics?.tier3Context || '';
+  } catch {
+    return '';
+  }
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -29,12 +47,16 @@ export async function POST(request: NextRequest) {
     const artistSlug = context.userName ? slugify(context.userName) : '';
     const artistNiche = artistSlug ? loadArtistNiche(artistSlug) : '';
 
+    // Load Tier 3 — artist-specific Apify analytics from Supabase
+    const tier3Context = context.userId ? await loadTier3Context(context.userId) : '';
+
     // Build system prompt with all intelligence tiers
     const systemPrompt = buildMarkSystemPrompt(context, {
       universalTruths,
       liveIntelligence,
       artistNiche,
       staffordPlaybook: STAFFORD_KNOWLEDGE,
+      tier3Context: tier3Context || undefined,
     });
 
     console.log('[Mark API] Processing request with', messages.length, 'messages');
