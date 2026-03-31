@@ -293,9 +293,17 @@ export default function MarkTrainingPage() {
       <div className="max-w-2xl mx-auto space-y-6">
 
         {/* Header */}
-        <div className="border-b border-gray-800 pb-4">
-          <h1 className="text-lg font-bold text-yellow-400 tracking-wide">MARK — INTELLIGENCE TRAINING</h1>
-          <p className="text-xs text-gray-500 mt-1">Developer Only</p>
+        <div className="border-b border-gray-800 pb-4 flex items-start justify-between">
+          <div>
+            <h1 className="text-lg font-bold text-yellow-400 tracking-wide">MARK — INTELLIGENCE TRAINING</h1>
+            <p className="text-xs text-gray-500 mt-1">Developer Only</p>
+          </div>
+          <a
+            href="/mark-training/intelligence"
+            className="text-xs font-bold text-emerald-500 border border-emerald-900 rounded px-3 py-1.5 hover:bg-emerald-950 transition-colors"
+          >
+            3-Tier Intelligence →
+          </a>
         </div>
 
         {/* Phase tabs */}
