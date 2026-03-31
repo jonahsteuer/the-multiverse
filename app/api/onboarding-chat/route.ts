@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
+import { STAFFORD_KNOWLEDGE } from '@/lib/stafford-knowledge';
 
 const SYSTEM_PROMPT = `You are a friendly onboarding assistant for "The Multiverse," a music promotion platform that helps artists find their fans through social media content strategy.
 
@@ -157,14 +158,15 @@ export async function POST(request: NextRequest) {
       content: msg.content,
     }));
 
-    const currentDate = new Date().toLocaleDateString('en-US', { 
-      weekday: 'long', 
-      year: 'numeric', 
-      month: 'long', 
-      day: 'numeric' 
+    const currentDate = new Date().toLocaleDateString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
     });
-    
-    const systemPrompt = SYSTEM_PROMPT.replace('{{CURRENT_DATE}}', currentDate);
+
+    const systemPrompt = SYSTEM_PROMPT.replace('{{CURRENT_DATE}}', currentDate)
+      + `\n\n---\n\n## BACKGROUND KNOWLEDGE — STAFFORD'S CONTENT FRAMEWORK\nUse this as background context when asking questions. It informs WHAT you're collecting and WHY — especially the "what turns a viewer into a fan" framework. Do NOT turn onboarding into a content strategy lesson. Surface this knowledge subtly: e.g. if they describe their best post, you can note what Stafford principle it aligns with. The 3 identity questions (why do I make music / what should people feel / what's my relationship to my audience) are the most relevant — they directly inform the brand clarity we're building.\n\n${STAFFORD_KNOWLEDGE}`;
 
     const response = await client.messages.create({
       model: 'claude-sonnet-4-20250514',

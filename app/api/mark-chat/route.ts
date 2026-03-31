@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
+import { STAFFORD_KNOWLEDGE } from '@/lib/stafford-knowledge';
+import { RUFF_MUSIC_KNOWLEDGE } from '@/lib/ruff-music-knowledge';
+import { loadUniversalTruths, loadLiveIntelligence } from '@/lib/mark/intelligence-loader';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY || '' });
 
@@ -73,14 +76,30 @@ export async function POST(req: NextRequest) {
       : '';
     const releaseDateInfo = releaseDate ? `Release date: ${releaseDate}.` : '';
 
+    const universalTruths = loadUniversalTruths();
+    const liveIntelligence = loadLiveIntelligence();
+
     const systemPrompt = `You are Mark, an AI music marketing strategist embedded in The Multiverse platform.
 You are responding in the team's group chat for "${galaxyName || 'this project'}".
 ${releaseDateInfo} ${teamInfo}
 
-Keep responses focused, practical, and under 100 words unless asked for detail. 
+Keep responses focused, practical, and under 100 words unless asked for detail.
 You can add empty post slots to the calendar — if asked, confirm the details and tell the user you'll add them.
 If the chat history mentions a specific request, address it directly.
-Be conversational but sharp. No fluff.`;
+Be conversational but sharp. No fluff.
+
+---
+
+## STAFFORD'S CONTENT FRAMEWORK
+${STAFFORD_KNOWLEDGE}
+
+## NICK RUFFALO'S FRAMEWORK
+${RUFF_MUSIC_KNOWLEDGE}
+
+${universalTruths ? `## UNIVERSAL TRUTHS\n${universalTruths}` : ''}
+${liveIntelligence ? `## LIVE INTELLIGENCE — CURRENT META\n${liveIntelligence}` : ''}
+
+When content or strategy questions come up, draw on the above frameworks. Always attribute: "Stafford's approach here is..." or "Nick Ruffalo teaches..." so the team understands the reasoning.`;
 
     const historyMessages: Array<{ role: 'user' | 'assistant'; content: string }> = [];
     if (chatHistory) {

@@ -52,6 +52,8 @@ export interface MarkContext {
 export interface MarkIntelligence {
   universalTruths?: string;   // From /lib/mark/universal-truths.md
   artistNiche?: string;       // From /lib/mark/artist-niches/[slug].md
+  liveIntelligence?: string;  // From /lib/mark/live-intelligence.md (Tier 2)
+  staffordPlaybook?: string;  // From /lib/stafford-knowledge.ts (Stafford's full framework)
 }
 
 export function buildMarkSystemPrompt(context: MarkContext, intelligence?: MarkIntelligence): string {
@@ -297,10 +299,20 @@ RULES:
 - If the user is asking a follow-up during an active brainstorm (not starting one fresh), answer normally without the tag.
 - If the user has already answered some context earlier in the conversation, skip those questions and use what you already know.
 
-${intelligence?.universalTruths ? `# CONTENT INTELLIGENCE — UNIVERSAL TRUTHS
-The following is data-backed knowledge about what makes music content perform. Apply this to ALL video editing and content decisions:
+${intelligence?.staffordPlaybook ? `# STAFFORD'S ARTIST CONTENT FRAMEWORK
+Distilled from Stafford's (@staffordsworld) Content Playbook for Artists. This is the foundational framework for how artists should approach content creation, format selection, and audience building. Apply it when advising on content strategy, formats, posting habits, and artist brand clarity:
+
+${intelligence.staffordPlaybook}
+
+` : ''}${intelligence?.universalTruths ? `# CONTENT INTELLIGENCE — UNIVERSAL TRUTHS
+Data-backed knowledge about what makes music content perform. Apply this to ALL video editing and content decisions:
 
 ${intelligence.universalTruths}
+
+` : ''}${intelligence?.liveIntelligence ? `# LIVE INTELLIGENCE — WHAT'S WORKING RIGHT NOW
+Current-state knowledge about what's performing in music content this month. Layer this on top of universal truths — if the current meta diverges from a timeless principle, flag it:
+
+${intelligence.liveIntelligence}
 
 ` : ''}${intelligence?.artistNiche ? `# CONTENT INTELLIGENCE — THIS ARTIST'S NICHE
 Research specific to this artist's niche and genre. Use this to guide edit style, hook type, and format decisions:

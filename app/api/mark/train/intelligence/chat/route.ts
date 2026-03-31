@@ -13,27 +13,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import type { MessageParam } from '@anthropic-ai/sdk/resources/messages';
-import fs from 'fs';
-import path from 'path';
 import { RUFF_MUSIC_KNOWLEDGE } from '@/lib/ruff-music-knowledge';
+import { STAFFORD_KNOWLEDGE } from '@/lib/stafford-knowledge';
+import { loadUniversalTruths, loadLiveIntelligence } from '@/lib/mark/intelligence-loader';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY || '' });
 
 export const maxDuration = 60;
-
-// ─── Load Tier 1 and Tier 2 from files ───────────────────────────────────────
-
-function loadUniversalTruths(): string {
-  try {
-    return fs.readFileSync(path.join(process.cwd(), 'lib', 'mark', 'universal-truths.md'), 'utf-8');
-  } catch { return ''; }
-}
-
-function loadLiveIntelligence(): string {
-  try {
-    return fs.readFileSync(path.join(process.cwd(), 'lib', 'mark', 'live-intelligence.md'), 'utf-8');
-  } catch { return ''; }
-}
 
 // ─── System prompt ────────────────────────────────────────────────────────────
 
@@ -44,18 +30,11 @@ function buildSystemPrompt(tier3Context: string): { prompt: string; tiersActive:
 
   const tier1 = `## TIER 1: UNIVERSAL TRUTHS & PROVEN FRAMEWORKS
 
+### Stafford's Artist Content Framework (@staffordsworld)
+${STAFFORD_KNOWLEDGE}
+
 ### Nick Ruffalo's Framework (@ruffmusicofficial, 200M+ views)
 ${RUFF_MUSIC_KNOWLEDGE}
-
-### Stafford's Artist Development Framework (@staffordsworld)
-Core principles:
-- Views ≠ success. 1,000 right-audience views outperform 100,000 wrong-audience views.
-- Consistency is the only strategy that compounds. One post per day, no exceptions.
-- Content over algorithm. Great content overpowers any algorithm.
-- The 6 formats: Performance, Lazy B-Roll, Skits, Strangers, Distraction, Aesthetics.
-- Text hooks are functional, not aesthetic. 85% of video is watched mute.
-- Emotional connection creates fans. Views create nothing.
-- Caption: don't put the song name. Wait for someone to ask in comments.
 
 ### Hook Psychology & Platform Science
 ${universalTruths}`;

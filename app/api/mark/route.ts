@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { buildMarkSystemPrompt, MarkContext } from '@/lib/mark-knowledge';
-import { loadUniversalTruths, loadArtistNiche, slugify } from '@/lib/mark/intelligence-loader';
+import { loadUniversalTruths, loadLiveIntelligence, loadArtistNiche, slugify } from '@/lib/mark/intelligence-loader';
+import { STAFFORD_KNOWLEDGE } from '@/lib/stafford-knowledge';
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY || '',
@@ -22,13 +23,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Load intelligence files
+    // Load all intelligence tiers
     const universalTruths = loadUniversalTruths();
+    const liveIntelligence = loadLiveIntelligence();
     const artistSlug = context.userName ? slugify(context.userName) : '';
     const artistNiche = artistSlug ? loadArtistNiche(artistSlug) : '';
 
-    // Build system prompt with user context + intelligence
-    const systemPrompt = buildMarkSystemPrompt(context, { universalTruths, artistNiche });
+    // Build system prompt with all intelligence tiers
+    const systemPrompt = buildMarkSystemPrompt(context, {
+      universalTruths,
+      liveIntelligence,
+      artistNiche,
+      staffordPlaybook: STAFFORD_KNOWLEDGE,
+    });
 
     console.log('[Mark API] Processing request with', messages.length, 'messages');
 
