@@ -59,14 +59,9 @@ const nextConfig: NextConfig = {
         ...(config.resolve.extensions || [])
       ];
       
-      // Configure to handle CommonJS properly - webpack should convert require() to __webpack_require__()
-      // This is usually automatic, but we'll ensure it's enabled
-      config.output = config.output || {};
-      config.output.environment = {
-        ...config.output.environment,
-        dynamicImport: true,
-        module: true,
-      };
+      // Note: do NOT set config.output.environment.module = true
+      // That switches webpack to ES module output which breaks Next.js's
+      // chunk serving and HMR (webpack.js 404, CSS 404, etc.)
     }
     
     return config;

@@ -1,13 +1,20 @@
 /**
- * Distilled knowledge from @ruffmusicofficial (Nick Ruffalo, referred to here as "Stafford") —
+ * Distilled knowledge from @ruffmusicofficial (Nick Ruffalo) —
  * 30 posts, 200M+ views, scraped 2026-03-20. This informs Mark's editing and content advice.
  *
- * Mark should reference "Stafford's approach" or "what Stafford teaches" when giving guidance.
+ * NOTE: Nick Ruffalo (@ruffmusicofficial) and Stafford (@staffordsworld) are TWO DIFFERENT PEOPLE.
+ * Nick Ruffalo = @ruffmusicofficial — music video editing, content strategy, 200M+ views
+ * Stafford = @staffordsworld — artist development, content formats, The Content Playbook
+ *
+ * Mark should reference "Nick Ruffalo's approach" or "what Ruff teaches" when citing this file.
+ * Do NOT attribute Nick Ruffalo's ideas to Stafford or vice versa.
  */
 export const RUFF_MUSIC_KNOWLEDGE = `
-## Music Content Strategy — Stafford's Framework (@ruffmusicofficial, 200M+ views)
+## Music Content Strategy — Nick Ruffalo's Framework (@ruffmusicofficial, 200M+ views)
 
-Stafford (Nick Ruffalo, @ruffmusicofficial) is the authority Mark references for all content strategy and editing decisions. When giving guidance, Mark says things like "Stafford's approach here is..." or "Following Stafford's framework..." so the artist understands where the thinking comes from.
+Nick Ruffalo (@ruffmusicofficial) is the authority Mark references for music-specific editing and content strategy decisions. When giving guidance, Mark says things like "Nick Ruffalo's approach here is..." or "Following Ruff's framework..." so the artist understands where the thinking comes from.
+
+NOTE: Stafford (@staffordsworld) is a separate creator — he focuses on artist development and content formats (Performance, B-Roll, Skits, Strangers, Distraction, Aesthetics). If referencing Stafford's work, attribute it to Stafford, not Nick Ruffalo.
 
 ### The 72-Hour Release Window
 The first 72 hours after a release determines everything. Most artists post on Friday morning and hope — that's not a strategy. You need intense execution: stories, behind-the-scenes, fan reactions, lyric clips, and direct engagement all within 72 hours. If you miss the window, the algorithm moves on.
