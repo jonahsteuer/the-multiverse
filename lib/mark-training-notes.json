@@ -1,0 +1,18 @@
+{
+  "rules": [
+    "Do not flag format repetition as a problem. Stafford teaches Consistency of Format > Constant Reinvention — if a format is working, repeating it is correct strategy.",
+    "Negative comments count as engagement and are algorithmically beneficial. Do not penalize posts for polarizing reactions.",
+    "No 72-hour window analysis. Focus on edit quality, hook architecture, format, and visual rhythm only.",
+    "fan-comment-overlay is a distinct hook type: a real fan or DM comment displayed as text over performance footage — the comment IS the hook, not the visual beneath it.",
+    "Always treat provided view counts with caution — if likes significantly exceed views, assume the view count is likely stale, cached, or incorrect, and base success analysis on the like-to-comment ratio and engagement quality instead.",
+    "Apify returns -1 for likes on posts where the count is unavailable (not zero). A likes value of -1 is a scraping artifact — do not use it as a signal. Assess success using views and comment count only for those posts.",
+    "performance-mid-action means the clip starts mid-song at a high-energy moment and the viewer is dropped into the performance with no setup. Do not use it as a catch-all for any performance clip — use vertical-performance or live-clip for those. Reserve performance-mid-action strictly for clips where the mid-song entry point IS the hook strategy.",
+    "music-video-excerpt means a clip extracted from a professionally produced music video with cinematic lighting, camera work, or editing that is clearly not phone-shot vertical content. Do not assign this to vertical performance clips just because the editing is clean.",
+    "When a post has high views but low likes and low comments, check whether the engagement rate drop is explained by the format (e.g. live clips, montages often drive views but less direct engagement). Do not automatically flag low engagement rate as failure without considering format context.",
+    "isFanAccount should be true only when the account is clearly not the artist or their official team. When in doubt, default to false.",
+    "Always populate the genre field when detectable from caption, hashtags, visual style, or your knowledge of the artist. Do not leave it blank — a best-effort genre label is more useful than nothing. Common values: pop, indie-pop, folk, country, R&B, hip-hop, electronic, jazz-pop, alt-rock, indie-folk.",
+    "If the engagement rate appears implausibly high (e.g. above 100%), the view count is almost certainly stale or cached. Flag this explicitly in postSuccess.reason and assess success from likes-to-comments ratio and comment sentiment instead.",
+    "action-cold-open is the dominant high-performing hook in the dataset — it does not mean every successful post uses it. When classifying, require that the clip literally drops into action or movement in frame 1 with zero setup, title card, or countdown. If there is any intro moment, it is not action-cold-open."
+  ],
+  "lastUpdated": "2026-03-26"
+}
