@@ -4,7 +4,9 @@ import { useState, useEffect, useCallback } from 'react';
 
 interface TopPost {
   er: number;
-  views: number;
+  plays: number;
+  likes: number;
+  comments: number;
   duration: number;
   caption: string;
   durationBucket: string;
@@ -16,7 +18,7 @@ interface AccountSummary {
   postCount: number;
   avgER: number;
   medianER: number;
-  avgViews: number;
+  avgPlays: number;
   bestDayOfWeek: string;
   bestHourRange: string;
   bestDurationBucket: string;
@@ -186,9 +188,9 @@ export function ArtistAnalyticsPanel({ userId, isAdmin }: ArtistAnalyticsPanelPr
             <div className="bg-gray-800/50 rounded-lg p-3">
               <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">Avg Views</div>
               <div className="text-xl font-bold text-white">
-                {analytics.accountSummary.avgViews >= 1000
-                  ? `${(analytics.accountSummary.avgViews / 1000).toFixed(1)}K`
-                  : analytics.accountSummary.avgViews}
+                {analytics.accountSummary.avgPlays >= 1000
+                  ? `${(analytics.accountSummary.avgPlays / 1000).toFixed(1)}K`
+                  : analytics.accountSummary.avgPlays}
               </div>
               <div className="text-[10px] text-gray-500">{analytics.accountSummary.postCount} posts</div>
             </div>
@@ -245,7 +247,7 @@ export function ArtistAnalyticsPanel({ userId, isAdmin }: ArtistAnalyticsPanelPr
                     <div className="flex items-center gap-2 text-[10px] text-gray-400">
                       <span>{post.er.toFixed(2)}% ER</span>
                       <span>·</span>
-                      <span>{post.views >= 1000 ? `${(post.views / 1000).toFixed(1)}K` : post.views} views</span>
+                      <span>{post.plays >= 1000 ? `${(post.plays / 1000).toFixed(1)}K` : post.plays} plays</span>
                       <span>·</span>
                       <span>{post.duration}s</span>
                     </div>
