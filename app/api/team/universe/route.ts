@@ -2,10 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
 // Service role client — bypasses RLS entirely (server only, never exposed to client)
-const adminSupabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+// Lazily created inside request handlers to avoid module-level crash when env vars are absent at build time
+function getAdminClient() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  );
+}
 
 /**
  * GET /api/team/universe
@@ -22,6 +25,7 @@ const adminSupabase = createClient(
  * without being blocked by RLS on galaxies/worlds.
  */
 export async function GET(req: NextRequest) {
+  const adminSupabase = getAdminClient();
   try {
     // Verify the caller's auth token from the Authorization header
     const authHeader = req.headers.get('authorization');
@@ -75,7 +79,7 @@ export async function GET(req: NextRequest) {
 
     // ── STRATEGY 1: Load by galaxy_id (preferred — galaxy-level sharing) ──
     if (teamRow?.galaxy_id) {
-      const galaxy = await loadGalaxyById(teamRow.galaxy_id);
+      const galaxy = await loadGalaxyById(teamRow.galaxy_id, adminSupabase);
       if (galaxy) {
         console.log(`[team/universe] ✅ Loaded via galaxy_id: ${galaxy.name}`);
         // Return a synthetic universe wrapping the single galaxy
@@ -196,7 +200,7 @@ export async function GET(req: NextRequest) {
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
-async function loadGalaxyById(galaxyId: string) {
+async function loadGalaxyById(galaxyId: string, adminSupabase: ReturnType<typeof getAdminClient>) {
   const { data, error } = await adminSupabase
     .from('galaxies')
     .select(`

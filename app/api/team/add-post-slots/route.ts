@@ -1,10 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-const supabase = createClient(supabaseUrl, supabaseKey);
-
 const POST_SLOT_TYPES = ['post', 'teaser', 'promo', 'story', 'release', 'audience-builder'] as const;
 type PostSlotType = typeof POST_SLOT_TYPES[number];
 
@@ -14,6 +10,10 @@ function toTaskType(type: string): PostSlotType {
 }
 
 export async function POST(req: NextRequest) {
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  );
   try {
     const { teamId, galaxyId, slots } = await req.json() as {
       teamId: string;
