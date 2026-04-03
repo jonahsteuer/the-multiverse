@@ -10,10 +10,14 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import Anthropic from '@anthropic-ai/sdk';
+import { loadUniversalTruths, loadLiveIntelligence } from '@/lib/mark/intelligence-loader';
+import { STAFFORD_KNOWLEDGE } from '@/lib/stafford-knowledge';
 
 export const maxDuration = 300;
 
 const APIFY_TOKEN = process.env.APIFY_TOKEN || '';
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY || '' });
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -406,7 +410,7 @@ function buildAccountSummary(posts: AnalyzedPost[], username: string): AccountSu
   };
 }
 
-function buildTier3Context(posts: AnalyzedPost[], summary: AccountSummary, username: string): string {
+function buildTier3Context(posts: AnalyzedPost[], summary: AccountSummary, username: string, gapAnalysis?: string): string {
   // Only use video posts for top/bottom rankings (image posts have no play data)
   const videoPosts = posts.filter(p => p.isVideo && p.plays > 0);
   const rankingPosts = videoPosts.length >= 3 ? videoPosts : posts;
@@ -507,7 +511,89 @@ ${carouselSection}
 ${captionToneSection}
 
 ### Guidance for Mark
-Use this data to make advice SPECIFIC to this artist's actual track record. When suggesting formats, reference their best performers. When discussing engagement, anchor to their ${summary.avgER}% baseline (calculated as likes+comments divided by plays). If they're above ${(summary.avgER * 1.5).toFixed(1)}%, that's a strong post for them. If they're below ${(summary.avgER * 0.5).toFixed(1)}%, it underperformed. When discussing audio strategy, reference their original vs trending sound split. When discussing hashtags, reference their top-performing tags. Never give advice that contradicts what's actually working in their data.`;
+Use this data to make advice SPECIFIC to this artist's actual track record. When suggesting formats, reference their best performers. When discussing engagement, anchor to their ${summary.avgER}% baseline (calculated as likes+comments divided by plays). If they're above ${(summary.avgER * 1.5).toFixed(1)}%, that's a strong post for them. If they're below ${(summary.avgER * 0.5).toFixed(1)}%, it underperformed. When discussing audio strategy, reference their original vs trending sound split. When discussing hashtags, reference their top-performing tags. Never give advice that contradicts what's actually working in their data.
+${gapAnalysis ? `\n### Mark's Gap Analysis\n${gapAnalysis}` : ''}`;
+}
+
+// ─── Gap Analysis ─────────────────────────────────────────────────────────────
+
+async function buildGapAnalysis(posts: AnalyzedPost[], summary: AccountSummary): Promise<string> {
+  if (!process.env.ANTHROPIC_API_KEY) {
+    console.warn('[artist-analytics/scrape] ANTHROPIC_API_KEY not set — skipping gap analysis');
+    return '';
+  }
+
+  // Truncate knowledge sources to keep prompt within reasonable token budget
+  const universalTruths = loadUniversalTruths().slice(0, 3000);
+  const liveIntelligence = loadLiveIntelligence().slice(0, 2000);
+  const staffordSummary = STAFFORD_KNOWLEDGE.slice(0, 3000);
+
+  // Top 10 by ER + bottom 5 for contrast
+  const top10 = [...posts].filter(p => p.isVideo && p.plays > 0).sort((a, b) => b.er - a.er).slice(0, 10);
+  const bottom5 = [...posts].filter(p => p.isVideo && p.plays > 0).sort((a, b) => a.er - b.er).slice(0, 5);
+
+  const postSummaries = [...top10, ...bottom5].map(p =>
+    `ER:${p.er.toFixed(2)}% | ${p.plays} plays | ${p.likes}L ${p.comments}C | ${p.duration}s ${p.durationBucket} | tone:${p.captionTone} | music:${p.musicName ?? 'none'} | carousel:${p.isCarousel} | "${p.caption.slice(0, 80)}"`
+  ).join('\n');
+
+  const prompt = `You are analyzing an Instagram artist's posting patterns. Compare their data to proven music marketing frameworks and current trends.
+
+## Artist Data (@${summary.username})
+- ${summary.postCount} posts analyzed (${summary.videoPostCount} videos)
+- Average ER: ${summary.avgER}% | Median ER: ${summary.medianER}%
+- Average plays: ${summary.avgPlays.toLocaleString()}
+- Growth: ${summary.growthSignal}
+- Best day: ${summary.bestDayOfWeek} | Best time: ${summary.bestHourRange} | Best length: ${summary.bestDurationBucket}
+${summary.audioPatterns ? `- Audio: ${summary.audioPatterns.originalAudioCount} original, ${summary.audioPatterns.trendingSoundCount} trending sounds` : ''}
+${summary.carouselStats ? `- Carousels: ${summary.carouselStats.carouselCount} posts, ${summary.carouselStats.carouselOutperforms ? 'outperform' : 'underperform'} singles` : ''}
+
+## Top & Bottom Posts
+${postSummaries}
+
+## Universal Truths (proven engagement principles)
+${universalTruths}
+
+## Stafford's Playbook (music marketing formats & mindset)
+${staffordSummary}
+
+## Current Live Trends
+${liveIntelligence}
+
+---
+
+Produce a gap analysis with these exact sections:
+
+#### Strengths (What's Already Working)
+List 2-3 patterns where this artist's best content aligns with Universal Truths or Stafford formats. Reference specific post data.
+
+#### Gaps (What's Missing)
+List 2-4 formats, approaches, or content types from Stafford's playbook or Universal Truths that this artist is NOT using but should try. Be specific about which format and why it fits their niche.
+
+#### Trend Alignment
+Compare their posting patterns (timing, duration, audio usage) to current live trends. Note any mismatches.
+
+#### Recommendations
+3-5 specific, actionable recommendations anchored to their actual data. Each recommendation must reference a specific metric or pattern from their posts.
+
+Keep it concise — this text will be embedded in Mark's system prompt. Total output under 800 words.`;
+
+  try {
+    console.log(`[artist-analytics/scrape] Starting Claude gap analysis for @${summary.username}`);
+    const startTime = Date.now();
+
+    const analysis = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 1500,
+      messages: [{ role: 'user', content: prompt }],
+    });
+
+    const text = analysis.content[0].type === 'text' ? analysis.content[0].text : '';
+    console.log(`[artist-analytics/scrape] Gap analysis complete in ${Date.now() - startTime}ms (${text.length} chars)`);
+    return text;
+  } catch (err: any) {
+    console.error('[artist-analytics/scrape] Gap analysis failed:', err.message);
+    return '';  // Non-blocking — scrape still succeeds without gap analysis
+  }
 }
 
 // ─── Route ────────────────────────────────────────────────────────────────────
@@ -525,7 +611,10 @@ export async function POST(req: NextRequest) {
 
     const analyzed = raw.map(analyzePost);
     const summary = buildAccountSummary(analyzed, handle);
-    const tier3Context = buildTier3Context(analyzed, summary, handle);
+
+    // Claude gap analysis — compares artist patterns to Mark's intelligence stack (per D-09, D-10)
+    const gapAnalysis = await buildGapAnalysis(analyzed, summary);
+    const tier3Context = buildTier3Context(analyzed, summary, handle, gapAnalysis);
 
     // Top posts for UI display
     const topPosts = [...analyzed]
