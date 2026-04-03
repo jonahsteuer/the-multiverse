@@ -426,6 +426,52 @@ function buildTier3Context(posts: AnalyzedPost[], summary: AccountSummary, usern
     ? summary.captionInsights.join('\n')
     : 'Not enough variation in the data to draw caption conclusions yet.';
 
+  // --- NEW: Audio patterns section ---
+  const audioSection = summary.audioPatterns && summary.audioPatterns.totalReelsWithMusic > 0
+    ? `### Audio & Sound Patterns
+- Reels with music: ${summary.audioPatterns.totalReelsWithMusic} (${summary.audioPatterns.originalAudioCount} original audio, ${summary.audioPatterns.trendingSoundCount} trending sounds)
+- Top sounds used:
+${summary.audioPatterns.topSounds.map((s, i) => `  ${i + 1}. "${s.name}" — used ${s.count}x, avg ${s.avgER}% ER`).join('\n')}
+${summary.audioPatterns.originalAudioCount > summary.audioPatterns.trendingSoundCount
+  ? '- This artist leans toward original audio — consider whether trending sounds could boost reach'
+  : '- This artist uses trending sounds frequently — aligned with platform discovery patterns'}`
+    : '';
+
+  // --- NEW: Hashtag performance section ---
+  const hashtagSection = summary.hashtagEngagement && summary.hashtagEngagement.topHashtags.length > 0
+    ? `### Hashtag Performance
+- Unique hashtags used: ${summary.hashtagEngagement.hashtagsUsedCount}
+- Average hashtags per post: ${summary.hashtagEngagement.avgHashtagsPerPost}
+- Top hashtags by engagement rate:
+${summary.hashtagEngagement.topHashtags.slice(0, 5).map((h, i) => `  ${i + 1}. #${h.tag} — ${h.avgER}% ER (${h.postCount} posts)`).join('\n')}`
+    : '';
+
+  // --- NEW: Carousel stats section ---
+  const carouselSection = summary.carouselStats && summary.carouselStats.carouselCount > 0
+    ? `### Carousel vs Single Posts
+- Carousel posts: ${summary.carouselStats.carouselCount} (avg ${summary.carouselStats.avgSlideCount} slides)
+- Carousel avg ER: ${summary.carouselStats.avgCarouselER}% vs single-post avg ER: ${summary.carouselStats.avgSinglePostER}%
+- ${summary.carouselStats.carouselOutperforms ? 'Carousels OUTPERFORM single posts for this account — consider more carousel content' : 'Single posts outperform carousels — this artist does better with focused single-image/video content'}`
+    : '';
+
+  // --- NEW: Caption tone breakdown ---
+  const tonePosts: Record<string, number[]> = {};
+  posts.forEach(p => {
+    if (!tonePosts[p.captionTone]) tonePosts[p.captionTone] = [];
+    tonePosts[p.captionTone].push(p.er);
+  });
+  const toneLines = Object.entries(tonePosts)
+    .filter(([, ers]) => ers.length >= 2)
+    .map(([tone, ers]) => {
+      const avg = ers.reduce((a, b) => a + b, 0) / ers.length;
+      return { tone, count: ers.length, avgER: Math.round(avg * 100) / 100 };
+    })
+    .sort((a, b) => b.avgER - a.avgER);
+  const captionToneSection = toneLines.length > 0
+    ? `### Caption Tone Analysis
+${toneLines.map(t => `- ${t.tone}: ${t.count} posts, avg ${t.avgER}% ER`).join('\n')}`
+    : '';
+
   return `## TIER 3: ARTIST-SPECIFIC INTELLIGENCE — @${username}
 Scraped: ${new Date(summary.scrapedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
 
@@ -452,8 +498,16 @@ ${bottom3Lines}
 ### Caption Patterns
 ${captionNotes}
 
+${audioSection}
+
+${hashtagSection}
+
+${carouselSection}
+
+${captionToneSection}
+
 ### Guidance for Mark
-Use this data to make advice SPECIFIC to this artist's actual track record. When suggesting formats, reference their best performers. When discussing engagement, anchor to their ${summary.avgER}% baseline (calculated as likes+comments divided by plays). If they're above ${(summary.avgER * 1.5).toFixed(1)}%, that's a strong post for them. If they're below ${(summary.avgER * 0.5).toFixed(1)}%, it underperformed. Never give advice that contradicts what's actually working in their data.`;
+Use this data to make advice SPECIFIC to this artist's actual track record. When suggesting formats, reference their best performers. When discussing engagement, anchor to their ${summary.avgER}% baseline (calculated as likes+comments divided by plays). If they're above ${(summary.avgER * 1.5).toFixed(1)}%, that's a strong post for them. If they're below ${(summary.avgER * 0.5).toFixed(1)}%, it underperformed. When discussing audio strategy, reference their original vs trending sound split. When discussing hashtags, reference their top-performing tags. Never give advice that contradicts what's actually working in their data.`;
 }
 
 // ─── Route ────────────────────────────────────────────────────────────────────
@@ -486,6 +540,11 @@ export async function POST(req: NextRequest) {
         caption: p.caption.slice(0, 100),
         durationBucket: p.durationBucket,
         dayOfWeek: p.dayOfWeek,
+        musicName: p.musicName,
+        isOriginalAudio: p.isOriginalAudio,
+        isCarousel: p.isCarousel,
+        carouselSlideCount: p.carouselSlideCount,
+        captionTone: p.captionTone,
       }));
 
     // Save to Supabase if userId provided
