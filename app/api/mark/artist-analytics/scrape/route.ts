@@ -19,6 +19,79 @@ export const maxDuration = 300;
 const APIFY_TOKEN = process.env.APIFY_TOKEN || '';
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY || '' });
 
+// ─── Graph API Insights ───────────────────────────────────────────────────────
+
+interface InsightsData {
+  saves: number;
+  reach: number;
+}
+
+async function fetchInsightsForPosts(
+  accessToken: string,
+  igUserId: string,
+  analyzedPosts: AnalyzedPost[]
+): Promise<Map<string, InsightsData>> {
+  const insightsMap = new Map<string, InsightsData>();
+
+  try {
+    // Fetch user's media list from Graph API
+    const mediaRes = await fetch(
+      `https://graph.instagram.com/v25.0/${igUserId}/media` +
+      `?fields=id,timestamp,media_type` +
+      `&limit=50` +
+      `&access_token=${accessToken}`
+    );
+    if (!mediaRes.ok) {
+      console.warn(`[insights] Failed to fetch media list: HTTP ${mediaRes.status}`);
+      return insightsMap;
+    }
+    const mediaData = await mediaRes.json();
+    const mediaItems: { id: string; timestamp: string; media_type: string }[] = mediaData.data || [];
+
+    // Build timestamp -> media ID map (60s tolerance window for matching)
+    const mediaByTimestamp: { id: string; ts: number }[] = mediaItems.map(m => ({
+      id: m.id,
+      ts: new Date(m.timestamp).getTime(),
+    }));
+
+    // Fetch insights for each media item (batch in parallel, max 10 concurrent)
+    const BATCH_SIZE = 10;
+    for (let i = 0; i < mediaByTimestamp.length; i += BATCH_SIZE) {
+      const batch = mediaByTimestamp.slice(i, i + BATCH_SIZE);
+      await Promise.allSettled(
+        batch.map(async (media) => {
+          // CRITICAL: Only request 'saved' and 'reach' — 'impressions' is DEPRECATED in v22+
+          const insightsRes = await fetch(
+            `https://graph.instagram.com/v25.0/${media.id}/insights` +
+            `?metric=saved,reach` +
+            `&access_token=${accessToken}`
+          );
+          if (!insightsRes.ok) return null;
+          const insightsJson = await insightsRes.json();
+          const data = insightsJson.data || [];
+          const saves = data.find((d: any) => d.name === 'saved')?.values?.[0]?.value ?? 0;
+          const reach = data.find((d: any) => d.name === 'reach')?.values?.[0]?.value ?? 0;
+
+          // Find matching analyzed post by timestamp (60s window)
+          const matchedPost = analyzedPosts.find(p => {
+            const postTs = new Date(p.timestamp).getTime();
+            return Math.abs(postTs - media.ts) < 60_000;
+          });
+          if (matchedPost) {
+            insightsMap.set(matchedPost.timestamp, { saves, reach });
+          }
+        })
+      );
+    }
+
+    console.log(`[insights] Fetched insights for ${insightsMap.size}/${mediaItems.length} posts`);
+  } catch (err: any) {
+    console.error('[insights] Error fetching Graph API insights:', err.message);
+  }
+
+  return insightsMap;
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface RawPost {
@@ -71,6 +144,8 @@ interface AnalyzedPost {
   isCarousel: boolean;             // true if type === 'Sidecar'
   carouselSlideCount: number;      // images?.length or 0 if not carousel
   captionTone: string;             // computed: 'question' | 'story' | 'hype' | 'vulnerable' | 'cta' | 'neutral'
+  insightSaves?: number;           // from Graph API (OAuth-gated)
+  insightReach?: number;           // from Graph API (OAuth-gated)
 }
 
 interface AccountSummary {
@@ -108,6 +183,9 @@ interface AccountSummary {
     avgSlideCount: number;
     carouselOutperforms: boolean;  // avgCarouselER > avgSinglePostER
   };
+  totalSaves?: number;             // sum of all post saves (Graph API)
+  avgSavesPerPost?: number;        // average saves per post
+  saveRate?: number;               // saves / reach * 100 (when both available)
 }
 
 // ─── Apify scraper ────────────────────────────────────────────────────────────
@@ -487,6 +565,8 @@ Scraped: ${new Date(summary.scrapedAt).toLocaleDateString('en-US', { month: 'sho
 - Average likes per post: ${summary.avgLikes}
 - Average comments per post: ${summary.avgComments}
 - Growth signal: ${summary.growthSignal}
+${summary.totalSaves !== undefined ? `- Total saves (bookmarks): ${summary.totalSaves} across ${summary.postCount} posts (avg ${summary.avgSavesPerPost}/post)
+- Save rate: ${summary.saveRate}% (saves / reach)` : ''}
 
 ### What's Working Best for This Account
 - Best day to post: ${summary.bestDayOfWeek}
@@ -612,6 +692,74 @@ export async function POST(req: NextRequest) {
     const analyzed = raw.map(analyzePost);
     const summary = buildAccountSummary(analyzed, handle);
 
+    // Fetch Graph API Insights if OAuth token exists (per D-03, D-06)
+    if (userId) {
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+      const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+      if (supabaseUrl && supabaseServiceKey) {
+        const supabase = createClient(supabaseUrl, supabaseServiceKey);
+        const { data: prof } = await supabase
+          .from('profiles')
+          .select('onboarding_profile')
+          .eq('id', userId)
+          .single();
+
+        const oauthData = prof?.onboarding_profile?.instagramOAuth;
+        if (oauthData?.accessToken && oauthData?.igUserId) {
+          // Check if token needs refresh (> 30 days old)
+          const tokenAge = Date.now() - new Date(oauthData.tokenIssuedAt).getTime();
+          let accessToken = oauthData.accessToken;
+          if (tokenAge > 30 * 24 * 60 * 60 * 1000) {
+            try {
+              const refreshRes = await fetch(
+                `https://graph.instagram.com/refresh_access_token` +
+                `?grant_type=ig_refresh_token` +
+                `&access_token=${accessToken}`
+              );
+              const refreshData = await refreshRes.json();
+              if (refreshData.access_token) {
+                accessToken = refreshData.access_token;
+                // Update stored token
+                const updatedProfile = {
+                  ...(prof?.onboarding_profile || {}),
+                  instagramOAuth: {
+                    ...oauthData,
+                    accessToken,
+                    tokenIssuedAt: new Date().toISOString(),
+                  },
+                };
+                await supabase.from('profiles').update({ onboarding_profile: updatedProfile }).eq('id', userId);
+                console.log('[scrape] Refreshed Instagram OAuth token');
+              }
+            } catch (err: any) {
+              console.warn('[scrape] Token refresh failed:', err.message);
+            }
+          }
+
+          const insightsMap = await fetchInsightsForPosts(accessToken, oauthData.igUserId, analyzed);
+
+          // Merge insights back into analyzed posts
+          analyzed.forEach(p => {
+            const insights = insightsMap.get(p.timestamp);
+            if (insights) {
+              p.insightSaves = insights.saves;
+              p.insightReach = insights.reach;
+            }
+          });
+
+          // Update summary with saves aggregates
+          const postsWithSaves = analyzed.filter(p => p.insightSaves !== undefined);
+          if (postsWithSaves.length > 0) {
+            const totalSaves = postsWithSaves.reduce((s, p) => s + (p.insightSaves || 0), 0);
+            const totalReach = postsWithSaves.reduce((s, p) => s + (p.insightReach || 0), 0);
+            summary.totalSaves = totalSaves;
+            summary.avgSavesPerPost = Math.round((totalSaves / postsWithSaves.length) * 10) / 10;
+            summary.saveRate = totalReach > 0 ? Math.round((totalSaves / totalReach) * 10000) / 100 : 0;
+          }
+        }
+      }
+    }
+
     // Claude gap analysis — compares artist patterns to Mark's intelligence stack (per D-09, D-10)
     const gapAnalysis = await buildGapAnalysis(analyzed, summary);
     const tier3Context = buildTier3Context(analyzed, summary, handle, gapAnalysis);
@@ -634,6 +782,7 @@ export async function POST(req: NextRequest) {
         isCarousel: p.isCarousel,
         carouselSlideCount: p.carouselSlideCount,
         captionTone: p.captionTone,
+        saves: p.insightSaves,
       }));
 
     // Save to Supabase if userId provided

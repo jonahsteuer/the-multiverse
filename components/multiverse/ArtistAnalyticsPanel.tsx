@@ -16,6 +16,7 @@ interface TopPost {
   isCarousel?: boolean;
   carouselSlideCount?: number;
   captionTone?: string;
+  saves?: number;
 }
 
 interface AccountSummary {
@@ -49,6 +50,9 @@ interface AccountSummary {
     avgSlideCount: number;
     carouselOutperforms: boolean;
   };
+  totalSaves?: number;
+  avgSavesPerPost?: number;
+  saveRate?: number;
 }
 
 interface AnalyticsData {
@@ -189,6 +193,22 @@ export function ArtistAnalyticsPanel({ userId, isAdmin }: ArtistAnalyticsPanelPr
         {error && <p className="text-[11px] text-red-400 mt-1.5">{error}</p>}
       </div>
 
+      {/* Connect Instagram for Insights (shown when analytics exist but no OAuth data) */}
+      {analytics && analytics.accountSummary.totalSaves === undefined && userId && (
+        <div className="bg-gradient-to-r from-purple-900/30 to-pink-900/30 border border-purple-500/20 rounded-lg p-3">
+          <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">Unlock More Data</div>
+          <p className="text-xs text-gray-300 mb-2">
+            Connect your Instagram Business/Creator account to see saves, reach, and deeper insights.
+          </p>
+          <a
+            href={`/api/auth/instagram?userId=${userId}`}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 rounded-lg text-white text-xs font-medium transition-colors"
+          >
+            Connect Instagram
+          </a>
+        </div>
+      )}
+
       {isLoading && (
         <div className="flex items-center gap-2 text-gray-500 text-sm py-4">
           <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none">
@@ -229,6 +249,15 @@ export function ArtistAnalyticsPanel({ userId, isAdmin }: ArtistAnalyticsPanelPr
               <div className="text-[10px] text-gray-500">videos</div>
             </div>
           </div>
+
+          {/* Saves Card (shown when OAuth Insights data available) */}
+          {analytics.accountSummary.totalSaves !== undefined && (
+            <div className="bg-gray-800/50 rounded-lg p-3">
+              <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">Saves</div>
+              <div className="text-xl font-bold text-white">{analytics.accountSummary.avgSavesPerPost}</div>
+              <div className="text-[10px] text-gray-500">avg/post · {analytics.accountSummary.saveRate}% save rate</div>
+            </div>
+          )}
 
           {/* Growth Signal */}
           <div className="bg-gray-800/50 rounded-lg p-3">
@@ -380,6 +409,9 @@ export function ArtistAnalyticsPanel({ userId, isAdmin }: ArtistAnalyticsPanelPr
                       <span className="text-[10px] px-1.5 py-0.5 bg-blue-900/30 rounded text-blue-400">
                         {post.carouselSlideCount} slides
                       </span>
+                    )}
+                    {post.saves !== undefined && (
+                      <span className="text-[10px] text-yellow-400">{post.saves} saves</span>
                     )}
                   </div>
                 </div>
