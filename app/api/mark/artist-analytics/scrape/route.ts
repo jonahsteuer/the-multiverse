@@ -11,7 +11,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 const APIFY_TOKEN = process.env.APIFY_TOKEN || '';
 
@@ -30,6 +30,15 @@ interface RawPost {
   productType?: string;
   displayUrl?: string;
   url?: string;
+  // --- NEW Apify fields ---
+  musicInfo?: {
+    musicName?: string;
+    musicArtist?: string;
+    musicUrl?: string;
+    isOriginalAudio?: boolean;
+  } | null;
+  images?: string[];       // carousel slide URLs — length = slide count
+  childPosts?: any[];      // carousel child media objects
 }
 
 interface AnalyzedPost {
@@ -50,6 +59,14 @@ interface AnalyzedPost {
   hasEmoji: boolean;
   hasLyricQuote: boolean;
   durationBucket: 'short' | 'medium' | 'long' | 'image';
+  // --- NEW fields ---
+  musicName: string | null;        // e.g. "Original Audio" or "Trending Sound Name"
+  musicArtist: string | null;      // e.g. "Artist Name"
+  isOriginalAudio: boolean | null; // true = original, false = trending sound, null = unknown/image
+  hashtags: string[];              // raw hashtag list from post
+  isCarousel: boolean;             // true if type === 'Sidecar'
+  carouselSlideCount: number;      // images?.length or 0 if not carousel
+  captionTone: string;             // computed: 'question' | 'story' | 'hype' | 'vulnerable' | 'cta' | 'neutral'
 }
 
 interface AccountSummary {
@@ -68,6 +85,25 @@ interface AccountSummary {
   captionInsights: string[];
   growthSignal: string;
   scrapedAt: string;
+  // --- NEW fields ---
+  audioPatterns?: {
+    totalReelsWithMusic: number;
+    originalAudioCount: number;
+    trendingSoundCount: number;
+    topSounds: { name: string; count: number; avgER: number }[];  // top 5 by frequency
+  };
+  hashtagEngagement?: {
+    topHashtags: { tag: string; avgER: number; postCount: number }[];  // top 10 by ER
+    hashtagsUsedCount: number;
+    avgHashtagsPerPost: number;
+  };
+  carouselStats?: {
+    carouselCount: number;
+    avgCarouselER: number;
+    avgSinglePostER: number;
+    avgSlideCount: number;
+    carouselOutperforms: boolean;  // avgCarouselER > avgSinglePostER
+  };
 }
 
 // ─── Apify scraper ────────────────────────────────────────────────────────────
@@ -144,6 +180,27 @@ function analyzePost(p: RawPost): AnalyzedPost {
   const durationBucket: 'short' | 'medium' | 'long' | 'image' =
     !isVideo ? 'image' : duration < 20 ? 'short' : duration < 45 ? 'medium' : 'long';
 
+  // --- Audio extraction (Reels only — null-safe) ---
+  const musicName = p.musicInfo?.musicName ?? null;
+  const musicArtist = p.musicInfo?.musicArtist ?? null;
+  const isOriginalAudio = p.musicInfo?.isOriginalAudio ?? null;
+
+  // --- Hashtags (already available, just pass through) ---
+  const hashtags = p.hashtags ?? [];
+
+  // --- Carousel detection ---
+  const isCarousel = (p.type === 'Sidecar') || (p.productType === 'carousel_album');
+  const carouselSlideCount = isCarousel ? (p.images?.length ?? p.childPosts?.length ?? 0) : 0;
+
+  // --- Caption tone (simple heuristic — Claude does deeper analysis in gap analysis) ---
+  const captionTone: string =
+    caption.includes('?') ? 'question' :
+    (caption.includes('DM') || caption.includes('link in bio') || caption.includes('comment')) ? 'cta' :
+    (/[!]{2,}|LET'S|LETS GO|HUGE|MASSIVE|FIRE/i.test(caption)) ? 'hype' :
+    (/honest|real talk|vulnerable|scared|nervous|anxiety/i.test(caption)) ? 'vulnerable' :
+    (caption.includes('\n') && caption.length > 100) ? 'story' :
+    'neutral';
+
   console.log(`[analyzePost] ${p.url?.split('/p/')[1]?.replace('/', '') ?? '?'} plays=${plays} reach=${reach} likes=${likes} comments=${comments} er=${er.toFixed(1)}%`);
 
   return {
@@ -164,6 +221,13 @@ function analyzePost(p: RawPost): AnalyzedPost {
     hasEmoji: /\p{Emoji}/u.test(caption),
     hasLyricQuote: /["'"'][^"'"']{10,}["'"']/.test(caption) || (caption.includes('\n') && caption.length > 40),
     durationBucket,
+    musicName,
+    musicArtist,
+    isOriginalAudio,
+    hashtags,
+    isCarousel,
+    carouselSlideCount,
+    captionTone,
   };
 }
 
@@ -259,6 +323,71 @@ function buildAccountSummary(posts: AnalyzedPost[], username: string): AccountSu
     ? `Trending DOWN — recent posts averaging ${recentAvgER.toFixed(2)}% ER vs ${olderAvgER.toFixed(2)}% on older posts`
     : `Stable at ~${avgER.toFixed(2)}% ER`;
 
+  // --- Audio pattern aggregation ---
+  const reelsWithMusic = posts.filter(p => p.musicName !== null);
+  const originalAudioPosts = reelsWithMusic.filter(p => p.isOriginalAudio === true);
+  const trendingSoundPosts = reelsWithMusic.filter(p => p.isOriginalAudio === false);
+  const soundFreq: Record<string, { count: number; totalER: number }> = {};
+  reelsWithMusic.forEach(p => {
+    const key = p.musicName || 'Unknown';
+    if (!soundFreq[key]) soundFreq[key] = { count: 0, totalER: 0 };
+    soundFreq[key].count++;
+    soundFreq[key].totalER += p.er;
+  });
+  const topSounds = Object.entries(soundFreq)
+    .map(([name, { count, totalER }]) => ({ name, count, avgER: Math.round((totalER / count) * 100) / 100 }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 5);
+  const audioPatterns = {
+    totalReelsWithMusic: reelsWithMusic.length,
+    originalAudioCount: originalAudioPosts.length,
+    trendingSoundCount: trendingSoundPosts.length,
+    topSounds,
+  };
+
+  // --- Hashtag ER correlation ---
+  const hashtagER: Record<string, { totalER: number; count: number }> = {};
+  let totalHashtagsUsed = 0;
+  posts.forEach(p => {
+    p.hashtags.forEach(tag => {
+      const t = tag.toLowerCase().replace(/^#/, '');
+      if (!hashtagER[t]) hashtagER[t] = { totalER: 0, count: 0 };
+      hashtagER[t].totalER += p.er;
+      hashtagER[t].count++;
+    });
+    totalHashtagsUsed += p.hashtags.length;
+  });
+  const topHashtags = Object.entries(hashtagER)
+    .filter(([, v]) => v.count >= 2)  // at least 2 uses to be meaningful
+    .map(([tag, { totalER, count }]) => ({ tag, avgER: Math.round((totalER / count) * 100) / 100, postCount: count }))
+    .sort((a, b) => b.avgER - a.avgER)
+    .slice(0, 10);
+  const hashtagEngagement = {
+    topHashtags,
+    hashtagsUsedCount: Object.keys(hashtagER).length,
+    avgHashtagsPerPost: posts.length > 0 ? Math.round((totalHashtagsUsed / posts.length) * 10) / 10 : 0,
+  };
+
+  // --- Carousel stats ---
+  const carouselPosts = posts.filter(p => p.isCarousel);
+  const singlePosts = posts.filter(p => !p.isCarousel && p.isVideo && p.plays > 0);
+  const avgCarouselER = carouselPosts.length > 0
+    ? Math.round((carouselPosts.reduce((s, p) => s + p.er, 0) / carouselPosts.length) * 100) / 100
+    : 0;
+  const avgSinglePostER = singlePosts.length > 0
+    ? Math.round((singlePosts.reduce((s, p) => s + p.er, 0) / singlePosts.length) * 100) / 100
+    : 0;
+  const avgSlideCount = carouselPosts.length > 0
+    ? Math.round((carouselPosts.reduce((s, p) => s + p.carouselSlideCount, 0) / carouselPosts.length) * 10) / 10
+    : 0;
+  const carouselStats = {
+    carouselCount: carouselPosts.length,
+    avgCarouselER,
+    avgSinglePostER,
+    avgSlideCount,
+    carouselOutperforms: carouselPosts.length >= 2 && singlePosts.length >= 2 && avgCarouselER > avgSinglePostER,
+  };
+
   return {
     username, postCount: posts.length, videoPostCount,
     avgER: Math.round(avgER * 100) / 100,
@@ -271,6 +400,9 @@ function buildAccountSummary(posts: AnalyzedPost[], username: string): AccountSu
     captionInsights,
     growthSignal,
     scrapedAt,
+    audioPatterns,
+    hashtagEngagement,
+    carouselStats,
   };
 }
 
