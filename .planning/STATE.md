@@ -3,9 +3,9 @@
 ## Current Status
 - **Active Milestone:** Milestone 1 — Instagram Analytics Foundation
 - **Active Phase:** Phase 1 — Instagram Analytics Improvements
-- **Phase Status:** Plan 01 complete — enriched Apify scrape pipeline with audio, hashtag, carousel, caption tone fields
-- **Last Completed Plan:** 01-01 (Enrich Apify scrape pipeline)
-- **Next Plan:** 01-02 (Gap analysis — Claude-generated gap detection)
+- **Phase Status:** Plan 02 complete — Claude gap analysis pipeline + ArtistAnalyticsPanel enriched UI
+- **Last Completed Plan:** 01-02 (Claude gap analysis + UI update)
+- **Next Plan:** 01-03 (if exists)
 - **Last Session:** 2026-04-03
 
 ## What Exists Today
@@ -37,3 +37,6 @@
 - Hashtag ER correlation filters tags used < 2 times to avoid single-use noise
 - carouselOutperforms requires >= 2 carousel posts and >= 2 single posts for validity
 - maxDuration set to 300 (Vercel Pro limit)
+- Gap analysis knowledge sources truncated (T1a: 3000, T1b: 3000, T2: 2000 chars) for token budget
+- Gap analysis failure is non-blocking — logs error, returns empty string, scrape continues
+- Gap insights UI extracts from tier3Context by string split on ### Mark's Gap Analysis marker

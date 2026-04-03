@@ -9,7 +9,7 @@
 
 Plans:
 - [x] 01-PLAN.md — Apify field enrichment: extend types, analyzePost, buildAccountSummary with audio/music, hashtag ER, carousel detection, caption tone; bump maxDuration to 300s
-- [ ] 02-PLAN.md — Claude gap analysis + UI update: add gap analysis call comparing artist data to T1a/T1b/T2; update buildTier3Context with enriched sections; update ArtistAnalyticsPanel with audio, hashtag, carousel, gap insights UI
+- [x] 02-PLAN.md — Claude gap analysis + UI update: add gap analysis call comparing artist data to T1a/T1b/T2; update buildTier3Context with enriched sections; update ArtistAnalyticsPanel with audio, hashtag, carousel, gap insights UI
 - [ ] 03-PLAN.md — Instagram OAuth + Graph API Insights: OAuth authorize/callback routes, Graph API saves+reach fetch, token storage, Connect Instagram UI, saves display
 
 **Deliverables:**
