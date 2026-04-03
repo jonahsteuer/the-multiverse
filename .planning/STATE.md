@@ -3,9 +3,9 @@
 ## Current Status
 - **Active Milestone:** Milestone 1 — Instagram Analytics Foundation
 - **Active Phase:** Phase 1 — Instagram Analytics Improvements
-- **Phase Status:** Plan 02 complete — Claude gap analysis pipeline + ArtistAnalyticsPanel enriched UI
-- **Last Completed Plan:** 01-02 (Claude gap analysis + UI update)
-- **Next Plan:** 01-03 (if exists)
+- **Phase Status:** Plan 03 partially complete — awaiting human verification of Instagram OAuth flow
+- **Last Completed Plan:** 01-03 tasks 1+2 (OAuth routes created, Graph API Insights integrated)
+- **Next Plan:** 01-03 Task 3 (human-verify checkpoint — needs Meta App credentials + OAuth test)
 - **Last Session:** 2026-04-03
 
 ## What Exists Today
@@ -22,10 +22,17 @@
 - `app/api/mark/refresh-intelligence/route.ts` — Weekly Apify + Claude pipeline for T2 Live Intelligence (reference pattern for new scrape enrichment)
 
 ### Known Issues / Context
-- No Instagram OAuth yet — all data is from public Apify scraping
-- Tier 3 context now includes audio patterns, hashtag ER correlation, carousel stats, caption tone (Plan 01 complete)
+- Instagram OAuth routes exist but not yet tested end-to-end — requires Meta App credentials (INSTAGRAM_APP_ID, INSTAGRAM_APP_SECRET)
+- Tier 3 context now includes audio patterns, hashtag ER correlation, carousel stats, caption tone, gap analysis (Plans 01+02 complete)
 - `videoPlayCount` (public plays) correctly used after bug fix in this session
 - Vercel maxDuration bumped to 300s (completed in Plan 01)
+
+### Pending Checkpoint (Plan 03, Task 3)
+Human must set up Meta App and verify OAuth flow end-to-end:
+1. Set INSTAGRAM_APP_ID + INSTAGRAM_APP_SECRET in .env.local
+2. Configure OAuth redirect URI in Meta App Dashboard: http://localhost:3000/api/auth/instagram/callback
+3. Start dev server, run scrape, click "Connect Instagram", verify ?instagram_oauth=success
+4. Re-run scrape, verify Saves card appears
 
 ## Decisions Made
 - Instagram OAuth required during onboarding (not optional, not lazy)
@@ -40,3 +47,14 @@
 - Gap analysis knowledge sources truncated (T1a: 3000, T1b: 3000, T2: 2000 chars) for token budget
 - Gap analysis failure is non-blocking — logs error, returns empty string, scrape continues
 - Gap insights UI extracts from tier3Context by string split on ### Mark's Gap Analysis marker
+- Instagram OAuth routes: GET /api/auth/instagram?userId= (authorize) + GET /api/auth/instagram/callback (token exchange + storage)
+- Graph API Insights: fetches saved + reach per post (NOT impressions — deprecated v22+); matched by timestamp ±60s
+- Token refresh-on-read: tokens > 30 days old are refreshed automatically via ig_refresh_token grant
+- Saves aggregates stored in AccountSummary: totalSaves, avgSavesPerPost, saveRate
+- ArtistAnalyticsPanel: "Connect Instagram" CTA shown when no OAuth; Saves card shown when totalSaves present
+
+## Session Continuity
+
+Last session: 2026-04-03 (scheduled task run)
+Stopped at: Plan 03, Task 3 — human-verify checkpoint (OAuth end-to-end test)
+Resume: When user sets INSTAGRAM_APP_ID + INSTAGRAM_APP_SECRET and tests OAuth flow, confirm checkpoint "approved" to complete Plan 03 and trigger phase verification
