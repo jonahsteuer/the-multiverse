@@ -11,6 +11,11 @@ interface TopPost {
   caption: string;
   durationBucket: string;
   dayOfWeek: string;
+  musicName?: string | null;
+  isOriginalAudio?: boolean | null;
+  isCarousel?: boolean;
+  carouselSlideCount?: number;
+  captionTone?: string;
 }
 
 interface AccountSummary {
@@ -26,6 +31,24 @@ interface AccountSummary {
   captionInsights: string[];
   growthSignal: string;
   scrapedAt: string;
+  audioPatterns?: {
+    totalReelsWithMusic: number;
+    originalAudioCount: number;
+    trendingSoundCount: number;
+    topSounds: { name: string; count: number; avgER: number }[];
+  };
+  hashtagEngagement?: {
+    topHashtags: { tag: string; avgER: number; postCount: number }[];
+    hashtagsUsedCount: number;
+    avgHashtagsPerPost: number;
+  };
+  carouselStats?: {
+    carouselCount: number;
+    avgCarouselER: number;
+    avgSinglePostER: number;
+    avgSlideCount: number;
+    carouselOutperforms: boolean;
+  };
 }
 
 interface AnalyticsData {
@@ -49,6 +72,7 @@ export function ArtistAnalyticsPanel({ userId, isAdmin }: ArtistAnalyticsPanelPr
   const [isScraping, setIsScraping] = useState(false);
   const [error, setError] = useState('');
   const [showTopPosts, setShowTopPosts] = useState(false);
+  const [showGapInsights, setShowGapInsights] = useState(false);
 
   const loadAnalytics = useCallback(async () => {
     if (!userId) return;
@@ -159,7 +183,7 @@ export function ArtistAnalyticsPanel({ userId, isAdmin }: ArtistAnalyticsPanelPr
         </div>
         {isScraping && (
           <p className="text-[11px] text-purple-400 mt-1.5 animate-pulse">
-            Scraping last 50 posts via Apify… this takes ~60s
+            Analyzing last 50 posts via Apify + Claude… this takes ~90-120s
           </p>
         )}
         {error && <p className="text-[11px] text-red-400 mt-1.5">{error}</p>}
@@ -229,6 +253,95 @@ export function ArtistAnalyticsPanel({ userId, isAdmin }: ArtistAnalyticsPanelPr
             </div>
           )}
 
+          {/* Audio Patterns */}
+          {analytics.accountSummary.audioPatterns && analytics.accountSummary.audioPatterns.totalReelsWithMusic > 0 && (
+            <div className="bg-gray-800/50 rounded-lg p-3">
+              <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-2">Audio Patterns</div>
+              <div className="flex gap-3 mb-2">
+                <div className="text-xs text-gray-300">
+                  <span className="text-white font-semibold">{analytics.accountSummary.audioPatterns.originalAudioCount}</span> original
+                </div>
+                <div className="text-xs text-gray-300">
+                  <span className="text-white font-semibold">{analytics.accountSummary.audioPatterns.trendingSoundCount}</span> trending
+                </div>
+              </div>
+              {analytics.accountSummary.audioPatterns.topSounds.length > 0 && (
+                <ul className="space-y-1">
+                  {analytics.accountSummary.audioPatterns.topSounds.slice(0, 3).map((s, i) => (
+                    <li key={i} className="text-[11px] text-gray-400 flex justify-between">
+                      <span className="truncate mr-2">{s.name}</span>
+                      <span className="text-gray-500 flex-shrink-0">{s.count}x · {s.avgER}% ER</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+
+          {/* Hashtag Performance */}
+          {analytics.accountSummary.hashtagEngagement && analytics.accountSummary.hashtagEngagement.topHashtags.length > 0 && (
+            <div className="bg-gray-800/50 rounded-lg p-3">
+              <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-2">Top Hashtags by ER</div>
+              <div className="text-[10px] text-gray-500 mb-2">
+                {analytics.accountSummary.hashtagEngagement.hashtagsUsedCount} unique · avg {analytics.accountSummary.hashtagEngagement.avgHashtagsPerPost}/post
+              </div>
+              <ul className="space-y-1">
+                {analytics.accountSummary.hashtagEngagement.topHashtags.slice(0, 5).map((h, i) => (
+                  <li key={i} className="text-[11px] text-gray-400 flex justify-between">
+                    <span className="text-purple-300">#{h.tag}</span>
+                    <span className="text-gray-500">{h.avgER}% ER ({h.postCount} posts)</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Carousel Stats */}
+          {analytics.accountSummary.carouselStats && analytics.accountSummary.carouselStats.carouselCount > 0 && (
+            <div className="bg-gray-800/50 rounded-lg p-3">
+              <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">Carousel vs Single</div>
+              <div className="flex gap-4 text-xs">
+                <div>
+                  <span className="text-white font-semibold">{analytics.accountSummary.carouselStats.avgCarouselER}%</span>
+                  <span className="text-gray-500 ml-1">carousel ER</span>
+                </div>
+                <div>
+                  <span className="text-white font-semibold">{analytics.accountSummary.carouselStats.avgSinglePostER}%</span>
+                  <span className="text-gray-500 ml-1">single ER</span>
+                </div>
+              </div>
+              <p className={`text-[10px] mt-1 ${analytics.accountSummary.carouselStats.carouselOutperforms ? 'text-green-400' : 'text-gray-500'}`}>
+                {analytics.accountSummary.carouselStats.carouselOutperforms
+                  ? `Carousels outperform — avg ${analytics.accountSummary.carouselStats.avgSlideCount} slides`
+                  : `Singles outperform carousels for this account`}
+              </p>
+            </div>
+          )}
+
+          {/* Gap Analysis Insights (from Claude) */}
+          {analytics.tier3Context && analytics.tier3Context.includes("Mark's Gap Analysis") && (
+            <>
+              <button
+                onClick={() => setShowGapInsights(!showGapInsights)}
+                className="w-full flex items-center justify-between bg-purple-900/20 hover:bg-purple-800/30 border border-purple-500/20 rounded-lg px-3 py-2.5 transition-colors"
+              >
+                <span className="text-xs font-medium text-purple-300">Gap Analysis Insights</span>
+                <span className="text-purple-400 text-xs">{showGapInsights ? '▲' : '▼'}</span>
+              </button>
+              {showGapInsights && (
+                <div className="bg-gray-800/50 rounded-lg p-3 space-y-2">
+                  <div className="text-[11px] text-gray-300 leading-relaxed whitespace-pre-line">
+                    {analytics.tier3Context
+                      .split("### Mark's Gap Analysis")[1]
+                      ?.split('### Guidance for Mark')[0]
+                      ?.trim()
+                      ?? 'Gap analysis not available yet. Re-analyze to generate.'}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+
           {/* Top Posts Toggle */}
           <button
             onClick={() => setShowTopPosts(!showTopPosts)}
@@ -255,9 +368,19 @@ export function ArtistAnalyticsPanel({ userId, isAdmin }: ArtistAnalyticsPanelPr
                   <p className="text-[11px] text-gray-400 leading-relaxed line-clamp-2">
                     {post.caption || '(no caption)'}
                   </p>
-                  <div className="flex gap-2 mt-1.5">
+                  <div className="flex gap-2 mt-1.5 flex-wrap">
                     <span className="text-[10px] px-1.5 py-0.5 bg-gray-700 rounded text-gray-400 capitalize">{post.durationBucket}</span>
                     <span className="text-[10px] px-1.5 py-0.5 bg-gray-700 rounded text-gray-400">{post.dayOfWeek}</span>
+                    {post.musicName && (
+                      <span className="text-[10px] px-1.5 py-0.5 bg-purple-900/30 rounded text-purple-400 truncate max-w-[120px]">
+                        {post.isOriginalAudio ? 'Original' : post.musicName}
+                      </span>
+                    )}
+                    {post.isCarousel && (
+                      <span className="text-[10px] px-1.5 py-0.5 bg-blue-900/30 rounded text-blue-400">
+                        {post.carouselSlideCount} slides
+                      </span>
+                    )}
                   </div>
                 </div>
               ))}
