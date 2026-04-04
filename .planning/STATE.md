@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: Executing Phase 02
-stopped_at: Phase 2 planned and verified — 5 plans across 3 waves, checker passed all dimensions
-last_updated: "2026-04-04T20:17:00.740Z"
+stopped_at: Completed 02-01-PLAN.md — the-multiverse-v2 bootstrapped with Celestial Interface design system, Supabase SSR, shared types
+last_updated: "2026-04-04T20:31:44.189Z"
 progress:
   total_phases: 2
   completed_phases: 1
   total_plans: 8
-  completed_plans: 3
+  completed_plans: 4
 ---
 
 # Project State
@@ -17,11 +17,11 @@ progress:
 ## Current Status
 
 - **Active Milestone:** Milestone 1 — Instagram Analytics Foundation
-- **Active Phase:** Phase 1 — Instagram Analytics Improvements
-- **Phase Status:** Plan 03 partially complete — awaiting human verification of Instagram OAuth flow
-- **Last Completed Plan:** 01-03 tasks 1+2 (OAuth routes created, Graph API Insights integrated)
-- **Next Plan:** 01-03 Task 3 (human-verify checkpoint — needs Meta App credentials + OAuth test)
-- **Last Session:** 2026-04-04T09:34:03.938Z
+- **Active Phase:** Phase 2 — New MVP App Shell
+- **Phase Status:** Plan 01 complete — the-multiverse-v2 repo bootstrapped
+- **Last Completed Plan:** 02-01 (repo bootstrap, design system, Supabase SSR, shared types)
+- **Next Plan:** 02-02 (API layer port)
+- **Last Session:** 2026-04-04T21:00:00Z
 
 ## What Exists Today
 
@@ -73,9 +73,10 @@ Human must set up Meta App and verify OAuth flow end-to-end:
 - Token refresh-on-read: tokens > 30 days old are refreshed automatically via ig_refresh_token grant
 - Saves aggregates stored in AccountSummary: totalSaves, avgSavesPerPost, saveRate
 - ArtistAnalyticsPanel: "Connect Instagram" CTA shown when no OAuth; Saves card shown when totalSaves present
+- [Phase 02-new-mvp-app-shell]: Next.js 16.2.2 uses Turbopack by default — replaced webpack config with turbopack: {} + serverExternalPackages for Three.js
 
 ## Session Continuity
 
 Last session: 2026-04-04
-Stopped at: Phase 2 planned and verified — 5 plans across 3 waves, checker passed all dimensions
-Resume: Run `/gsd:execute-phase 2` to build the-multiverse-v2 repo. Phase 1 Plan 03 checkpoint still pending (needs INSTAGRAM_APP_ID + INSTAGRAM_APP_SECRET to test OAuth flow).
+Stopped at: Completed 02-01-PLAN.md — the-multiverse-v2 bootstrapped with Celestial Interface design system, Supabase SSR, shared types
+Resume: Run `/gsd:execute-phase 2` plan 02 to port the API layer. Phase 1 Plan 03 checkpoint still pending (needs INSTAGRAM_APP_ID + INSTAGRAM_APP_SECRET to test OAuth flow).
