@@ -29,7 +29,9 @@ Plans:
 
 ---
 
-### Phase 2: Simulate Posts (Deferred)
-**Goal:** Allow artists to upload a draft post (video/image/caption) and receive predicted performance feedback from Mark, anchored to their own analytics baseline. Reference: Jens.heitmann's simulate posts implementation.
+### Phase 2: New MVP — App Shell & Foundation
+**Goal:** Create a new repo (the-multiverse-v2) as the Multiverse MVP. Port the core API layer (Mark intelligence stack, Supabase patterns, scrape pipeline, OAuth routes, Edit Feedback, Snapshot Starter) from the current app. Rebuild the full UI from scratch with a new design system (21st.dev, UI UX Pro Max). Deliver: simplified onboarding (Instagram handle → OAuth → scrape → Mark), reimagined galaxy/world view, Mark chat wired to Tier 3 context, Edit Feedback, and Snapshot Starter as the core artist experience.
 
-*Not in current milestone — depends on Phase 1 analytics foundation being stable.*
+**Design-first:** UI is designed via Stitch MCP + mockups before any code is written. Deploy target: themultiverse2.vercel.app
+
+*Active — replaces deferred Simulate Posts. New repo, clean slate UI.*
