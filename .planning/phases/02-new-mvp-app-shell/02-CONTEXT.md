@@ -59,6 +59,15 @@ Create a new repo (`the-multiverse-v2`) as the Multiverse MVP. Design UI first (
   - Supabase client patterns (no module-level instantiation — existing non-negotiable)
 - **D-23:** Do NOT port: any UI components, WorldDetailView, ArtistAnalyticsPanel, SnapshotStarter components, SnapshotCalendar, SnapshotTimeline, any old layout/shell components. Full UI rebuild.
 
+### Snapshot Starter — Reference-URL First Approach
+- **D-22a:** Snapshot Starter in Phase 2 (port only) and Phase 4 (redesign) should be built around a reference-URL gathering flow. Artists browse Instagram/TikTok, paste URLs of content they love as visual/style references. Mark analyzes those reference posts (using the existing edit-feedback scraping capability: Apify + frame extraction) to understand the aesthetic, format, pacing, and audio the artist is aiming for — then uses that as the guide for generating shoot/content ideas.
+- **D-22b:** References come FIRST — before generating any content plan. The artist shows Mark what they're aiming for, then Mark generates ideas in that direction anchored to what's actually achievable based on the artist's own analytics.
+- **D-22c:** This is the key differentiator vs. generic content planning tools: references define the vision, the artist's real data defines what will actually work for their account. Both inputs together produce the plan.
+
+### Edit Feedback — "Always Watching" Direction
+- **D-22d:** Inspired by Jens Heitmann's framing ("studies your channels, audits your posts, improves content automatically") — Edit Feedback should feel like Mark is always paying attention, not a one-time tool. The analytics scrape already runs automatically; Edit Feedback should feel like the natural extension of that ("Mark noticed something about your last post").
+- **D-22e:** In Phase 2, the feature is still manually triggered (paste URL or upload video). But the UX language and framing should feel like an ongoing relationship, not a one-off audit button.
+
 ### Claude's Discretion
 - App router structure, file organization, component naming conventions
 - Whether to use server components vs client components for specific pages
@@ -136,6 +145,15 @@ Create a new repo (`the-multiverse-v2`) as the Multiverse MVP. Design UI first (
 </code_context>
 
 <deferred_ideas>
+## Reference Material
+
+### Jens Heitmann — "Turn Claude Code into your Social Media Manager"
+- URL: https://www.instagram.com/jens.heitmann/reel/DVmw74XEbk7/
+- Caption: "You can make Claude Code your Social Media Manager that studies your channels, audit your posts, and improves your content automatically."
+- 26.9K likes, 438 comments — strong signal that this problem resonates
+- **Key insight:** Jens built this as a raw Claude Code workflow (terminal, prompts). The Multiverse is the polished product version of exactly this — no terminal required, built specifically for independent artists.
+- **Design implication:** The Multiverse's value prop is "Jens's Claude Code workflow, as a beautiful product made for artists who don't know code."
+
 ## Deferred Ideas (Noted, Not In Phase 2)
 
 - **Multi-artist roster management** — Future phase. Architecture is expandable but UI is single-artist for MVP.
