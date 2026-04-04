@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: Executing Phase 02
-stopped_at: Completed 02-03-PLAN.md — Edit Feedback + Snapshot Starter API routes ported to the-multiverse-v2 with Tier 3 context wiring
-last_updated: "2026-04-04T20:40:06.632Z"
+stopped_at: Completed 02-02-PLAN.md — Mark intelligence stack, chat API, scrape pipeline, and OAuth routes ported to the-multiverse-v2
+last_updated: "2026-04-04T20:42:07.485Z"
 progress:
   total_phases: 2
   completed_phases: 1
   total_plans: 8
-  completed_plans: 5
+  completed_plans: 6
 ---
 
 # Project State
@@ -21,7 +21,7 @@ progress:
 - **Phase Status:** Plan 01 complete — the-multiverse-v2 repo bootstrapped
 - **Last Completed Plan:** 02-01 (repo bootstrap, design system, Supabase SSR, shared types)
 - **Next Plan:** 02-02 (API layer port)
-- **Last Session:** 2026-04-04T20:40:06.628Z
+- **Last Session:** 2026-04-04T20:42:00.728Z
 
 ## What Exists Today
 
@@ -77,9 +77,11 @@ Human must set up Meta App and verify OAuth flow end-to-end:
 - [Phase 02-new-mvp-app-shell]: mark-training-rules.ts filesystem logging omitted in v2 — no training log infrastructure; session IDs still returned for UI compatibility
 - [Phase 02-new-mvp-app-shell]: RUFF_MUSIC_KNOWLEDGE inlined in edit-feedback/route.ts — no lib import path in v2
 - [Phase 02-new-mvp-app-shell]: userId passed in request body from client — UI passes authenticated user ID when calling edit-feedback route
+- [Phase 02-new-mvp-app-shell]: mark-knowledge.ts also ported as blocking dependency for mark route's buildMarkSystemPrompt
+- [Phase 02-new-mvp-app-shell]: Dynamic import pattern used for all Supabase createClient calls in v2 API routes — prevents module-level instantiation on Vercel
 
 ## Session Continuity
 
 Last session: 2026-04-04
-Stopped at: Completed 02-03-PLAN.md — Edit Feedback + Snapshot Starter API routes ported to the-multiverse-v2 with Tier 3 context wiring
+Stopped at: Completed 02-02-PLAN.md — Mark intelligence stack, chat API, scrape pipeline, and OAuth routes ported to the-multiverse-v2
 Resume: Run `/gsd:execute-phase 2` plan 02 to port the API layer. Phase 1 Plan 03 checkpoint still pending (needs INSTAGRAM_APP_ID + INSTAGRAM_APP_SECRET to test OAuth flow).
