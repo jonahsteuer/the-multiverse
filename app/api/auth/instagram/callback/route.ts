@@ -26,12 +26,24 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(`${baseUrl}/?instagram_oauth=error&reason=missing_params`);
   }
 
-  // Decode userId from state
+  // Pre-parse returnTo before the main try/catch so error redirects can also use it
+  let earlyReturnTo = '/';
+  try {
+    const sd = JSON.parse(Buffer.from(stateParam, 'base64url').toString());
+    if (sd.returnTo && sd.returnTo.startsWith('/')) earlyReturnTo = sd.returnTo;
+  } catch { /* ignore */ }
+
+  // Decode userId (and optional returnTo) from state
   let userId: string;
+  let returnTo = '/';
   try {
     const stateData = JSON.parse(Buffer.from(stateParam, 'base64url').toString());
     userId = stateData.userId;
     if (!userId) throw new Error('No userId in state');
+    // Validate returnTo is a relative path (no external redirects)
+    if (stateData.returnTo && stateData.returnTo.startsWith('/')) {
+      returnTo = stateData.returnTo;
+    }
   } catch {
     return NextResponse.redirect(`${baseUrl}/?instagram_oauth=error&reason=invalid_state`);
   }
@@ -106,10 +118,10 @@ export async function GET(req: NextRequest) {
       .eq('id', userId);
 
     console.log(`[instagram-callback] OAuth token stored for user ${userId} (IG user ${igUserId})`);
-    return NextResponse.redirect(`${baseUrl}/?instagram_oauth=success`);
+    return NextResponse.redirect(`${baseUrl}${returnTo}${returnTo.includes('?') ? '&' : '?'}instagram_oauth=success`);
 
   } catch (err: any) {
     console.error('[instagram-callback] Error:', err.message);
-    return NextResponse.redirect(`${baseUrl}/?instagram_oauth=error&reason=server_error`);
+    return NextResponse.redirect(`${baseUrl}${earlyReturnTo}${earlyReturnTo.includes('?') ? '&' : '?'}instagram_oauth=error&reason=server_error`);
   }
 }

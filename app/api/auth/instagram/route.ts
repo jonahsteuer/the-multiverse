@@ -22,8 +22,9 @@ export async function GET(req: NextRequest) {
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || req.nextUrl.origin;
   const redirectUri = `${baseUrl}/api/auth/instagram/callback`;
 
-  // Encode userId in state param so callback can associate token with the user
-  const state = Buffer.from(JSON.stringify({ userId })).toString('base64url');
+  // Encode userId (and optional returnTo) in state param
+  const returnTo = req.nextUrl.searchParams.get('returnTo') || '/';
+  const state = Buffer.from(JSON.stringify({ userId, returnTo })).toString('base64url');
 
   const authUrl = new URL('https://api.instagram.com/oauth/authorize');
   authUrl.searchParams.set('client_id', appId);
