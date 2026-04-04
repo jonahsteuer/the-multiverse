@@ -1,7 +1,8 @@
 ---
 phase: 2
 slug: new-mvp-app-shell
-status: draft
+status: approved
+reviewed_at: 2026-04-04
 shadcn_initialized: true
 preset: new-york / slate / css-variables
 created: 2026-04-04
